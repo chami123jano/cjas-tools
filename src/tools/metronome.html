@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metronome — Cja's Tools</title>
+<meta name="description" content="A steady beat for music practice or exercise: any tempo, beats per bar, an accent on the first beat, and tap to set the tempo. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bpm { font-size: 64px; font-weight: 700; text-align: center; letter-spacing: -2px; font-variant-numeric: tabular-nums; line-height: 1; }
+  .bpm small { display: block; font-size: 14px; letter-spacing: 0; font-weight: 500; color: var(--muted); margin-top: 6px; }
+  .beats { display: flex; justify-content: center; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+  .beats i { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--border); transition: background .05s; }
+  .beats i.first { border-color: var(--accent); }
+  .beats i.on { background: var(--accent); border-color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="metronome">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Metronome</h1>
+        <p>A steady beat for practice. Press space to start and stop.</p>
+      </div>
+
+      <div class="panel">
+        <div class="bpm"><span id="bpm-v">100</span><small id="tempo-name">beats a minute &middot; Moderato</small></div>
+        <div class="beats" id="beats"></div>
+        <div class="field">
+          <label for="bpm">Tempo</label>
+          <input type="range" id="bpm" min="30" max="240" value="100">
+        </div>
+        <div class="btns" style="justify-content:center">
+          <button class="btn" data-step="-5">&minus;5</button>
+          <button class="btn" data-step="-1">&minus;1</button>
+          <button class="btn primary" id="go">&#9654; Start</button>
+          <button class="btn" data-step="1">+1</button>
+          <button class="btn" data-step="5">+5</button>
+          <button class="btn" id="tap">Tap</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="per">Beats in a bar</label>
+            <select id="per">
+              <option value="1">1 (no accent)</option>
+              <option value="2">2</option>
+              <option value="3">3 (waltz)</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sound">Sound</label>
+            <select id="sound">
+              <option value="click" selected>Click</option>
+              <option value="beep">Beep</option>
+              <option value="wood">Wood block</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="vol">Volume: <span id="vol-v">70</span>%</label>
+            <input type="range" id="vol" min="5" max="100" value="70">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Tap:</b> press Tap (or the T key) along with a song four or more
+          times and the tempo is set to match.
+          <br><br>
+          <b>The beat stays exact</b> even if the computer is busy: each click is booked a
+          moment ahead on the sound card's own clock rather than timed by the page.
+          <br><br>
+          <b>Practising slowly works.</b> Play a hard passage at a speed where it is clean,
+          then raise the tempo by 5 at a time.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var NAMES = [[40, 'Grave'], [60, 'Largo'], [66, 'Larghetto'], [76, 'Adagio'], [108, 'Andante'],
+                 [120, 'Moderato'], [156, 'Allegro'], [176, 'Vivace'], [200, 'Presto'], [999, 'Prestissimo']];
+    var ctx = null, running = false, next = 0, beat = 0, timer = null, taps = [];
+
+    function el(id) { return document.getElementById(id); }
+    function bpm() { return +el('bpm').value; }
+
+    function show() {
+      el('bpm-v').textContent = bpm();
+      var name = NAMES.filter(function (n) { return bpm() < n[0]; })[0][1];
+      el('tempo-name').textContent = 'beats a minute · ' + name;
+      el('vol-v').textContent = el('vol').value;
+      var per = +el('per').value;
+      if (el('beats').children.length !== per) {
+        el('beats').innerHTML = Array.from({ length: per }, function (_, i) { return '<i' + (i === 0 && per > 1 ? ' class="first"' : '') + '></i>'; }).join('');
+      }
+    }
+    function setBpm(x) { el('bpm').value = Math.max(30, Math.min(240, Math.round(x))); show(); }
+
+    /* One click, booked at time t on the sound card's clock. */
+    function click(t, accent) {
+      var sound = el('sound').value, vol = +el('vol').value / 100;
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      var f = sound === 'beep' ? (accent ? 1320 : 880) : sound === 'wood' ? (accent ? 1100 : 800) : (accent ? 2000 : 1400);
+      o.type = sound === 'beep' ? 'sine' : sound === 'wood' ? 'triangle' : 'square';
+      o.frequency.value = f;
+      var len = sound === 'beep' ? 0.08 : 0.03;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol * (accent ? 0.9 : 0.55)), t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + len + 0.01);
+    }
+
+    /* Every 25 ms, book any clicks due in the next 100 ms. The light for
+       each beat is switched on when its click actually sounds. */
+    function schedule() {
+      var per = +el('per').value;
+      while (next < ctx.currentTime + 0.1) {
+        var b = beat % per;
+        click(next, b === 0 && per > 1);
+        (function (b, when) {
+          setTimeout(function () {
+            if (!running) return;
+            Array.from(el('beats').children).forEach(function (d, i) { d.classList.toggle('on', i === b); });
+          }, Math.max(0, (when - ctx.currentTime) * 1000));
+        })(b, next);
+        next += 60 / bpm();
+        beat++;
+      }
+    }
+
+    function start() {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!ctx) ctx = new AC();
+      if (ctx.state === 'suspended') ctx.resume();
+      running = true; beat = 0; next = ctx.currentTime + 0.06;
+      schedule();
+      timer = setInterval(schedule, 25);
+      el('go').innerHTML = '&#9632; Stop';
+    }
+    function stop() {
+      running = false;
+      clearInterval(timer);
+      Array.from(el('beats').children).forEach(function (d) { d.classList.remove('on'); });
+      el('go').innerHTML = '&#9654; Start';
+    }
+
+    /* Tap tempo: the average gap between the last few taps. */
+    function tap() {
+      var now = performance.now();
+      if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+      taps.push(now);
+      if (taps.length > 6) taps.shift();
+      if (taps.length >= 2) {
+        var gaps = [];
+        for (var i = 1; i < taps.length; i++) gaps.push(taps[i] - taps[i - 1]);
+        setBpm(60000 / (gaps.reduce(function (a, b) { return a + b; }, 0) / gaps.length));
+      }
+    }
+
+    el('go').addEventListener('click', function () { if (running) stop(); else start(); });
+    el('tap').addEventListener('click', tap);
+    el('bpm').addEventListener('input', show);
+    el('vol').addEventListener('input', show);
+    el('per').addEventListener('change', function () { beat = 0; show(); });
+    document.querySelectorAll('[data-step]').forEach(function (b) {
+      b.addEventListener('click', function () { setBpm(bpm() + +b.dataset.step); });
+    });
+    document.addEventListener('keydown', function (e) {
+      if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.type !== 'range') return;
+      if (e.key === ' ') { e.preventDefault(); if (running) stop(); else start(); }
+      else if (e.key === 't' || e.key === 'T') tap();
+    });
+    show();
+  })();
+  </script>
+</body>
+</html>

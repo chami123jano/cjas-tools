@@ -87,6 +87,7 @@ function readWav(b) {
     await page.goto(base + slug + '.html', { waitUntil: 'load' });
     await page.evaluate(() => {
       window.__saved = [];
+      window.CJA_IMG = window.CJA_IMG || {};   // pages that never save do not load it
       window.CJA_IMG.download = function (blob, name) {
         blob.arrayBuffer().then((ab) => {
           const u = new Uint8Array(ab);
@@ -302,6 +303,108 @@ function readWav(b) {
     await wait(300);
     ok(/Stop/.test(await page.$eval('#play', (b) => b.textContent)), 'tone: plays and offers stop');
     await page.click('#play');
+    await page.close();
+  }
+
+  /* Strength of one frequency in part of a WAV (a single Goertzel bin). */
+  function strength(w, hz, fromSec, toSec, c = 0) {
+    const a = Math.round(fromSec * w.rate), b = Math.round(toSec * w.rate);
+    const k = 2 * Math.cos(2 * Math.PI * hz / w.rate);
+    let s1 = 0, s2 = 0;
+    for (let f = a; f < b; f++) { const s0 = w.sample(f, c) + k * s1 - s2; s2 = s1; s1 = s0; }
+    return Math.sqrt(s1 * s1 + s2 * s2 - k * s1 * s2) / (b - a);
+  }
+  /* A mono WAV from a function of time. */
+  function wavOf(file, seconds, fn) {
+    const rate = 44100, n = Math.round(seconds * rate);
+    const buf = Buffer.alloc(44 + n * 2);
+    buf.write('RIFF', 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write('WAVE', 8);
+    buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+    buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34);
+    buf.write('data', 36); buf.writeUInt32LE(n * 2, 40);
+    for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, fn(i / rate))) * 32767), 44 + i * 2);
+    fs.writeFileSync(file, buf);
+    return file;
+  }
+
+  // ---------------------------------------------------------- bass and treble
+  {
+    const page = await open('audio-equalizer');
+    // a "voice" at 1 kHz with 50 Hz mains hum mixed in
+    const hummy = wavOf(path.join(tmp, 'hummy.wav'), 3, (t) => 0.3 * Math.sin(2 * Math.PI * 1000 * t) + 0.2 * Math.sin(2 * Math.PI * 50 * t));
+    await give(page, hummy);
+    await page.select('#hum', '50');
+    await page.click('#save');
+    let s = await saved(page);
+    let w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'hummy-eq.wav', 'eq: saves hummy-eq.wav');
+    if (w) {
+      const hum = strength(w, 50, 0.5, 2.5), voice = strength(w, 1000, 0.5, 2.5);
+      ok(hum < 0.01, 'eq: the 50 Hz hum is taken out', hum.toFixed(4));
+      ok(voice > 0.13, 'eq: the voice is kept', voice.toFixed(4));
+    }
+
+    // more bass: the bass gets stronger compared with the treble
+    const both = wavOf(path.join(tmp, 'both.wav'), 3, (t) => 0.2 * Math.sin(2 * Math.PI * 80 * t) + 0.2 * Math.sin(2 * Math.PI * 8000 * t));
+    await page.evaluate(() => { window.__saved = []; });
+    await give(page, both);
+    await page.select('#hum', '0');
+    await page.click('#presets [data-p="bass"]');
+    ok(await page.$eval('#bass', (e) => e.value) === '8', 'eq: "more bass" sets +8 dB');
+    await page.click('#save');
+    s = await saved(page);
+    w = s[0] && readWav(s[0].bytes);
+    if (w) {
+      const ratio = strength(w, 80, 0.5, 2.5) / strength(w, 8000, 0.5, 2.5);
+      ok(ratio > 2, 'eq: bass now clearly stronger than treble', ratio.toFixed(2));
+      ok(w.peak <= 0.9, 'eq: turned down so it does not crackle', w.peak.toFixed(3));
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- remove silence
+  {
+    const page = await open('remove-silence');
+    // speech-like bursts of tone with two long pauses (3 s and 2 s) and one short one (0.4 s)
+    const plan = [[0, 2, 1], [2, 5, 0], [5, 7, 1], [7, 7.4, 0], [7.4, 9, 1], [9, 11, 0], [11, 12, 1]];
+    const talk = wavOf(path.join(tmp, 'talk.wav'), 12, (t) => {
+      const seg = plan.find((p) => t >= p[0] && t < p[1]);
+      return seg && seg[2] ? 0.3 * Math.sin(2 * Math.PI * 300 * t) : 0;
+    });
+    await give(page, talk);
+    ok(await text(page, 's-cut') === '2', 'silence: finds the two long pauses, not the short one', await text(page, 's-cut'));
+    // 12 s minus (3 - 0.3) minus (2 - 0.3) = 7.6 s
+    ok(await text(page, 's-after') === '0:07.6', 'silence: 12 s becomes 7.6 s', await text(page, 's-after'));
+    await page.click('#save');
+    const s = await saved(page);
+    const w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'talk-tightened.wav' && w && Math.abs(w.seconds - 7.6) < 0.02, 'silence: the saved file is 7.6 s', w && w.seconds);
+    if (w) ok(w.peak > 0.29, 'silence: the talking is untouched', w.peak);
+    await page.select('#min', '2');
+    ok(await text(page, 's-cut') === '2', 'silence: pauses of exactly 2 s still count at "longer than 2"');
+    await setVal(page, 'quiet', '-20');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- metronome
+  {
+    const page = await open('metronome');
+    ok(await page.$$eval('#beats i', (b) => b.length) === 4, 'metronome: four beats shown');
+    await page.select('#per', '3');
+    ok(await page.$$eval('#beats i', (b) => b.length) === 3, 'metronome: three for a waltz');
+    await page.click('[data-step="5"]');
+    ok(await text(page, 'bpm-v') === '105', 'metronome: +5');
+    // tap at 120 beats a minute
+    for (let i = 0; i < 5; i++) { await page.click('#tap'); await wait(500); }
+    const tapped = +(await text(page, 'bpm-v'));
+    ok(Math.abs(tapped - 120) <= 6, 'metronome: tapping every half second sets about 120', tapped);
+    await page.click('#go');
+    await wait(1200);
+    ok(await page.$$eval('#beats i.on', (b) => b.length) === 1, 'metronome: one light on at a time while running');
+    ok(/Stop/.test(await page.$eval('#go', (b) => b.textContent)), 'metronome: running');
+    await page.keyboard.press('Space');
+    await wait(100);
+    ok(/Start/.test(await page.$eval('#go', (b) => b.textContent)), 'metronome: space stops it');
     await page.close();
   }
 

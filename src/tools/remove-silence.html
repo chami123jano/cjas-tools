@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remove Silence — Cja's Tools</title>
+<meta name="description" content="Take the long pauses out of a voice note, lecture or podcast recording, leaving a short natural gap. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #canvas { width: 100%; height: 120px; display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+</style>
+</head>
+<body data-page="tool" data-slug="remove-silence">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Remove Silence</h1>
+        <p>Take the long pauses out of a recording. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a sound file</b>, or drag one here
+          <span>MP3, WAV, M4A, OGG, FLAC &middot; or a video, for its sound</span>
+        </div>
+        <input type="file" id="file" accept="audio/*,video/*" hidden>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <canvas id="canvas"></canvas>
+        <p class="hint">Grey shows what will be taken out.</p>
+        <div class="row">
+          <div class="field">
+            <label for="quiet">Counts as silence when quieter than: <span id="quiet-v">-40</span> dB</label>
+            <input type="range" id="quiet" min="-60" max="-20" step="1" value="-40">
+          </div>
+          <div class="field">
+            <label for="min">Only pauses longer than</label>
+            <select id="min">
+              <option value="0.5">Half a second</option>
+              <option value="1" selected>1 second</option>
+              <option value="2">2 seconds</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="keep">Leave a gap of</label>
+            <select id="keep">
+              <option value="0.1">0.1 seconds (tight)</option>
+              <option value="0.3" selected>0.3 seconds (natural)</option>
+              <option value="0.6">0.6 seconds (relaxed)</option>
+            </select>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><b id="s-before">—</b><span>Before</span></div>
+          <div class="stat"><b id="s-after">—</b><span>After</span></div>
+          <div class="stat"><b id="s-cut">—</b><span>Pauses shortened</span></div>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn" id="play">&#9654; Listen</button>
+          <button class="btn primary" id="save">Save as WAV</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Pauses are shortened, not removed completely,</b> so speech
+          still sounds natural rather than rushed. The ends of each cut are faded over a
+          few thousandths of a second, so there are no clicks.
+          <br><br>
+          <b>If words get cut off,</b> move "counts as silence" to a lower number such as
+          -50 dB. If the background is noisy (a fan, traffic) and nothing is found, move it
+          higher, such as -30 dB.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var buf = null, base = 'audio', stopper = null, levels = null, WIN = 0;
+
+    function v(id) { return +document.getElementById(id).value; }
+
+    /* Loudness of every 10 ms, in dB, across all channels. */
+    function measure() {
+      WIN = Math.round(buf.sampleRate * 0.01);
+      var n = Math.ceil(buf.length / WIN);
+      levels = new Float32Array(n);
+      for (var w = 0; w < n; w++) {
+        var sum = 0, count = 0;
+        for (var c = 0; c < buf.numberOfChannels; c++) {
+          var d = buf.getChannelData(c);
+          for (var i = w * WIN; i < Math.min(d.length, (w + 1) * WIN); i++) { sum += d[i] * d[i]; count++; }
+        }
+        levels[w] = count ? 10 * Math.log10(sum / count + 1e-12) : -120;
+      }
+    }
+
+    /* The parts to keep, as [start, end] sample positions. A pause longer
+       than the minimum is shortened to the gap chosen, split either side. */
+    function plan() {
+      var quiet = v('quiet'), minW = Math.round(v('min') / 0.01), keepW = Math.round(v('keep') / 0.01);
+      var keep = [], start = 0, cut = 0, w = 0;
+      while (w < levels.length) {
+        if (levels[w] < quiet) {
+          var e = w;
+          while (e < levels.length && levels[e] < quiet) e++;
+          if (e - w >= minW) {
+            /* Leading silence at the very start and trailing at the end are
+               removed down to the gap too. */
+            var half = Math.floor(keepW / 2);
+            keep.push([start, (w + half) * WIN]);
+            start = Math.max(0, (e - half) * WIN);
+            cut++;
+          }
+          w = e;
+        } else w++;
+      }
+      keep.push([start, buf.length]);
+      return { keep: keep.filter(function (k) { return k[1] > k[0]; }), cut: cut };
+    }
+
+    function build(p) {
+      var total = p.keep.reduce(function (n, k) { return n + Math.min(k[1], buf.length) - k[0]; }, 0);
+      var out = CJA_AUDIO.create(buf.numberOfChannels, Math.max(1, total), buf.sampleRate);
+      var fade = Math.round(buf.sampleRate * 0.005);
+      for (var c = 0; c < buf.numberOfChannels; c++) {
+        var src = buf.getChannelData(c), dst = out.getChannelData(c), o = 0;
+        p.keep.forEach(function (k) {
+          var a = k[0], b = Math.min(k[1], buf.length), len = b - a;
+          for (var i = 0; i < len; i++) {
+            var g = Math.min(1, i / fade, (len - 1 - i) / fade);
+            dst[o + i] = src[a + i] * (p.keep.length > 1 ? g : 1);
+          }
+          o += len;
+        });
+      }
+      return out;
+    }
+
+    function show() {
+      document.getElementById('quiet-v').textContent = v('quiet');
+      if (!buf) return;
+      var p = plan();
+      var after = p.keep.reduce(function (n, k) { return n + Math.min(k[1], buf.length) - k[0]; }, 0) / buf.sampleRate;
+      document.getElementById('s-before').textContent = CJA_AUDIO.time(buf.duration, true);
+      document.getElementById('s-after').textContent = CJA_AUDIO.time(after, true);
+      document.getElementById('s-cut').textContent = p.cut;
+      /* The waveform, with the parts to go shaded. */
+      var canvas = document.getElementById('canvas');
+      CJA_AUDIO.waveform(canvas, buf);
+      var g = canvas.getContext('2d'), k = canvas.width / buf.length, last = 0;
+      g.fillStyle = 'rgba(128,128,128,0.55)';
+      p.keep.forEach(function (seg) {
+        if (seg[0] > last) g.fillRect(last * k, 0, (seg[0] - last) * k, canvas.height);
+        last = seg[1];
+      });
+      if (last < buf.length) g.fillRect(last * k, 0, (buf.length - last) * k, canvas.height);
+    }
+
+    document.getElementById('quiet').addEventListener('input', show);
+    ['min', 'keep'].forEach(function (id) { document.getElementById(id).addEventListener('change', show); });
+
+    function stopPlaying() {
+      if (stopper) { stopper(); stopper = null; }
+      document.getElementById('play').innerHTML = '&#9654; Listen';
+    }
+    document.getElementById('play').addEventListener('click', function () {
+      if (stopper) { stopPlaying(); return; }
+      stopper = CJA_AUDIO.play(build(plan()), 0, null, stopPlaying);
+      this.innerHTML = '&#9632; Stop';
+    });
+    document.getElementById('save').addEventListener('click', function () {
+      if (!buf) return;
+      CJA_IMG.download(CJA_AUDIO.wav(build(plan())), base + '-tightened.wav');
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      stopPlaying();
+      CJA_AUDIO.decode(f).then(function (b) {
+        buf = b;
+        base = f.name.replace(/\.[^.]+$/, '') || 'audio';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+          CJA_AUDIO.time(b.duration) + ' long &middot; click to choose another</span>';
+        document.getElementById('edit').hidden = false;
+        measure();
+        show();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

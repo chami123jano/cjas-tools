@@ -1107,6 +1107,27 @@ const TOOLS = [
     category: 'audio',
     desc: 'A tone at any pitch, or a sweep, to test speakers, tune or check hearing.',
     keywords: ['tone', 'frequency', 'hz', 'sine wave', 'hearing test', 'speaker test', 'tuning']
+  },
+  {
+    slug: 'audio-equalizer',
+    name: 'Bass and Treble',
+    category: 'audio',
+    desc: 'More bass, clearer voices, or electrical hum taken out.',
+    keywords: ['equalizer', 'equaliser', 'bass boost', 'treble', 'hum', 'noise', 'eq', 'audio']
+  },
+  {
+    slug: 'remove-silence',
+    name: 'Remove Silence',
+    category: 'audio',
+    desc: 'Take the long pauses out of a voice note, lecture or podcast.',
+    keywords: ['silence', 'pauses', 'trim', 'voice note', 'podcast', 'lecture', 'audio']
+  },
+  {
+    slug: 'metronome',
+    name: 'Metronome',
+    category: 'audio',
+    desc: 'A steady beat for practice, with tap tempo and accents.',
+    keywords: ['metronome', 'bpm', 'beat', 'tempo', 'music practice', 'tap tempo']
   }
 ];
 

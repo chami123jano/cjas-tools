@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bass and Treble — Cja's Tools</title>
+<meta name="description" content="Boost or cut the bass and treble of a recording, make voices clearer, and remove electrical hum. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="audio-equalizer">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Bass and Treble</h1>
+        <p>More bass, clearer voices, or a buzzing hum taken out. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a sound file</b>, or drag one here
+          <span>MP3, WAV, M4A, OGG, FLAC &middot; or a video, for its sound</span>
+        </div>
+        <input type="file" id="file" accept="audio/*,video/*" hidden>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <div class="btns" id="presets">
+          <button class="btn" data-p="flat">Unchanged</button>
+          <button class="btn" data-p="bass">More bass</button>
+          <button class="btn" data-p="voice">Clearer voice</button>
+          <button class="btn" data-p="bright">Brighter</button>
+          <button class="btn" data-p="warm">Warmer</button>
+          <button class="btn" data-p="phone">Small speaker</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field"><label for="bass">Bass: <span id="bass-v">0</span> dB</label><input type="range" id="bass" min="-15" max="15" step="1" value="0"></div>
+          <div class="field"><label for="mid">Middle (voices): <span id="mid-v">0</span> dB</label><input type="range" id="mid" min="-15" max="15" step="1" value="0"></div>
+          <div class="field"><label for="treble">Treble: <span id="treble-v">0</span> dB</label><input type="range" id="treble" min="-15" max="15" step="1" value="0"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="hum">Electrical hum</label>
+            <select id="hum">
+              <option value="0" selected>Leave as it is</option>
+              <option value="50">Remove 50 Hz hum (Sri Lanka, India, UK, Europe)</option>
+              <option value="60">Remove 60 Hz hum (USA, Japan)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" id="rumble" style="width:auto;margin-right:7px">
+              Cut low rumble (wind, traffic, desk knocks)
+            </label>
+          </div>
+        </div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn" id="play">&#9654; Listen</button>
+          <button class="btn primary" id="save">Save as WAV</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Bass</b> is the deep sounds under 250 Hz, <b>middle</b> is
+          where voices sit (around 1 to 3 kHz), and <b>treble</b> is the sparkle above
+          about 4 kHz.
+          <br><br>
+          <b>Hum</b> is the low buzz picked up from mains electricity &mdash; from a laptop
+          charger, a fan or a cable near a microphone. It sits at exactly 50 Hz in Sri Lanka
+          (the mains frequency), plus 100, 150 and 200 Hz, and those exact notes are cut
+          very narrowly so the rest of the sound is hardly touched.
+          <br><br>
+          If boosting makes the loudest moments too loud, everything is turned down
+          together just enough to avoid crackling.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var PRESETS = {
+      flat: [0, 0, 0], bass: [8, 0, 1], voice: [-3, 5, 2], bright: [0, 1, 6], warm: [4, -1, -4], phone: [3, 2, -2]
+    };
+    var buf = null, base = 'audio', stopper = null, busy = 0;
+
+    function v(id) { return +document.getElementById(id).value; }
+
+    function labels() {
+      ['bass', 'mid', 'treble'].forEach(function (k) {
+        var x = v(k);
+        document.getElementById(k + '-v').textContent = (x > 0 ? '+' : '') + x;
+      });
+    }
+
+    /* The filters are run over the whole recording by an offline audio
+       engine, which works faster than real time. */
+    function render() {
+      var rate = buf.sampleRate;
+      var off = new OfflineAudioContext(buf.numberOfChannels, buf.length, rate);
+      var src = off.createBufferSource();
+      src.buffer = buf;
+      var chain = [];
+      function add(type, f, gain, q) {
+        var b = off.createBiquadFilter();
+        b.type = type; b.frequency.value = f;
+        if (gain !== undefined) b.gain.value = gain;
+        if (q !== undefined) b.Q.value = q;
+        chain.push(b);
+      }
+      if (document.getElementById('rumble').checked) add('highpass', 80, undefined, 0.707);
+      var hum = v('hum');
+      /* The hum and its first three overtones, each cut very narrowly. */
+      if (hum) [1, 2, 3, 4].forEach(function (k) { add('notch', hum * k, undefined, 30); });
+      add('lowshelf', 200, v('bass'));
+      add('peaking', 2000, v('mid'), 0.8);
+      add('highshelf', 4500, v('treble'));
+      var node = src;
+      chain.forEach(function (b) { node.connect(b); node = b; });
+      node.connect(off.destination);
+      src.start();
+      return off.startRendering().then(function (out) {
+        /* Turned down together only if a boost pushed past the limit. */
+        var peak = CJA_AUDIO.peak(out), limit = Math.pow(10, -1 / 20), lowered = 0;
+        if (peak > limit) {
+          var g = limit / peak;
+          for (var c = 0; c < out.numberOfChannels; c++) {
+            var d = out.getChannelData(c);
+            for (var i = 0; i < d.length; i++) d[i] *= g;
+          }
+          lowered = 20 * Math.log10(g);
+        }
+        return { buf: out, lowered: lowered };
+      });
+    }
+
+    function note(r) {
+      document.getElementById('note').textContent = r.lowered < -0.05
+        ? 'Turned down by ' + Math.abs(r.lowered).toFixed(1) + ' dB overall so the boost does not crackle.' : '';
+    }
+
+    ['bass', 'mid', 'treble'].forEach(function (k) { document.getElementById(k).addEventListener('input', labels); });
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-p]');
+      if (!b) return;
+      var p = PRESETS[b.dataset.p];
+      document.getElementById('bass').value = p[0];
+      document.getElementById('mid').value = p[1];
+      document.getElementById('treble').value = p[2];
+      labels();
+    });
+
+    function stopPlaying() {
+      if (stopper) { stopper(); stopper = null; }
+      document.getElementById('play').innerHTML = '&#9654; Listen';
+    }
+    document.getElementById('play').addEventListener('click', function () {
+      if (stopper) { stopPlaying(); return; }
+      var btn = this, id = ++busy;
+      btn.textContent = 'Working...';
+      render().then(function (r) {
+        if (id !== busy) return;
+        note(r);
+        stopper = CJA_AUDIO.play(r.buf, 0, null, stopPlaying);
+        btn.innerHTML = '&#9632; Stop';
+      });
+    });
+    document.getElementById('save').addEventListener('click', function () {
+      if (!buf) return;
+      var btn = this;
+      btn.disabled = true;
+      render().then(function (r) {
+        note(r);
+        CJA_IMG.download(CJA_AUDIO.wav(r.buf), base + '-eq.wav');
+      }).catch(function (e) { CT.toast(e.message); }).then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      stopPlaying();
+      CJA_AUDIO.decode(f).then(function (b) {
+        buf = b;
+        base = f.name.replace(/\.[^.]+$/, '') || 'audio';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+          CJA_AUDIO.time(b.duration) + ' long &middot; click to choose another</span>';
+        document.getElementById('edit').hidden = false;
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+    labels();
+  })();
+  </script>
+</body>
+</html>
