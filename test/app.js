@@ -55,6 +55,12 @@ function portOpen() {
     for (let i = 0; i < 40 && !(await portOpen()); i++) await wait(250);
     browser = await puppeteer.connect({ browserURL: 'http://127.0.0.1:' + PORT, defaultViewport: null });
     const page = (await browser.pages())[0];
+    /* The app may still be loading its home page when the port opens. */
+    for (let i = 0; i < 20; i++) {
+      const ready = await page.evaluate(() => document.readyState === 'complete' && !!document.querySelector('.hdr')).catch(() => false);
+      if (ready) break;
+      await wait(250);
+    }
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     const root = page.url().replace(/[^/]*$/, '');
@@ -85,6 +91,22 @@ function portOpen() {
     await page.click('#go');
     await page.waitForFunction(() => window.__saved, { timeout: 8000 }).catch(() => {});
     ok(/^four-page-01\.jpg \d+/.test(await page.evaluate(() => window.__saved || '')), 'app: pages become pictures');
+
+    /* Sound: a one-second tone opened in the audio cutter. */
+    const wav = path.join(tmp, 'beep.wav');
+    {
+      const rate = 44100, n = rate, b = Buffer.alloc(44 + n * 2);
+      b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12);
+      b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24);
+      b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+      for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 8000), 44 + i * 2);
+      fs.writeFileSync(wav, b);
+    }
+    await page.goto(root + 'tools/audio-cutter.html');
+    await (await page.$('#file')).uploadFile(wav);
+    const opened = await page.waitForFunction(() => /0:01 long/.test(document.getElementById('drop').textContent), { timeout: 8000 })
+      .then(() => true, () => false);
+    ok(opened, 'app: sound files open in the audio tools');
 
     await page.goto(root + 'tools/image-compress.html');
     ok(!!(await page.$('#drop')), 'app: an image tool opens');
