@@ -7,6 +7,8 @@
    here even when every logic test passes.
 
    Run with: node test/browser.js           (every page)
+         or: CJA_BASE=https://chami123jano.github.io/cjas-tools node test/browser.js
+             (the same check on the live website)
          or: node test/browser.js braille   (just the pages named)
    Screenshots of every tool land in test/screenshots/ for a visual check. */
 
@@ -65,8 +67,9 @@ function slugs() {
 
   if (!fs.existsSync(SHOTS)) fs.mkdirSync(SHOTS);
 
-  const server = await serve();
-  const base = 'http://127.0.0.1:' + server.address().port;
+  /* CJA_BASE checks a website that is already online instead. */
+  const server = process.env.CJA_BASE ? null : await serve();
+  const base = process.env.CJA_BASE ? process.env.CJA_BASE.replace(/\/$/, '') : 'http://127.0.0.1:' + server.address().port;
 
   const browser = await launchEdge();
 
@@ -158,7 +161,7 @@ function slugs() {
   }
 
   await browser.close();
-  server.close();
+  if (server) server.close();
 
   const bad = report.filter((r) => r.problems.length);
   console.log('');

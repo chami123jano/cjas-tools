@@ -129,6 +129,25 @@ function portOpen() {
     await page.goto(root + 'tools/image-compress.html');
     ok(!!(await page.$('#drop')), 'app: an image tool opens');
 
+    /* Every page in the app opens, shows its heading and the menu, and
+       raises no script error. */
+    const reg = {};
+    new Function('window', fs.readFileSync(path.join(__dirname, '..', 'src', 'assets', 'tools.js'), 'utf8'))(reg);
+    const broken = [];
+    for (const t of reg.TOOLS) {
+      const before = errors.length;
+      await page.goto(root + 'tools/' + t.slug + '.html', { waitUntil: 'load' });
+      const shown = await page.evaluate(() => ({
+        h1: (document.querySelector('h1') || {}).textContent || '',
+        menu: !!document.querySelector('.side'),
+        text: (document.querySelector('main') || {}).innerText ? document.querySelector('main').innerText.length : 0
+      }));
+      if (!shown.h1 || !shown.menu || shown.text < 60 || errors.length > before) {
+        broken.push(t.slug + (errors.length > before ? ' (' + errors.slice(before).join('; ') + ')' : ' (' + JSON.stringify(shown) + ')'));
+      }
+    }
+    ok(broken.length === 0, 'app: all ' + reg.TOOLS.length + ' tool pages open inside the app', broken.join(' | '));
+
     ok(errors.length === 0, 'app: no script errors', errors.join(' | '));
   } catch (e) {
     ok(false, 'app: could not drive the app', e.message);

@@ -3090,6 +3090,103 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- password generator
+// Added in the full check after Day 41: the first tools built had no tests of their own.
+
+(function () {
+  const t = loadTool('password-generator');
+  const pw = () => t.byId('out').value;
+  const kinds = (p) => ({ lower: /[a-z]/.test(p), upper: /[A-Z]/.test(p), digit: /[0-9]/.test(p), symbol: /[^A-Za-z0-9]/.test(p) });
+
+  ok(pw().length === 16, 'password: 16 characters to start with', pw());
+  const k = kinds(pw());
+  ok(k.lower && k.upper && k.digit && k.symbol, 'password: every kind of character is in it', pw());
+  has(t.text('strength'), 'Very strong', 'password: 16 of all kinds is very strong');
+  has(t.text('strength'), '103 bits', 'password: 16 x log2(86) = 102.8, shown as 103 bits');
+
+  t.set('len', 32);
+  ok(pw().length === 32 && t.text('len-val') === '32', 'password: the length slider works');
+
+  // every kind is always present, even in many short passwords
+  t.set('len', 4);
+  let allKinds = true;
+  for (let i = 0; i < 300; i++) {
+    t.click('again');
+    const x = kinds(pw());
+    if (!(x.lower && x.upper && x.digit && x.symbol)) { allKinds = false; break; }
+  }
+  ok(allKinds, 'password: 300 four-character passwords each have all four kinds');
+
+  // turning kinds off
+  const btn = (name) => t.$('#sets [data-set="' + name + '"]');
+  btn('symbol').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  btn('upper').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  t.set('len', 20);
+  let onlyLowerDigits = true;
+  for (let i = 0; i < 100; i++) { t.click('again'); if (!/^[a-z0-9]{20}$/.test(pw())) onlyLowerDigits = false; }
+  ok(onlyLowerDigits, 'password: with symbols and capitals off, only small letters and digits');
+
+  // the last kind cannot be switched off
+  btn('digit').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  btn('lower').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(/^[a-z]{20}$/.test(pw()), 'password: the last kind stays on', pw());
+
+  // lookalikes left out
+  ['upper', 'digit', 'symbol'].forEach((n) => btn(n).dispatchEvent(new t.window.MouseEvent('click', { bubbles: true })));
+  t.set('no-ambig', true);
+  let lookalike = false;
+  for (let i = 0; i < 300; i++) { t.click('again'); if (/[0Ol1I]/.test(pw())) lookalike = true; }
+  ok(!lookalike, 'password: no 0, O, l, 1 or I in 300 passwords when asked');
+
+  // no repeats, and every character in the pool turns up
+  t.set('no-ambig', false);
+  t.set('len', 16);
+  const seen = new Set(), chars = new Set();
+  for (let i = 0; i < 2000; i++) { t.click('again'); seen.add(pw()); for (const c of pw()) chars.add(c); }
+  ok(seen.size === 2000, 'password: 2000 passwords, no two the same');
+  ok(chars.size === 86, 'password: all 86 characters get used', chars.size);
+  t.close();
+})();
+
+// ---------------------------------------------------------------- countdown timer and stopwatch
+
+pending.push(async () => {
+  const t = loadTool('countdown-timer');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ok(t.text('timer-clock') === '00:05:00', 'timer: 5 minutes to start with', t.text('timer-clock'));
+  t.$('[data-preset="60"]').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(t.text('timer-clock') === '00:01:00', 'timer: the 1 minute button', t.text('timer-clock'));
+  t.set('h', 1).set('m', 2).set('s', 3);
+  ok(t.text('timer-clock') === '01:02:03', 'timer: typed hours, minutes and seconds', t.text('timer-clock'));
+  t.set('h', 0).set('m', 0).set('s', 3);
+  t.click('t-start');
+  await wait(1300);
+  const shown = t.text('timer-clock');
+  ok(shown === '00:00:02' || shown === '00:00:01', 'timer: counts down in real time', shown);
+  t.click('t-start');   // pause
+  const paused = t.text('timer-clock');
+  await wait(1100);
+  ok(t.text('timer-clock') === paused, 'timer: pausing stops it', paused + ' then ' + t.text('timer-clock'));
+  t.click('t-reset');
+  ok(t.text('timer-clock') === '00:00:03', 'timer: reset goes back to the set time', t.text('timer-clock'));
+
+  t.click('tab-watch');
+  ok(!t.byId('pane-watch').hidden && t.byId('pane-timer').hidden, 'stopwatch: its tab opens');
+  t.click('w-start');
+  await wait(600);
+  t.click('w-lap');
+  await wait(300);
+  t.click('w-lap');
+  const laps = t.document.querySelectorAll('#laps li').length;
+  ok(laps === 2, 'stopwatch: two laps recorded', laps);
+  const w = t.text('watch-clock');
+  const secs = parseFloat(w.split(':')[1]);
+  ok(secs >= 0.8 && secs < 1.5, 'stopwatch: about 0.9 seconds have passed', w);
+  t.click('w-reset');
+  ok(t.text('watch-clock') === '00:00.00' && t.document.querySelectorAll('#laps li').length === 0, 'stopwatch: reset clears it');
+  t.close();
+});
+
 // ---------------------------------------------------------------- report
 
 (async function report() {
