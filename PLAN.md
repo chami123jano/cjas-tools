@@ -64,7 +64,7 @@ grows from ~10 MB to ~45 MB.
 | Day | Date | Task | Done |
 |-----|------|------|:----:|
 | 45 | Wed 23 Dec | Icon, dark mode, About page | [x] |
-| 46 | Sun 27 Dec | Installer, README, screenshots, tool index for search engines | [ ] |
+| 46 | Sun 27 Dec | Installer, README, screenshots, tool index for search engines | [x] |
 | 47 | Tue 29 Dec | Test all 171 tools, fix bugs, **publish v1.0** | [ ] |
 
 Spare catch-up days: Thu 31 Dec, Sat 2 Jan.

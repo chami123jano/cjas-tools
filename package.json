@@ -11,7 +11,8 @@
     "test:pdfs": "node test/pdfs.js",
     "test:app": "node test/app.js",
     "test:audio": "node test/audio.js",
-    "test:video": "node test/video.js"
+    "test:video": "node test/video.js",
+    "pages": "node scripts/pages.js"
   },
   "keywords": [],
   "author": "",

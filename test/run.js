@@ -63,6 +63,27 @@ function has(actual, expected, label) {
   ok(head.includes('href="../assets/icon.svg"') && fs.existsSync(path.join(SRC, 'assets', 'icon.svg')) &&
      fs.existsSync(path.join(SRC, 'assets', 'favicon-32.png')), 'tool pages show the icon in the browser tab');
 
+  /* What search engines and shared links read. */
+  const pg = require('../scripts/pages.js');
+  ok(head.includes('<link rel="canonical" href="https://chami123jano.github.io/cjas-tools/tools/word-counter.html">') &&
+     head.includes('<meta property="og:title" content="Word Counter — Cja\'s Tools">') &&
+     head.includes('<meta property="og:image" content="https://chami123jano.github.io/cjas-tools/assets/social.png">'),
+     'tool pages carry their address, title and picture for search engines and link previews');
+  ok(fs.existsSync(path.join(SRC, 'assets', 'social.png')), 'the link-preview picture exists');
+  const map = fs.readFileSync(path.join(SRC, 'sitemap.xml'), 'utf8');
+  ok((map.match(/<url>/g) || []).length === pg.pages().length && map.includes(pg.SITE + 'tools/screen-recorder.html</loc>'),
+     'the sitemap lists every page', (map.match(/<url>/g) || []).length + ' of ' + pg.pages().length);
+  const home = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
+  const cards = [...home.matchAll(/<a class="card" href="tools\/([a-z0-9-]+)\.html">/g)].map((m) => m[1]);
+  const reg = {}; new Function('window', fs.readFileSync(path.join(SRC, 'assets/tools.js'), 'utf8'))(reg);
+  ok(cards.length === reg.TOOLS.length && cards.every((s) => fs.existsSync(path.join(SRC, 'tools', s + '.html'))),
+     'the home page has a plain link to every tool, even without JavaScript', cards.length);
+  const ld = /<script type="application\/ld\+json">([^<]+)<\/script>/.exec(home);
+  ok(ld && JSON.parse(ld[1]).offers.price === '0', 'the home page describes the app as free for search engines');
+  const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+  const groups = [...readme.matchAll(/^\| \*\*[^*]+\*\* \((\d+)\) \|/gm)].reduce((a, m) => a + +m[1], 0);
+  ok(groups === reg.TOOLS.length, 'the README groups add up to every tool', groups + ' of ' + reg.TOOLS.length);
+
   ok(t.$('.brand-mark').getAttribute('src') === '../assets/icon.svg', 'the header shows the icon');
   const about = t.$('.side a.side-about');
   ok(about && about.getAttribute('href') === '../about.html', 'the sidebar links to About');
