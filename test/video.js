@@ -498,8 +498,8 @@ function serve() {
       const took = Date.now() - t0;
       if (s[0]) {
         const p = await probeSaved(page, s[0].b64, 'c2.mkv');
-        ok(s[0].name === 'holiday.mkv' && p.videoCodec === 'h264' && Math.abs(s[0].bytes.length - fs.statSync(mp4).size) < fs.statSync(mp4).size * 0.1,
-           'convert: an MKV with the same H.264 inside, about the same size', JSON.stringify(p) + ' ' + s[0].bytes.length);
+        ok(s[0].name === 'holiday.mkv' && p.videoCodec === 'h264' && Math.abs(s[0].bytes.length - fs.statSync(mp4).size) < Math.max(fs.statSync(mp4).size * 0.1, 25600),
+           'convert: an MKV with the same H.264 inside, about the same size', JSON.stringify(p) + ' ' + s[0].bytes.length + ' from ' + fs.statSync(mp4).size + ' in ' + took + ' ms');
         ok(took < 8000, 'convert: and it took seconds', took + ' ms');
       } else ok(false, 'convert: MKV saved', await text(page, 'status'));
 

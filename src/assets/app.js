@@ -9,7 +9,7 @@
 
   /* The version of the app and website, shown on the About page. Kept the
      same as src-tauri/tauri.conf.json (the tests check). */
-  window.CJA_VERSION = '0.15.0';
+  window.CJA_VERSION = '1.0.0';
 
   /* ---------- theme ---------- */
 
