@@ -50,6 +50,7 @@
         <div class="btns">
           <button class="btn" id="play">&#9654; Listen</button>
           <button class="btn primary" id="save">Save as WAV</button>
+          <button class="btn" id="save-mp3">Save as MP3 (smaller)</button>
         </div>
       </div>
 
@@ -123,10 +124,12 @@
       stopper = CJA_AUDIO.play(result(), 0, null, stopPlaying);
       this.innerHTML = '&#9632; Stop';
     });
-    document.getElementById('save').addEventListener('click', function () {
-      if (!buf) return;
-      var g = +document.getElementById('gain').value;
-      CJA_IMG.download(CJA_AUDIO.wav(result()), base + (g >= 0 ? '-louder' : '-quieter') + '.wav');
+    ['save', 'save-mp3'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function () {
+        if (!buf) return;
+        var g = +document.getElementById('gain').value;
+        CJA_AUDIO.save(result(), base + (g >= 0 ? '-louder' : '-quieter'), id === 'save-mp3' ? 'mp3' : 'wav', this);
+      });
     });
 
     CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {

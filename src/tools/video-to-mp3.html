@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video to MP3 — Cja's Tools</title>
+<meta name="description" content="Take the sound out of a video as MP3, M4A or WAV, or change any audio file to MP3. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="video-to-mp3">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Video to MP3</h1>
+        <p>The sound from a video, as a music file. Also changes any audio file to MP3. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video or sound file</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP &middot; or M4A, OGG, OPUS, WAV, FLAC</span>
+        </div>
+        <input type="file" id="file" accept="video/*,audio/*,.mkv,.opus,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="format">Save as</label>
+            <select id="format">
+              <option value="mp3" selected>MP3 (plays everywhere)</option>
+              <option value="m4a">M4A / AAC (iPhone, smaller at the same quality)</option>
+              <option value="wav">WAV (no quality lost, large)</option>
+            </select>
+          </div>
+          <div class="field" id="quality-field">
+            <label for="quality">Quality</label>
+            <select id="quality">
+              <option value="96">Voice (96 kbps, small)</option>
+              <option value="128">Good (128 kbps)</option>
+              <option value="192" selected>Very good (192 kbps)</option>
+              <option value="320">Best (320 kbps)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="estimate"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Make the audio file</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The first time,</b> the video engine (about 32 MB) is downloaded
+          and kept by the browser; after that it starts straight away. In the desktop app it
+          is already built in and needs no internet.
+          <br><br>
+          <b>Which quality?</b> 128 kbps is fine for talk and most listening; 192 kbps for
+          music you care about. A higher number than the video's own sound cannot add
+          quality that was not there.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var file = null, bytes = null, info = null, base = 'audio', ext = 'mp4';
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    function estimate() {
+      var fmt = v('format');
+      document.getElementById('quality-field').hidden = fmt === 'wav';
+      if (!info || !isFinite(info.duration)) return;
+      var bytesPerSec = fmt === 'wav' ? 44100 * 4 : +v('quality') * 1000 / 8;
+      document.getElementById('estimate').textContent = 'About ' + CJA_IMG.bytes(Math.round(info.duration * bytesPerSec)) + ' for ' +
+        CJA_AUDIO.time(info.duration) + ' of sound.';
+    }
+    ['format', 'quality'].forEach(function (id) { document.getElementById(id).addEventListener('change', estimate); });
+
+    document.getElementById('go').addEventListener('click', function () {
+      if (!bytes) return;
+      var btn = this, fmt = v('format');
+      btn.disabled = true;
+      var input = 'input.' + ext, out = 'output.' + fmt;
+      var args = ['-hide_banner', '-i', input, '-vn', '-map', '0:a:0'];
+      if (fmt === 'mp3') args.push('-c:a', 'libmp3lame', '-b:a', v('quality') + 'k');
+      else if (fmt === 'm4a') args.push('-c:a', 'aac', '-b:a', v('quality') + 'k');
+      else args.push('-c:a', 'pcm_s16le');
+      args.push(out);
+      bar(0, 'Starting...');
+      CJA_FF.run(args, (function () { var o = {}; o[input] = bytes; return o; })(), out, function (p) {
+        bar(p, 'Converting: ' + Math.round(p * 100) + '%');
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        var type = fmt === 'mp3' ? 'audio/mpeg' : fmt === 'm4a' ? 'audio/mp4' : 'audio/wav';
+        CJA_IMG.download(new Blob([data], { type: type }), base + '.' + fmt);
+      }).catch(function (e) {
+        bar(0, e.message);
+      }).then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      file = files[0];
+      base = file.name.replace(/\.[^.]+$/, '') || 'audio';
+      ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name) || [0, 'mp4'])[1].toLowerCase();
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      document.getElementById('info').textContent = 'Reading the file...';
+      file.arrayBuffer().then(function (ab) {
+        bytes = new Uint8Array(ab);
+        return CJA_FF.load(function (got, total) {
+          document.getElementById('info').textContent = CJA_FF.progressText(got, total);
+        });
+      }).then(function () {
+        return CJA_FF.probe('probe.' + ext, bytes);
+      }).then(function (i) {
+        info = i;
+        if (!i.audio) {
+          document.getElementById('info').textContent = i.video
+            ? 'This video has no sound in it, so there is nothing to take out.'
+            : 'This file could not be read as a video or sound file.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        document.getElementById('info').textContent = (i.video ? 'A video, ' + i.width + ' × ' + i.height + ', ' : 'Sound, ') +
+          CJA_AUDIO.time(i.duration) + ' long.';
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        estimate();
+      }).catch(function (e) {
+        document.getElementById('info').textContent = e.message;
+      });
+    });
+    estimate();
+  })();
+  </script>
+</body>
+</html>

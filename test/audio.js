@@ -11,6 +11,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const puppeteer = require('puppeteer-core');
+const { launchEdge } = require('./edge');
 
 const SRC = path.join(__dirname, '..', 'src');
 const EDGE = [
@@ -74,8 +75,7 @@ function readWav(b) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cja-audio-'));
   const server = await serve();
   const base = 'http://127.0.0.1:' + server.address().port + '/tools/';
-  const browser = await puppeteer.launch({
-    executablePath: EDGE, headless: true,
+  const browser = await launchEdge({
     args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required']
   });
   const errors = [];
@@ -395,7 +395,12 @@ function readWav(b) {
     await page.click('[data-step="5"]');
     ok(await text(page, 'bpm-v') === '105', 'metronome: +5');
     // tap at 120 beats a minute
-    for (let i = 0; i < 5; i++) { await page.click('#tap'); await wait(500); }
+    /* Taps timed inside the page, exactly half a second apart, so the
+       test's own delays do not count. */
+    await page.evaluate(() => new Promise((done) => {
+      let n = 0;
+      const t = setInterval(() => { document.getElementById('tap').click(); if (++n === 5) { clearInterval(t); done(); } }, 500);
+    }));
     const tapped = +(await text(page, 'bpm-v'));
     ok(Math.abs(tapped - 120) <= 6, 'metronome: tapping every half second sets about 120', tapped);
     await page.click('#go');
@@ -405,6 +410,58 @@ function readWav(b) {
     await page.keyboard.press('Space');
     await wait(100);
     ok(/Start/.test(await page.$eval('#go', (b) => b.textContent)), 'metronome: space stops it');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- MP3 saving (needs the sound engine)
+  /* Length of an MP3 as the browser reads it. */
+  async function mp3Seconds(page, bytes) {
+    return page.evaluate((b64) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return new AudioContext().decodeAudioData(u.buffer).then((b) => b.duration, () => -1);
+    }, bytes.toString('base64'));
+  }
+  const isMp3 = (b) => b.slice(0, 3).toString() === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0);
+  {
+    const page = await open('audio-cutter');
+    await give(page, tone);
+    await setVal(page, 'from', '0:01.0');
+    await setVal(page, 'to', '0:03.0');
+    await page.click('#save-mp3');
+    await page.waitForFunction(() => window.__saved.length >= 1, { timeout: 180000 }).catch(() => {});
+    const s = await saved(page);
+    ok(s[0] && s[0].name === 'tone-cut.mp3' && isMp3(s[0].bytes), 'mp3: the cutter saves a real MP3', s[0] && s[0].name);
+    if (s[0]) {
+      const secs = await mp3Seconds(page, s[0].bytes);
+      ok(Math.abs(secs - 2) < 0.1, 'mp3: of the right length', secs);
+      const wavSize = 2 * 44100 * 4;
+      ok(s[0].bytes.length < wavSize / 4, 'mp3: much smaller than the WAV would be', s[0].bytes.length + ' vs ' + wavSize);
+    }
+    ok(await page.$eval('#save-mp3', (b) => !b.disabled && /MP3/.test(b.textContent)), 'mp3: the button is back to normal afterwards');
+    await page.close();
+  }
+  {
+    const page = await open('tone-generator');
+    await page.click('#presets [data-f="1000"]');
+    await setVal(page, 'secs', '3');
+    await page.click('#save-mp3');
+    await page.waitForFunction(() => window.__saved.length >= 1, { timeout: 180000 }).catch(() => {});
+    const s = await saved(page);
+    ok(s[0] && s[0].name === 'tone-1000hz-3s.mp3' && isMp3(s[0].bytes), 'mp3: the tone generator saves MP3', s[0] && s[0].name);
+    if (s[0]) ok(Math.abs(await mp3Seconds(page, s[0].bytes) - 3) < 0.1, 'mp3: a 3 second tone');
+    await page.close();
+  }
+  {
+    const page = await open('audio-joiner');
+    const two = makeWav(path.join(tmp, 'two-b.wav'), 2, 0.25);
+    await (await page.$('#file')).uploadFile(tone, two);
+    await page.waitForFunction(() => document.querySelectorAll('#list .file-row').length === 2, { timeout: 10000 }).catch(() => {});
+    await page.click('#save-mp3');
+    await page.waitForFunction(() => window.__saved.length >= 1, { timeout: 180000 }).catch(() => {});
+    const s = await saved(page);
+    if (s[0]) ok(s[0].name === 'joined.mp3' && Math.abs(await mp3Seconds(page, s[0].bytes) - 8) < 0.15, 'mp3: joined clips as one 8 second MP3', s[0].name);
+    else ok(false, 'mp3: joined MP3 saved');
     await page.close();
   }
 

@@ -1128,6 +1128,27 @@ const TOOLS = [
     category: 'audio',
     desc: 'A steady beat for practice, with tap tempo and accents.',
     keywords: ['metronome', 'bpm', 'beat', 'tempo', 'music practice', 'tap tempo']
+  },
+  {
+    slug: 'video-to-mp3',
+    name: 'Video to MP3',
+    category: 'video',
+    desc: 'The sound from a video as MP3, M4A or WAV. Also turns any audio into MP3.',
+    keywords: ['video to mp3', 'extract audio', 'mp4 to mp3', 'convert to mp3', 'm4a', 'audio converter', 'whatsapp voice note']
+  },
+  {
+    slug: 'trim-video',
+    name: 'Trim Video',
+    category: 'video',
+    desc: 'Keep just the part of a video you want, instantly or exact to the frame.',
+    keywords: ['trim', 'cut video', 'clip', 'shorten', 'video cutter', 'mp4']
+  },
+  {
+    slug: 'compress-video',
+    name: 'Compress Video',
+    category: 'video',
+    desc: 'Make a video smaller to send or upload, as MP4.',
+    keywords: ['compress video', 'reduce size', 'smaller', 'mp4', 'whatsapp', 'email', 'shrink video']
   }
 ];
 

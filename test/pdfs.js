@@ -13,6 +13,7 @@ const os = require('os');
 const http = require('http');
 const zlib = require('zlib');
 const puppeteer = require('puppeteer-core');
+const { launchEdge } = require('./edge');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 
 const SRC = path.join(__dirname, '..', 'src');
@@ -86,7 +87,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cja-pdf-'));
   const server = await serve();
   const base = 'http://127.0.0.1:' + server.address().port + '/tools/';
-  const browser = await puppeteer.launch({ executablePath: EDGE, headless: true });
+  const browser = await launchEdge();
   const errors = [];
 
   const ten = await makePdf(10, path.join(tmp, 'report.pdf'));

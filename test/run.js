@@ -3064,6 +3064,32 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- video engine: reading FFmpeg's description
+// The engine itself is run in a real browser by test/video.js.
+
+(function () {
+  const t = loadTool('trim-video');
+  const FF = t.window.CJA_FF;
+  ok(!!FF, 'video: the engine loader is on the page');
+  ok(/cdn\.jsdelivr\.net\/npm\/@ffmpeg\/core@0\.12\.10\//.test(FF.CDN), 'video: the CDN copy is pinned to an exact version');
+  const phone = [
+    "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'input.mp4':",
+    '  Duration: 00:01:23.45, start: 0.000000, bitrate: 15876 kb/s',
+    '  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709), 1080x1920, 15623 kb/s, 29.97 fps, 30 tbr',
+    '  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 256 kb/s'
+  ].join(String.fromCharCode(10));
+  const i = FF.parse(phone);
+  ok(Math.abs(i.duration - 83.45) < 0.001, 'video: length read', i.duration);
+  ok(i.width === 1080 && i.height === 1920 && i.videoCodec === 'h264', 'video: an upright phone video is 1080 x 1920 H.264', JSON.stringify(i));
+  ok(Math.abs(i.fps - 29.97) < 0.001 && i.audio && i.audioCodec === 'aac', 'video: frame rate and sound read');
+  const silent = FF.parse(['  Duration: 00:00:05.00, start: 0', '  Stream #0:0: Video: vp8, yuv420p, 640x360, 25 fps'].join(String.fromCharCode(10)));
+  ok(silent.video && !silent.audio, 'video: a video with no sound is noticed');
+  const song = FF.parse(['  Duration: 00:03:30.12, start: 0', '  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 320 kb/s'].join(String.fromCharCode(10)));
+  ok(song.audio && !song.video && song.audioCodec === 'mp3', 'video: a song has sound and no picture');
+  ok(isNaN(FF.parse('nonsense').duration), 'video: nothing readable gives no length');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

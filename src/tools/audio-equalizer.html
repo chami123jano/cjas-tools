@@ -63,6 +63,7 @@
         <div class="btns">
           <button class="btn" id="play">&#9654; Listen</button>
           <button class="btn primary" id="save">Save as WAV</button>
+          <button class="btn" id="save-mp3">Save as MP3 (smaller)</button>
         </div>
       </div>
 
@@ -174,14 +175,17 @@
         btn.innerHTML = '&#9632; Stop';
       });
     });
-    document.getElementById('save').addEventListener('click', function () {
-      if (!buf) return;
-      var btn = this;
-      btn.disabled = true;
-      render().then(function (r) {
-        note(r);
-        CJA_IMG.download(CJA_AUDIO.wav(r.buf), base + '-eq.wav');
-      }).catch(function (e) { CT.toast(e.message); }).then(function () { btn.disabled = false; });
+    ['save', 'save-mp3'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function () {
+        if (!buf) return;
+        var btn = this;
+        btn.disabled = true;
+        render().then(function (r) {
+          note(r);
+          btn.disabled = false;
+          return CJA_AUDIO.save(r.buf, base + '-eq', id === 'save-mp3' ? 'mp3' : 'wav', btn);
+        }).catch(function (e) { CT.toast(e.message); btn.disabled = false; });
+      });
     });
 
     CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {

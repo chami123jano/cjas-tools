@@ -23,7 +23,7 @@ Download the latest `.exe` from [Releases](https://github.com/chami123jano/cjas-
 
 In active development. See [PLAN.md](PLAN.md) for the build schedule.
 
-Currently: **158 tools** · target **171 by 29 December 2026**
+Currently: **161 tools** · target **171 by 29 December 2026**
 
 ## Built with
 
@@ -32,4 +32,10 @@ Plain HTML, CSS and JavaScript — no framework. Wrapped as a desktop app with
 
 ## Licence
 
-MIT
+MIT, for the code of this project.
+
+The tools also use free libraries written by others, kept unchanged in
+`src/assets/vendor/` with their own licences: pdf-lib (MIT), PDF.js (Apache 2.0),
+jsQR (Apache 2.0), qrcode-generator (MIT), and FFmpeg for video and sound
+(GPL 2 or later, via ffmpeg.wasm). FFmpeg's source code and the exact build are
+listed in `src/assets/vendor/ffmpeg/THIRD-PARTY.txt`.

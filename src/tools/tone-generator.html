@@ -67,7 +67,8 @@
         <div class="row">
           <div class="field"><label for="secs">Length to save (seconds)</label><input type="number" id="secs" value="5" min="1" max="600" step="1"></div>
         </div>
-        <div class="btns"><button class="btn" id="save">Save this tone as WAV</button></div>
+        <div class="btns"><button class="btn" id="save">Save this tone as WAV</button>
+          <button class="btn" id="save-mp3">Save as MP3</button></div>
       </div>
 
       <div class="panel">
@@ -176,7 +177,7 @@
 
     /* Saving: the same tone calculated directly, with a 10 ms fade at
        each end so the file does not click. */
-    el('save').addEventListener('click', function () {
+    function saveTone(format, button) {
       var secs = Math.max(1, Math.min(600, +el('secs').value || 5));
       var rate = 44100, n = Math.round(secs * rate), data = new Float32Array(n);
       var shape = el('shape').value, amp = +el('vol').value / 100 * 0.5, fade = Math.round(rate * 0.01);
@@ -189,9 +190,17 @@
         var g = Math.min(1, i / fade, (n - 1 - i) / fade);
         data[i] = s * amp * g;
       }
-      CJA_IMG.download(new Blob([CJA_AUDIO.wavBytes([data], rate)], { type: 'audio/wav' }),
-        'tone-' + Math.round(freq) + 'hz-' + secs + 's.wav');
-    });
+      var name = 'tone-' + Math.round(freq) + 'hz-' + secs + 's';
+      if (format === 'wav') {
+        CJA_IMG.download(new Blob([CJA_AUDIO.wavBytes([data], rate)], { type: 'audio/wav' }), name + '.wav');
+        return;
+      }
+      var buf = CJA_AUDIO.create(1, n, rate);
+      buf.getChannelData(0).set(data);
+      CJA_AUDIO.save(buf, name, 'mp3', button);
+    }
+    el('save').addEventListener('click', function () { saveTone('wav', this); });
+    el('save-mp3').addEventListener('click', function () { saveTone('mp3', this); });
 
     show();
   })();

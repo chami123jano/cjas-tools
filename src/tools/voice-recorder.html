@@ -159,14 +159,15 @@
       row.innerHTML = '<b>' + count + '.</b> <span>' + CJA_AUDIO.time(length) + '</span>' +
         '<audio controls src="' + url + '"></audio>' +
         '<button class="btn primary" data-act="wav">Save as WAV</button>' +
+        '<button class="btn" data-act="mp3">Save as MP3</button>' +
         '<button class="btn" data-act="small">Save as ' + ext.toUpperCase() + ' (smaller)</button>';
       row.addEventListener('click', function (e) {
         var b = e.target.closest('[data-act]');
         if (!b) return;
         if (b.dataset.act === 'small') { CJA_IMG.download(blob, name + '.' + ext); return; }
-        /* Turned into WAV by decoding the recording. */
+        /* Turned into WAV or MP3 by decoding the recording first. */
         CJA_AUDIO.decode(blob).then(function (buf) {
-          CJA_IMG.download(CJA_AUDIO.wav(buf), name + '.wav');
+          return CJA_AUDIO.save(buf, name, b.dataset.act, b);
         }).catch(function (err) { CT.toast(err.message); });
       });
       box.insertBefore(row, box.firstChild);

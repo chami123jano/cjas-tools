@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trim Video — Cja's Tools</title>
+<meta name="description" content="Cut a video down to the part you want: instantly with no loss in quality, or exactly to the frame. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #player { width: 100%; max-height: 420px; background: #000; border-radius: var(--radius); display: block; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="trim-video">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Trim Video</h1>
+        <p>Keep just the part of a video you want. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <video id="player" controls playsinline></video>
+        <p class="hint" id="no-preview" hidden>This kind of video cannot be previewed here, but it can still be trimmed: type the times below.</p>
+        <div class="btns" style="margin-top:10px">
+          <button class="btn" id="mark-start">Start here</button>
+          <button class="btn" id="mark-end">End here</button>
+          <button class="btn" id="preview">&#9654; Play the chosen part</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field"><label for="from">From</label><input type="text" id="from" value="0:00.0"></div>
+          <div class="field"><label for="to">To</label><input type="text" id="to"></div>
+          <div class="field">
+            <label for="mode">How</label>
+            <select id="mode">
+              <option value="fast" selected>Fast, no quality lost (cuts at the nearest key frame)</option>
+              <option value="exact">Exact to the frame (slower, makes an MP4)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Trim and save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Fast or exact?</b> Videos are stored as occasional complete
+          pictures ("key frames", usually every 1 to 5 seconds) with only the changes in
+          between. The fast way copies the video as it is, so it takes a second and loses
+          nothing, but it has to start at a key frame &mdash; the clip may begin up to a few
+          seconds early. The exact way rebuilds the video, so it starts precisely where
+          you said, but takes longer.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var bytes = null, info = null, base = 'video', ext = 'mp4', from = 0, to = 0, url = null, stopAt = null;
+    var player = document.getElementById('player');
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+    function show() {
+      document.getElementById('from').value = CJA_AUDIO.time(from, true);
+      document.getElementById('to').value = CJA_AUDIO.time(to, true);
+      document.getElementById('plan').textContent = 'The trimmed video will be ' + CJA_AUDIO.time(to - from, true) + ' long.';
+    }
+
+    ['from', 'to'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        var a = CJA_AUDIO.parseTime(v('from')), b = CJA_AUDIO.parseTime(v('to'));
+        if (isNaN(a) || isNaN(b) || b <= a) { CT.toast('Times are like 1:05.5 - and "to" must be after "from"'); show(); return; }
+        from = Math.max(0, a); to = Math.min(info.duration, b);
+        show();
+      });
+    });
+    document.getElementById('mark-start').addEventListener('click', function () {
+      from = Math.min(player.currentTime, to - 0.1);
+      show();
+    });
+    document.getElementById('mark-end').addEventListener('click', function () {
+      to = Math.max(player.currentTime, from + 0.1);
+      show();
+    });
+    document.getElementById('preview').addEventListener('click', function () {
+      player.currentTime = from;
+      stopAt = to;
+      player.play();
+    });
+    player.addEventListener('timeupdate', function () {
+      if (stopAt !== null && player.currentTime >= stopAt) { player.pause(); stopAt = null; }
+    });
+
+    document.getElementById('go').addEventListener('click', function () {
+      if (!bytes) return;
+      var btn = this, exact = v('mode') === 'exact';
+      var input = 'input.' + ext, outExt = exact ? 'mp4' : ext, out = 'output.' + outExt;
+      /* Seeking before the input is fast; -t then counts from the new start. */
+      var args = ['-hide_banner', '-ss', from.toFixed(3), '-i', input, '-t', (to - from).toFixed(3)];
+      if (exact) {
+        args.push('-map', '0:v:0?', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
+          '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart');
+      } else {
+        args.push('-map', '0', '-c', 'copy', '-avoid_negative_ts', 'make_zero');
+      }
+      args.push(out);
+      btn.disabled = true;
+      bar(0, exact ? 'Rebuilding the video...' : 'Copying...');
+      var started = Date.now();
+      var inputs = {}; inputs[input] = bytes;
+      CJA_FF.run(args, inputs, out, function (p) {
+        var secs = (Date.now() - started) / 1000, left = p > 0.03 ? secs / p - secs : NaN;
+        bar(p, Math.round(p * 100) + '%' + (isFinite(left) && left > 3 ? ', about ' + CJA_AUDIO.time(left) + ' left' : ''));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        var type = outExt === 'webm' ? 'video/webm' : outExt === 'mkv' ? 'video/x-matroska' : outExt === 'mov' ? 'video/quicktime' : 'video/mp4';
+        CJA_IMG.download(new Blob([data], { type: type }), base + '-trimmed.' + outExt);
+      }).catch(function (e) {
+        bar(0, e.message);
+      }).then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0];
+      base = file.name.replace(/\.[^.]+$/, '') || 'video';
+      ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name) || [0, 'mp4'])[1].toLowerCase();
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      player.onerror = function () { document.getElementById('no-preview').hidden = false; };
+      document.getElementById('no-preview').hidden = true;
+      document.getElementById('info').textContent = 'Reading the video...';
+      file.arrayBuffer().then(function (ab) {
+        bytes = new Uint8Array(ab);
+        return CJA_FF.load(function (got, total) {
+          document.getElementById('info').textContent = CJA_FF.progressText(got, total);
+        });
+      }).then(function () {
+        return CJA_FF.probe('probe.' + ext, bytes);
+      }).then(function (i) {
+        info = i;
+        if (!i.video || !isFinite(i.duration)) {
+          document.getElementById('info').textContent = 'This file could not be read as a video.';
+          document.getElementById('edit').hidden = true;
+          return;
+        }
+        document.getElementById('info').textContent = i.width + ' × ' + i.height + ', ' + CJA_AUDIO.time(i.duration) + ' long' +
+          (i.audio ? ', with sound.' : ', no sound.');
+        from = 0; to = i.duration;
+        document.getElementById('edit').hidden = false;
+        document.getElementById('progress').hidden = true;
+        show();
+      }).catch(function (e) {
+        document.getElementById('info').textContent = e.message;
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

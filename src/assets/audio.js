@@ -5,6 +5,7 @@
    The WAV writer and the time formatting are plain functions so they can
    be tested without a browser. */
 (function () {
+  var here = document.currentScript && document.currentScript.src;
   var ctx = null;
   function context() {
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -157,6 +158,52 @@
         input.value = '';
       });
     }
+  };
+
+  /* MP3 is made by the video engine, which is loaded only the first
+     time someone saves as MP3 (see ffmpeg.js). */
+  function engine() {
+    if (window.CJA_FF) return Promise.resolve(window.CJA_FF);
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = here ? new URL('ffmpeg.js', here).href : '../assets/ffmpeg.js';
+      s.onload = function () { resolve(window.CJA_FF); };
+      s.onerror = function () { reject(new Error('The MP3 maker could not be started.')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* An AudioBuffer as an MP3 file (a Blob). kbps: 128, 192 or 320. */
+  AUDIO.mp3 = function (buf, kbps, onProgress) {
+    return engine().then(function (FF) {
+      return FF.load(onProgress).then(function () {
+        var wav = new Uint8Array(0);
+        return AUDIO.wav(buf).arrayBuffer().then(function (ab) {
+          wav = new Uint8Array(ab);
+          return FF.run(['-hide_banner', '-i', 'in.wav', '-c:a', 'libmp3lame', '-b:a', (kbps || 192) + 'k', 'out.mp3'],
+            { 'in.wav': wav }, 'out.mp3');
+        });
+      });
+    }).then(function (data) {
+      return new Blob([data], { type: 'audio/mpeg' });
+    });
+  };
+
+  /* Saves a buffer as WAV or MP3, telling the person while an MP3 is made.
+     `button` is disabled and relabelled while it works. */
+  AUDIO.save = function (buf, name, format, button) {
+    if (format !== 'mp3') { CJA_IMG.download(AUDIO.wav(buf), name + '.wav'); return Promise.resolve(); }
+    var label = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = 'Making the MP3...'; }
+    return AUDIO.mp3(buf, 192, function (got, total) {
+      if (button) button.textContent = 'Getting ready: ' + Math.round(got / total * 100) + '%';
+    }).then(function (blob) {
+      CJA_IMG.download(blob, name + '.mp3');
+    }).catch(function (e) {
+      CT.toast(e.message);
+    }).then(function () {
+      if (button) { button.disabled = false; button.textContent = label; }
+    });
   };
 
   window.CJA_AUDIO = AUDIO;

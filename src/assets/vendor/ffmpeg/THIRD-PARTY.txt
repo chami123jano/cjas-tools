@@ -1,0 +1,33 @@
+The video and audio engine used by Cja's Tools
+==============================================
+
+The files in this folder are not written by the Cja's Tools project. They are
+FFmpeg, built to run inside a web browser by the ffmpeg.wasm project, and
+included unchanged.
+
+  ffmpeg.js, 814.ffmpeg.js
+      @ffmpeg/ffmpeg 0.12.15 - MIT License
+      https://github.com/ffmpegwasm/ffmpeg.wasm (packages/ffmpeg)
+
+  ffmpeg-core.js, ffmpeg-core.wasm
+      @ffmpeg/core 0.12.10 - GNU General Public License, version 2 or later
+      FFmpeg (https://ffmpeg.org) built with --enable-gpl and these libraries:
+      libx264, libx265, libmp3lame, libvpx, libopus, libvorbis, libtheora,
+      libwebp, libass, freetype, fribidi, zimg, zlib.
+
+Source code
+-----------
+
+The GPL gives everyone the right to the source code of these files. The
+complete source, and the build scripts that turn it into these exact files,
+are published by the ffmpeg.wasm project:
+
+  https://github.com/ffmpegwasm/ffmpeg.wasm/tree/v0.12.10
+  https://github.com/ffmpegwasm/ffmpeg.wasm/releases/tag/v0.12.10
+
+and the FFmpeg source itself at https://ffmpeg.org/download.html
+
+The rest of Cja's Tools is MIT-licensed. The engine runs as a separate
+program inside the app, started only by the video and audio tools.
+
+GNU General Public License, version 2: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html

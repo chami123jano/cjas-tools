@@ -49,6 +49,7 @@
         <div class="btns">
           <button class="btn" id="play">&#9654; Listen</button>
           <button class="btn primary" id="save">Join and save as WAV</button>
+          <button class="btn" id="save-mp3">Join and save as MP3</button>
         </div>
       </div>
 
@@ -100,7 +101,7 @@
       document.getElementById('plan').textContent = clips.length < 2
         ? 'Add at least one more clip to join.'
         : clips.length + ' clips, ' + CJA_AUDIO.time(total, true) + ' in all.';
-      document.getElementById('save').disabled = clips.length < 2;
+      document.getElementById('save').disabled = document.getElementById('save-mp3').disabled = clips.length < 2;
     }
 
     /* Builds the joined sound. Each clip is laid down at its start time;
@@ -154,9 +155,11 @@
       stopper = CJA_AUDIO.play(joined(), 0, null, stopPlaying);
       this.innerHTML = '&#9632; Stop';
     });
-    document.getElementById('save').addEventListener('click', function () {
-      if (clips.length < 2) return;
-      CJA_IMG.download(CJA_AUDIO.wav(joined()), 'joined.wav');
+    ['save', 'save-mp3'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function () {
+        if (clips.length < 2) return;
+        CJA_AUDIO.save(joined(), 'joined', id === 'save-mp3' ? 'mp3' : 'wav', this);
+      });
     });
 
     CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {

@@ -108,6 +108,24 @@ function portOpen() {
       .then(() => true, () => false);
     ok(opened, 'app: sound files open in the audio tools');
 
+    /* The video engine, from the app's own copy (no internet needed):
+       the same WAV turned into an MP3. */
+    await page.goto(root + 'tools/video-to-mp3.html');
+    let fromCdn = 0;
+    page.on('request', (r) => { if (/jsdelivr/.test(r.url())) fromCdn++; });
+    await (await page.$('#file')).uploadFile(wav);
+    const engineReady = await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 60000 })
+      .then(() => true, () => false);
+    ok(engineReady, 'app: the video engine starts inside the app', await page.$eval('#info', (e) => e.textContent).catch(() => ''));
+    ok(fromCdn === 0, 'app: and uses its own copy, not the internet', fromCdn + ' requests to the CDN');
+    if (engineReady) {
+      await capture();
+      await page.click('#go');
+      await page.waitForFunction(() => window.__saved, { timeout: 60000 }).catch(() => {});
+      ok(/^beep\.mp3 \d+/.test(await page.evaluate(() => window.__saved || '')), 'app: and makes an MP3',
+         await page.evaluate(() => window.__saved || document.getElementById('status').textContent));
+    }
+
     await page.goto(root + 'tools/image-compress.html');
     ok(!!(await page.$('#drop')), 'app: an image tool opens');
 

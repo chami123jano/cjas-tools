@@ -9,6 +9,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const puppeteer = require('puppeteer-core');
+const { launchEdge } = require('./edge');
 
 const SRC = path.join(__dirname, '..', 'src');
 const EDGE = [
@@ -114,7 +115,7 @@ async function saved(page, n = 1) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cja-img-'));
   const server = await serve();
   const base = 'http://127.0.0.1:' + server.address().port + '/tools/';
-  const browser = await puppeteer.launch({ executablePath: EDGE, headless: true });
+  const browser = await launchEdge();
 
   const errors = [];
   async function open(slug) {
@@ -141,6 +142,8 @@ async function saved(page, n = 1) {
   {
     const page = await open('image-compress');
     await give(page, photo);
+    /* Finding the best quality under the limit takes several tries. */
+    await page.waitForFunction(() => document.getElementById('s-after').textContent !== '—', { timeout: 20000 }).catch(() => {});
     const after = await text(page, 's-after');
     const kb = parseFloat(after) * (/MB/.test(after) ? 1024 : 1);
     ok(/KB/.test(after) && kb <= 200, 'compress: a 2400px picture comes out under the 200 KB limit', 'got ' + after);

@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const puppeteer = require('puppeteer-core');
+const { launchEdge } = require('./edge');
 
 const SRC = path.join(__dirname, '..', 'src');
 const SHOTS = path.join(__dirname, 'screenshots');
@@ -67,11 +68,7 @@ function slugs() {
   const server = await serve();
   const base = 'http://127.0.0.1:' + server.address().port;
 
-  const browser = await puppeteer.launch({
-    executablePath: edge,
-    headless: true,
-    args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions']
-  });
+  const browser = await launchEdge();
 
   /* node test/browser.js braille pig-latin  - checks only those pages. */
   const only = process.argv.slice(2);
