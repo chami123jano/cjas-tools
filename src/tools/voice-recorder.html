@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Recorder — Cja's Tools</title>
+<meta name="description" content="Record your voice from the microphone, listen back and save it. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .rec-time { font-size: 46px; font-weight: 650; letter-spacing: -1px; font-variant-numeric: tabular-nums; text-align: center; }
+  .meter { height: 14px; border-radius: 7px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #27b86a, #f2c94c 70%, #e5484d); transition: width .05s; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #e5484d; margin-right: 6px; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .take { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .take audio { flex: 1; min-width: 220px; }
+</style>
+</head>
+<body data-page="tool" data-slug="voice-recorder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Voice Recorder</h1>
+        <p>Record from the microphone, listen back, and save. Recordings stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="rec-time" id="clock">0:00</div>
+        <div class="meter" style="margin:12px 0"><i id="level"></i></div>
+        <p class="hint" id="state" style="text-align:center">Press record. Your browser will ask to use the microphone the first time.</p>
+        <div class="btns" style="justify-content:center">
+          <button class="btn primary" id="rec">&#9679; Record</button>
+          <button class="btn" id="pause" disabled>Pause</button>
+          <button class="btn" id="stop" disabled>&#9632; Stop</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:6px">Recordings</label>
+        <div id="takes"><p class="hint" style="margin:0">None yet.</p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Two ways to save:</b> WAV plays everywhere and keeps every
+          detail, but a minute is about 5 MB. WebM is about a twentieth of the size,
+          plays in browsers, VLC and WhatsApp Web, but not in every older program.
+          <br><br>
+          <b>Recordings are not kept</b> after you close the page, so save the ones you
+          want. Nothing is sent anywhere.
+          <br><br>
+          <b>For clearer sound,</b> keep the microphone about a hand's width from your
+          mouth and record in a room with soft things in it &mdash; curtains, a bed, a sofa.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var stream = null, recorder = null, chunks = [], started = 0, pausedFor = 0, pausedAt = 0;
+    var meterCtx = null, analyser = null, raf = null, tick = null, count = 0;
+
+    function el(id) { return document.getElementById(id); }
+
+    function elapsed() {
+      if (!started) return 0;
+      var now = recorder && recorder.state === 'paused' ? pausedAt : Date.now();
+      return (now - started - pausedFor) / 1000;
+    }
+
+    function meter() {
+      if (!analyser) return;
+      var d = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(d);
+      var peak = 0;
+      for (var i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i] - 128));
+      el('level').style.width = Math.min(100, peak / 128 * 140) + '%';
+      raf = requestAnimationFrame(meter);
+    }
+
+    function buttons(state) {
+      el('rec').disabled = state !== 'idle';
+      el('pause').disabled = state === 'idle';
+      el('stop').disabled = state === 'idle';
+      el('pause').textContent = state === 'paused' ? 'Carry on' : 'Pause';
+    }
+
+    function start() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        CT.toast('This browser cannot record sound.');
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then(function (s) {
+        stream = s;
+        chunks = [];
+        var type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'].filter(function (t) {
+          return MediaRecorder.isTypeSupported(t);
+        })[0];
+        recorder = new MediaRecorder(s, type ? { mimeType: type } : undefined);
+        recorder.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+        recorder.onstop = finish;
+        recorder.start(250);
+        started = Date.now(); pausedFor = 0;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        meterCtx = new AC();
+        analyser = meterCtx.createAnalyser();
+        analyser.fftSize = 1024;
+        meterCtx.createMediaStreamSource(s).connect(analyser);
+        meter();
+        tick = setInterval(function () { el('clock').textContent = CJA_AUDIO.time(elapsed()); }, 200);
+        el('state').innerHTML = '<span class="dot"></span>Recording';
+        buttons('recording');
+      }).catch(function (e) {
+        el('state').textContent = e && e.name === 'NotAllowedError'
+          ? 'The microphone was not allowed. Click the lock or camera sign by the address bar to allow it, then try again.'
+          : e && e.name === 'NotFoundError' ? 'No microphone was found. Plug one in, or check it is switched on.'
+          : 'The microphone could not be started: ' + (e && e.message);
+      });
+    }
+
+    function cleanUp() {
+      clearInterval(tick);
+      cancelAnimationFrame(raf);
+      el('level').style.width = '0';
+      if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+      if (meterCtx) meterCtx.close();
+      stream = null; analyser = null; meterCtx = null;
+    }
+
+    function finish() {
+      var length = elapsed();
+      cleanUp();
+      started = 0;
+      buttons('idle');
+      el('state').textContent = 'Saved below. Press record for another.';
+      el('clock').textContent = '0:00';
+      var blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      addTake(blob, length);
+    }
+
+    function addTake(blob, length) {
+      count++;
+      var box = el('takes');
+      if (count === 1) box.innerHTML = '';
+      var row = document.createElement('div');
+      row.className = 'take';
+      var url = URL.createObjectURL(blob);
+      var name = 'recording-' + count;
+      var ext = /ogg/.test(blob.type) ? 'ogg' : /mp4/.test(blob.type) ? 'm4a' : 'webm';
+      row.innerHTML = '<b>' + count + '.</b> <span>' + CJA_AUDIO.time(length) + '</span>' +
+        '<audio controls src="' + url + '"></audio>' +
+        '<button class="btn primary" data-act="wav">Save as WAV</button>' +
+        '<button class="btn" data-act="small">Save as ' + ext.toUpperCase() + ' (smaller)</button>';
+      row.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-act]');
+        if (!b) return;
+        if (b.dataset.act === 'small') { CJA_IMG.download(blob, name + '.' + ext); return; }
+        /* Turned into WAV by decoding the recording. */
+        CJA_AUDIO.decode(blob).then(function (buf) {
+          CJA_IMG.download(CJA_AUDIO.wav(buf), name + '.wav');
+        }).catch(function (err) { CT.toast(err.message); });
+      });
+      box.insertBefore(row, box.firstChild);
+    }
+
+    el('rec').addEventListener('click', start);
+    el('pause').addEventListener('click', function () {
+      if (!recorder) return;
+      if (recorder.state === 'recording') {
+        recorder.pause(); pausedAt = Date.now();
+        el('state').textContent = 'Paused';
+        buttons('paused');
+      } else if (recorder.state === 'paused') {
+        recorder.resume(); pausedFor += Date.now() - pausedAt;
+        el('state').innerHTML = '<span class="dot"></span>Recording';
+        buttons('recording');
+      }
+    });
+    el('stop').addEventListener('click', function () {
+      if (recorder && recorder.state !== 'inactive') {
+        if (recorder.state === 'paused') pausedFor += Date.now() - pausedAt;
+        recorder.stop();
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

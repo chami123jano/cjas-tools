@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audio Cutter — Cja's Tools</title>
+<meta name="description" content="Cut a song or recording down to the part you want, or cut a part out, with fade in and fade out. Makes ringtones too. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .wave { position: relative; height: 140px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); touch-action: none; cursor: crosshair; user-select: none; }
+  .wave canvas { width: 100%; height: 100%; display: block; }
+  .sel { position: absolute; top: 0; bottom: 0; background: rgba(79,124,255,.18); border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); pointer-events: none; }
+  .head { position: absolute; top: 0; bottom: 0; width: 2px; background: #ff3b30; pointer-events: none; }
+</style>
+</head>
+<body data-page="tool" data-slug="audio-cutter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Audio Cutter</h1>
+        <p>Keep just the part you want, or cut a part out. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a sound file</b>, or drag one here
+          <span>MP3, WAV, M4A, OGG, FLAC &middot; or a video, for its sound</span>
+        </div>
+        <input type="file" id="file" accept="audio/*,video/*" hidden>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <div class="wave" id="wave"><canvas id="canvas"></canvas><div class="sel" id="sel"></div><div class="head" id="head" hidden></div></div>
+        <p class="hint">Drag across the waveform to choose a part.</p>
+        <div class="row">
+          <div class="field"><label for="from">From</label><input type="text" id="from" value="0:00.0"></div>
+          <div class="field"><label for="to">To</label><input type="text" id="to"></div>
+          <div class="field">
+            <label for="mode">Keep</label>
+            <select id="mode">
+              <option value="keep" selected>Only the chosen part</option>
+              <option value="remove">Everything except the chosen part</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="fadein">Fade in (seconds)</label><input type="number" id="fadein" value="0" min="0" max="30" step="0.5"></div>
+          <div class="field"><label for="fadeout">Fade out (seconds)</label><input type="number" id="fadeout" value="0" min="0" max="30" step="0.5"></div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn" id="play">&#9654; Play the result</button>
+          <button class="btn primary" id="save">Save as WAV</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>For a ringtone,</b> choose about 30 seconds and add a 1 or 2
+          second fade at each end so it starts and stops gently.
+          <br><br>
+          <b>The result is saved as WAV,</b> which every phone and computer plays and
+          which loses no quality. It is larger than MP3; MP3 saving arrives with the
+          video tools.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var buf = null, base = 'audio', from = 0, to = 0, stopper = null, timer = null;
+    var wave = document.getElementById('wave');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function showSel() {
+      var d = buf.duration;
+      var sel = document.getElementById('sel');
+      sel.style.left = (from / d * 100) + '%';
+      sel.style.width = ((to - from) / d * 100) + '%';
+      document.getElementById('from').value = CJA_AUDIO.time(from, true);
+      document.getElementById('to').value = CJA_AUDIO.time(to, true);
+      var len = v('mode') === 'keep' ? to - from : d - (to - from);
+      document.getElementById('plan').textContent = 'The result will be ' + CJA_AUDIO.time(len, true) + ' long.';
+    }
+
+    /* The finished sound: the chosen part, or everything around it, with
+       fades shaped as a gentle curve rather than a straight line. */
+    function result() {
+      var r = v('mode') === 'keep' ? CJA_AUDIO.slice(buf, from, to) : join(CJA_AUDIO.slice(buf, 0, from), CJA_AUDIO.slice(buf, to, buf.duration));
+      var fin = Math.min(+v('fadein') || 0, r.duration / 2), fout = Math.min(+v('fadeout') || 0, r.duration / 2);
+      var rate = r.sampleRate;
+      for (var c = 0; c < r.numberOfChannels; c++) {
+        var d = r.getChannelData(c);
+        var a = Math.floor(fin * rate), b = Math.floor(fout * rate);
+        for (var i = 0; i < a; i++) d[i] *= Math.pow(i / a, 2);
+        for (var k = 0; k < b; k++) d[d.length - 1 - k] *= Math.pow(k / b, 2);
+      }
+      return r;
+    }
+
+    function join(a, b) {
+      var out = CJA_AUDIO.create(a.numberOfChannels, a.length + b.length, a.sampleRate);
+      for (var c = 0; c < a.numberOfChannels; c++) {
+        out.getChannelData(c).set(a.getChannelData(c), 0);
+        out.getChannelData(c).set(b.getChannelData(c), a.length);
+      }
+      return out;
+    }
+
+    /* Dragging across the waveform chooses the part. */
+    var dragStart = null;
+    function at(e) {
+      var r = wave.getBoundingClientRect();
+      return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * buf.duration;
+    }
+    wave.addEventListener('pointerdown', function (e) {
+      if (!buf) return;
+      wave.setPointerCapture(e.pointerId);
+      dragStart = at(e);
+    });
+    wave.addEventListener('pointermove', function (e) {
+      if (dragStart === null) return;
+      var t = at(e);
+      from = Math.min(dragStart, t); to = Math.max(dragStart, t);
+      showSel();
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      wave.addEventListener(ev, function () {
+        if (dragStart !== null && to - from < 0.05) { from = 0; to = buf.duration; showSel(); }
+        dragStart = null;
+      });
+    });
+
+    ['from', 'to'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        var a = CJA_AUDIO.parseTime(v('from')), b = CJA_AUDIO.parseTime(v('to'));
+        if (isNaN(a) || isNaN(b) || b <= a) { CT.toast('Times are like 1:05.5 - and "to" must be after "from"'); showSel(); return; }
+        from = Math.max(0, a); to = Math.min(buf.duration, b);
+        showSel();
+      });
+    });
+    document.getElementById('mode').addEventListener('change', showSel);
+
+    function stopPlaying() {
+      if (stopper) { stopper(); stopper = null; }
+      clearInterval(timer);
+      document.getElementById('head').hidden = true;
+      document.getElementById('play').innerHTML = '&#9654; Play the result';
+    }
+    document.getElementById('play').addEventListener('click', function () {
+      if (stopper) { stopPlaying(); return; }
+      var r = result();
+      stopper = CJA_AUDIO.play(r, 0, null, stopPlaying);
+      this.innerHTML = '&#9632; Stop';
+      /* The red line follows along, when playing the chosen part itself. */
+      if (v('mode') === 'keep') {
+        var head = document.getElementById('head');
+        head.hidden = false;
+        timer = setInterval(function () {
+          if (!stopper) return;
+          head.style.left = ((from + stopper.position()) / buf.duration * 100) + '%';
+        }, 50);
+      }
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!buf) return;
+      CJA_IMG.download(CJA_AUDIO.wav(result()), base + '-cut.wav');
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      stopPlaying();
+      document.getElementById('drop').innerHTML = '<b>Opening ' + CJA_IMG.escape(f.name) + '...</b>';
+      CJA_AUDIO.decode(f).then(function (b) {
+        buf = b; from = 0; to = b.duration;
+        base = f.name.replace(/\.[^.]+$/, '') || 'audio';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+          CJA_AUDIO.time(b.duration) + ' long, ' + (b.numberOfChannels > 1 ? 'stereo' : 'mono') + ' &middot; click to choose another</span>';
+        document.getElementById('edit').hidden = false;
+        CJA_AUDIO.waveform(document.getElementById('canvas'), b);
+        showSel();
+      }).catch(function (e) {
+        document.getElementById('drop').innerHTML = '<b>Choose a sound file</b>, or drag one here<span>MP3, WAV, M4A, OGG, FLAC</span>';
+        CT.toast(e.message);
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1065,6 +1065,27 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Type on any PDF and tick boxes on printed forms, in English, Sinhala or Tamil.',
     keywords: ['add text', 'type on pdf', 'write on pdf', 'tick', 'annotate', 'sinhala', 'tamil', 'edit pdf']
+  },
+  {
+    slug: 'audio-cutter',
+    name: 'Audio Cutter',
+    category: 'audio',
+    desc: 'Keep just the part of a song or recording you want, or cut a part out.',
+    keywords: ['cut', 'trim', 'mp3 cutter', 'ringtone', 'fade', 'audio', 'song']
+  },
+  {
+    slug: 'voice-recorder',
+    name: 'Voice Recorder',
+    category: 'audio',
+    desc: 'Record from the microphone, listen back and save.',
+    keywords: ['record', 'voice', 'microphone', 'mic', 'dictaphone', 'audio', 'voice note']
+  },
+  {
+    slug: 'audio-volume',
+    name: 'Volume Changer',
+    category: 'audio',
+    desc: 'Make a recording louder or quieter, without crackling.',
+    keywords: ['volume', 'louder', 'quieter', 'boost', 'normalize', 'gain', 'audio']
   }
 ];
 

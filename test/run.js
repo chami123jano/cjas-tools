@@ -3040,6 +3040,30 @@ pending.push(function currencyLive() {
   ok(bad.length === 0, 'the script inside every tool page parses', bad.join('; '));
 })();
 
+// ---------------------------------------------------------------- audio helpers
+// The sound itself is cut, recorded and saved in a real browser by test/audio.js.
+
+(function () {
+  const t = loadTool('audio-cutter');
+  const A = t.window.CJA_AUDIO;
+  ok(!!A, 'audio: the helper loads');
+  ok(A.time(75.5, true) === '1:15.5' && A.time(5) === '0:05' && A.time(3725) === '1:02:05', 'audio: times are written out',
+     [A.time(75.5, true), A.time(5), A.time(3725)].join(' '));
+  ok(A.parseTime('1:15.5') === 75.5 && A.parseTime('75.5') === 75.5 && A.parseTime('1:02:05') === 3725, 'audio: times are read back');
+  ok(isNaN(A.parseTime('abc')) && isNaN(A.parseTime('1:2:3:4')), 'audio: nonsense times are refused');
+
+  // a WAV of two channels, three samples each, at 8000 per second
+  const w = A.wavBytes([new Float32Array([0, 1, -1]), new Float32Array([0.5, -0.5, 2])], 8000);
+  const dv = new DataView(w.buffer);
+  const str = (o, n) => String.fromCharCode(...w.slice(o, o + n));
+  ok(str(0, 4) === 'RIFF' && str(8, 4) === 'WAVE' && str(36, 4) === 'data', 'wav: the headers are right');
+  ok(dv.getUint16(22, true) === 2 && dv.getUint32(24, true) === 8000 && dv.getUint16(34, true) === 16, 'wav: 2 channels, 8000 Hz, 16 bit');
+  ok(dv.getUint32(40, true) === 12 && w.length === 56, 'wav: the data size is right');
+  ok(dv.getInt16(44, true) === 0 && dv.getInt16(48, true) === 32767 && dv.getInt16(52, true) === -32768, 'wav: full scale both ways');
+  ok(dv.getInt16(54, true) === 32767, 'wav: anything too loud is clipped, not wrapped round');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

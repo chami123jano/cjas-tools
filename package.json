@@ -9,7 +9,8 @@
     "test:browser": "node test/browser.js",
     "test:images": "node test/images.js",
     "test:pdfs": "node test/pdfs.js",
-    "test:app": "node test/app.js"
+    "test:app": "node test/app.js",
+    "test:audio": "node test/audio.js"
   },
   "keywords": [],
   "author": "",

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volume Changer — Cja's Tools</title>
+<meta name="description" content="Make a recording louder or quieter, or as loud as it can go without crackling. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #canvas { width: 100%; height: 120px; display: block; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+</style>
+</head>
+<body data-page="tool" data-slug="audio-volume">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Volume Changer</h1>
+        <p>Make a quiet recording louder, or a loud one quieter. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a sound file</b>, or drag one here
+          <span>MP3, WAV, M4A, OGG, FLAC &middot; or a video, for its sound</span>
+        </div>
+        <input type="file" id="file" accept="audio/*,video/*" hidden>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <canvas id="canvas"></canvas>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="loudest">As loud as it can go without crackling</button>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label for="gain">Change: <span id="gain-label">0</span> dB</label>
+          <input type="range" id="gain" min="-30" max="30" step="0.5" value="0">
+        </div>
+        <div class="stats">
+          <div class="stat"><b id="s-now">—</b><span>Loudest point now</span></div>
+          <div class="stat"><b id="s-after">—</b><span>Loudest point after</span></div>
+          <div class="stat"><b id="s-times">—</b><span>As loud as before</span></div>
+        </div>
+        <p class="hint" id="warn"></p>
+        <div class="btns">
+          <button class="btn" id="play">&#9654; Listen</button>
+          <button class="btn primary" id="save">Save as WAV</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Decibels (dB):</b> +6 dB is about twice as loud on the meter,
+          and about +10 dB is what sounds "twice as loud" to the ear. 0 dB on the loudest
+          point is the most a sound file can hold.
+          <br><br>
+          <b>Crackling</b> happens when the loudest moments are pushed past that limit
+          and get cut off. "As loud as it can go" raises everything just to below it.
+          It cannot make a whisper louder than the shouts in the same recording; it raises
+          both together.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var buf = null, base = 'audio', peak = 0, stopper = null;
+    var TARGET = Math.pow(10, -1 / 20);   // -1 dB: a little room below the limit
+
+    function db(x) { return x > 0 ? 20 * Math.log10(x) : -Infinity; }
+    function dbText(x) { var d = db(x); return isFinite(d) ? d.toFixed(1) + ' dB' : 'silent'; }
+    function factor() { return Math.pow(10, +document.getElementById('gain').value / 20); }
+
+    function update() {
+      var g = +document.getElementById('gain').value;
+      document.getElementById('gain-label').textContent = (g > 0 ? '+' : '') + g;
+      if (!buf) return;
+      var after = peak * factor();
+      document.getElementById('s-now').textContent = dbText(peak);
+      document.getElementById('s-after').textContent = dbText(after);
+      document.getElementById('s-times').textContent = '× ' + factor().toFixed(2);
+      var warn = document.getElementById('warn');
+      warn.style.color = after > 1 ? 'var(--danger)' : '';
+      warn.textContent = after > 1
+        ? 'Too loud: the loudest moments will be cut off and crackle. Use "As loud as it can go" instead.'
+        : peak === 0 ? 'This recording is completely silent.' : '';
+    }
+
+    function result() {
+      var f = factor();
+      var out = CJA_AUDIO.create(buf.numberOfChannels, buf.length, buf.sampleRate);
+      for (var c = 0; c < buf.numberOfChannels; c++) {
+        var src = buf.getChannelData(c), dst = out.getChannelData(c);
+        for (var i = 0; i < src.length; i++) dst[i] = src[i] * f;
+      }
+      return out;
+    }
+
+    document.getElementById('gain').addEventListener('input', update);
+    document.getElementById('loudest').addEventListener('click', function () {
+      if (!peak) { CT.toast('This recording is silent'); return; }
+      var g = Math.round(db(TARGET / peak) * 2) / 2;   // in half-dB steps
+      if (db(TARGET / peak) < g) g -= 0.5;              // never past the target
+      document.getElementById('gain').value = Math.max(-30, Math.min(30, g));
+      update();
+      if (db(TARGET / peak) > 30) CT.toast('Raised by the most this tool allows, +30 dB');
+    });
+
+    function stopPlaying() {
+      if (stopper) { stopper(); stopper = null; }
+      document.getElementById('play').innerHTML = '&#9654; Listen';
+    }
+    document.getElementById('play').addEventListener('click', function () {
+      if (stopper) { stopPlaying(); return; }
+      stopper = CJA_AUDIO.play(result(), 0, null, stopPlaying);
+      this.innerHTML = '&#9632; Stop';
+    });
+    document.getElementById('save').addEventListener('click', function () {
+      if (!buf) return;
+      var g = +document.getElementById('gain').value;
+      CJA_IMG.download(CJA_AUDIO.wav(result()), base + (g >= 0 ? '-louder' : '-quieter') + '.wav');
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      stopPlaying();
+      CJA_AUDIO.decode(f).then(function (b) {
+        buf = b; peak = CJA_AUDIO.peak(b);
+        base = f.name.replace(/\.[^.]+$/, '') || 'audio';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+          CJA_AUDIO.time(b.duration) + ' long &middot; click to choose another</span>';
+        document.getElementById('edit').hidden = false;
+        document.getElementById('gain').value = 0;
+        CJA_AUDIO.waveform(document.getElementById('canvas'), b);
+        update();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+    update();
+  })();
+  </script>
+</body>
+</html>
