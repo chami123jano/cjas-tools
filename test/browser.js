@@ -75,7 +75,7 @@ function slugs() {
 
   /* node test/browser.js braille pig-latin  - checks only those pages. */
   const only = process.argv.slice(2);
-  const list = only.length ? only : ['index'].concat(slugs());
+  const list = only.length ? only : ['index', 'about'].concat(slugs());
   const report = [];
 
   for (const slug of list) {
@@ -110,7 +110,7 @@ function slugs() {
       }
     });
 
-    const url = slug === 'index' ? base + '/index.html' : base + '/tools/' + slug + '.html';
+    const url = slug === 'index' || slug === 'about' ? base + '/' + slug + '.html' : base + '/tools/' + slug + '.html';
 
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 20000 });

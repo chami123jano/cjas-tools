@@ -47,7 +47,7 @@ function portOpen() {
   fs.writeFileSync(pdf, await doc.save());
 
   const app = spawn(EXE, [], {
-    env: Object.assign({}, process.env, { WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + PORT }),
+    env: Object.assign({}, process.env, { WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + PORT, CJA_TEST_NO_OPEN: '1' }),
     stdio: 'ignore'
   });
   let browser = null;
@@ -147,6 +147,22 @@ function portOpen() {
       }
     }
     ok(broken.length === 0, 'app: all ' + reg.TOOLS.length + ' tool pages open inside the app', broken.join(' | '));
+
+    /* The About page, and links to websites: they must not open inside the
+       app (CJA_TEST_NO_OPEN stops the real browser opening during the test). */
+    await page.goto(root + 'about.html', { waitUntil: 'load' });
+    ok(/\(desktop app\)$/.test(await page.$eval('#version', (e) => e.textContent)), 'app: About says it is the desktop app',
+       await page.$eval('#version', (e) => e.textContent));
+    ok(await page.$eval('.brand-mark', (i) => i.complete && i.naturalWidth > 0), 'app: the icon shows in the header');
+    const windows = (await browser.targets()).filter((x) => x.type() === 'page').length;
+    await page.click('a[href*="/issues"]');
+    await wait(1200);
+    ok(/about\.html$/.test(page.url()), 'app: a link to a website does not leave the app', page.url());
+    await page.goto(root + 'tools/postal-codes.html', { waitUntil: 'load' });
+    await page.click('a[href*="slpost"]');
+    await wait(1200);
+    ok(/postal-codes\.html$/.test(page.url()) && (await browser.targets()).filter((x) => x.type() === 'page').length === windows,
+       'app: a "new tab" link opens no bare window either', page.url());
 
     ok(errors.length === 0, 'app: no script errors', errors.join(' | '));
   } catch (e) {

@@ -45,6 +45,72 @@ function has(actual, expected, label) {
 
   ok(CATEGORIES.reduce((a, c) => a + c.planned, 0) === 171,
      'planned totals still add up to 171');
+  CATEGORIES.forEach((c) => {
+    ok(TOOLS.filter((t) => t.category === c.id).length === c.planned, 'every planned ' + c.name + ' tool is built');
+  });
+})();
+
+// ---------------------------------------------------------------- the shell: version, icon, theme, About
+
+(function shell() {
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  const t = loadTool('word-counter');
+  ok(t.window.CJA_VERSION === conf.version, 'the version shown matches the app version', t.window.CJA_VERSION + ' / ' + conf.version);
+
+  const stale = require('../scripts/pages.js').run(true);
+  ok(stale.length === 0, 'every page has the shared head lines (npm run pages)', stale.join(', '));
+  const head = fs.readFileSync(path.join(SRC, 'tools', 'word-counter.html'), 'utf8');
+  ok(head.includes('href="../assets/icon.svg"') && fs.existsSync(path.join(SRC, 'assets', 'icon.svg')) &&
+     fs.existsSync(path.join(SRC, 'assets', 'favicon-32.png')), 'tool pages show the icon in the browser tab');
+
+  ok(t.$('.brand-mark').getAttribute('src') === '../assets/icon.svg', 'the header shows the icon');
+  const about = t.$('.side a.side-about');
+  ok(about && about.getAttribute('href') === '../about.html', 'the sidebar links to About');
+  ok(!/\//.test(t.$('.side .count').textContent), 'sidebar counts are plain numbers now every category is complete', t.$('.side .count').textContent);
+
+  /* The theme button: follow the computer, light, dark, and round again. */
+  const root = t.document.documentElement, btn = t.byId('theme-btn');
+  const seen = [], firstTitle = btn.title;
+  for (let i = 0; i < 4; i++) {
+    seen.push((root.getAttribute('data-theme') || 'auto') + ':' + btn.textContent + ':' + (t.window.localStorage.getItem('cja-theme') || '-'));
+    t.click('theme-btn');
+  }
+  ok(seen.join(' ') === 'auto:◐:- light:☀:light dark:☾:dark auto:◐:-', 'theme: follow the computer, light, dark, back again', seen.join(' '));
+  ok(/follow your computer/.test(firstTitle), 'theme: the button says what it does', firstTitle);
+  t.close();
+})();
+
+(function aboutPage() {
+  const replies = [];
+  const fetch = () => {
+    const r = replies.shift();
+    return r instanceof Error ? Promise.reject(r) : Promise.resolve({ ok: true, json: () => Promise.resolve(r) });
+  };
+  const t = loadTool('about', { page: 'about.html', fetch });
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  ok(t.text('version') === 'Version ' + conf.version + ' (website)', 'about: shows the version', t.text('version'));
+  ok(t.text('count') === '171', 'about: shows how many tools', t.text('count'));
+  ok(/always the newest version/.test(t.text('where')), 'about: on the website, explains it is always up to date');
+  ok(t.$('.side a.side-about.on') && t.$('.brand-mark').getAttribute('src') === 'assets/icon.svg', 'about: its sidebar link is highlighted, paths are right');
+  const n = t.window.CJA_NEWER;
+  ok(n('1.0.1', '1.0.0') && n('v1.2.10', '1.2.9') && n('2.0.0', '1.9.9') && !n('1.0.0', '1.0.0') && !n('0.9.9', '1.0.0'),
+     'about: compares version numbers properly');
+  pending.push(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    replies.push({ tag_name: 'v99.0.0' });
+    t.click('check');
+    await wait(30);
+    ok(/Version 99\.0\.0 is available/.test(t.text('update-note')), 'about: a newer version is announced', t.text('update-note'));
+    replies.push({ tag_name: 'v' + conf.version });
+    t.click('check');
+    await wait(30);
+    ok(t.text('update-note') === 'You have the newest version (' + conf.version + ').', 'about: up to date is said plainly', t.text('update-note'));
+    replies.push(new Error('offline'));
+    t.click('check');
+    await wait(30);
+    ok(/could not be reached/.test(t.text('update-note')) && !t.byId('check').disabled, 'about: no internet is explained', t.text('update-note'));
+    t.close();
+  });
 })();
 
 // ---------------------------------------------------------------- calculators

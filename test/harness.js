@@ -9,7 +9,9 @@ const { JSDOM } = require('jsdom');
 const SRC = path.join(__dirname, '..', 'src');
 
 function loadTool(slug, opts = {}) {
-  const file = path.join(SRC, 'tools', slug + '.html');
+  /* opts.page loads a page outside tools/, such as 'about.html'. */
+  const page = opts.page || 'tools/' + slug + '.html';
+  const file = path.join(SRC, page);
   const html = fs.readFileSync(file, 'utf8');
 
   // Strip every script from the markup first. jsdom would run the inline
@@ -19,7 +21,7 @@ function loadTool(slug, opts = {}) {
   const stripped = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
 
   const dom = new JSDOM(stripped, {
-    url: 'https://example.test/tools/' + slug + '.html',
+    url: 'https://example.test/' + page,
     runScripts: 'dangerously',
     resources: undefined,
     pretendToBeVisual: true,

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f86ff"/>
+      <stop offset="1" stop-color="#1f4fd6"/>
+    </linearGradient>
+    <mask id="wrench">
+      <rect width="1024" height="1024" fill="#000"/>
+      <line x1="300" y1="724" x2="610" y2="414" stroke="#fff" stroke-width="140" stroke-linecap="round"/>
+      <circle cx="660" cy="364" r="170" fill="#fff"/>
+      <rect x="600" y="160" width="120" height="214" rx="18" fill="#000" transform="rotate(45 660 364)"/>
+      <circle cx="300" cy="724" r="30" fill="#000"/>
+    </mask>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="#fff" mask="url(#wrench)"/>
+  <path d="M290 196 C302 262 318 278 384 290 C318 302 302 318 290 384 C278 318 262 302 196 290 C262 278 278 262 290 196 Z" fill="#fff" opacity=".92"/>
+</svg>

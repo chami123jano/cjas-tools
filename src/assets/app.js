@@ -5,7 +5,11 @@
 (function () {
   var body = document.body;
   var page = body.dataset.page || 'home';
-  var root = page === 'home' ? '' : '../';
+  var root = page === 'tool' ? '../' : '';
+
+  /* The version of the app and website, shown on the About page. Kept the
+     same as src-tauri/tauri.conf.json (the tests check). */
+  window.CJA_VERSION = '0.15.0';
 
   /* ---------- theme ---------- */
 
@@ -18,12 +22,31 @@
     else document.documentElement.removeAttribute('data-theme');
   }
 
+  /* Three settings, in turn: follow Windows (or the phone), light, dark. */
+  var THEMES = {
+    '': { mark: '◐', says: 'Colours follow your computer. Click for light.' },
+    light: { mark: '☀', says: 'Light. Click for dark.' },
+    dark: { mark: '☾', says: 'Dark. Click to follow your computer.' }
+  };
+
+  function showTheme() {
+    var btn = document.getElementById('theme-btn');
+    if (!btn) return;
+    var t = THEMES[document.documentElement.getAttribute('data-theme') || ''];
+    btn.textContent = t.mark;
+    btn.title = t.says;
+    btn.setAttribute('aria-label', t.says);
+  }
+
   function toggleTheme() {
-    var current = document.documentElement.getAttribute('data-theme');
-    var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var next = current ? (current === 'dark' ? 'light' : 'dark') : (dark ? 'light' : 'dark');
+    var current = document.documentElement.getAttribute('data-theme') || '';
+    var next = current === '' ? 'light' : current === 'light' ? 'dark' : '';
     applyTheme(next);
-    try { localStorage.setItem('cja-theme', next); } catch (e) { /* private window */ }
+    try {
+      if (next) localStorage.setItem('cja-theme', next);
+      else localStorage.removeItem('cja-theme');
+    } catch (e) { /* private window */ }
+    showTheme();
   }
 
   applyTheme(readTheme());
@@ -35,17 +58,17 @@
     hdr.className = 'hdr';
     hdr.innerHTML =
       '<a class="brand" href="' + root + 'index.html">' +
-        '<span class="brand-mark">CJA</span>' +
+        '<img class="brand-mark" src="' + root + 'assets/icon.svg" alt="">' +
         '<span class="brand-text">Cja’s Tools</span>' +
       '</a>' +
       '<div class="search-wrap">' +
         '<input id="search" type="text" placeholder="Search tools…" ' +
         'autocomplete="off" spellcheck="false">' +
       '</div>' +
-      '<button class="icon-btn" id="theme-btn" title="Light / dark" ' +
-      'aria-label="Switch between light and dark">◐</button>';
+      '<button class="icon-btn" id="theme-btn"></button>';
     body.insertBefore(hdr, body.firstChild);
     document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+    showTheme();
   }
 
   /* ---------- sidebar ---------- */
@@ -67,8 +90,10 @@
       html += '<a href="' + root + 'index.html?cat=' + c.id + '"' +
               (activeCat === c.id ? ' class="on"' : '') + '>' +
               '<span>' + c.icon + '</span><span>' + c.name + '</span>' +
-              '<span class="count">' + n + '/' + c.planned + '</span></a>';
+              '<span class="count">' + n + '</span></a>';
     });
+    html += '<a class="side-about' + (page === 'about' ? ' on' : '') + '" href="' + root + 'about.html">' +
+            '<span>ℹ️</span><span>About &amp; privacy</span></a>';
     nav.innerHTML = html;
     return nav;
   }
@@ -167,7 +192,7 @@
       var inCat = list.filter(function (t) { return t.category === c.id; });
       if (!inCat.length) return;
       html += '<div class="group"><h2>' + c.icon + ' ' + c.name +
-              '<span class="soon">' + inCat.length + ' of ' + c.planned + '</span></h2>' +
+              '<span class="soon">' + inCat.length + '</span></h2>' +
               '<div class="grid">' + inCat.map(card).join('') + '</div></div>';
     });
     mount.innerHTML = html;
@@ -196,7 +221,7 @@
     if (activeCat) {
       var c = CATEGORIES.find(function (x) { return x.id === activeCat; });
       if (heading) heading.textContent = c.icon + ' ' + c.name;
-      if (sub) sub.textContent = builtCount(activeCat) + ' of ' + c.planned + ' built so far.';
+      if (sub) sub.textContent = builtCount(activeCat) + ' tools. All free, and they work with no internet.';
     }
 
     renderHome(mount, activeCat, '');
@@ -225,6 +250,18 @@
   if (handedOver && page === 'home') {
     searchInput.value = handedOver;
     searchInput.dispatchEvent(new Event('input'));
+  }
+
+  /* In the desktop app a "new tab" link would open a bare window with no
+     address bar. Followed normally instead, the app hands it to the
+     computer's own browser. */
+  if (location.hostname === 'tauri.localhost' || location.protocol === 'tauri:') {
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('a[href]');
+      if (!a || a.hasAttribute('download') || !/^(https?:|mailto:)/.test(a.href) || a.hostname === 'tauri.localhost') return;
+      e.preventDefault();
+      window.location.href = a.href;
+    }, true);
   }
 
   /* Press / anywhere to jump to search. */

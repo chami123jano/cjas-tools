@@ -6,6 +6,12 @@
 <title>Debt Payoff Planner — Cja's Tools</title>
 <meta name="description" content="Clear several debts in the order that saves the most interest, or the order that clears accounts fastest. Compares both. Works offline.">
 <link rel="stylesheet" href="../assets/app.css">
+<!-- cja:head -->
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/icon-256.png">
+<script>try{var t=localStorage.getItem("cja-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<!-- /cja:head -->
 <style>
   .debt {
     display: grid; grid-template-columns: 1fr 118px 84px 104px auto;
@@ -32,7 +38,7 @@
   .plan .sub { font-size: 12.5px; color: var(--muted); }
   .plan .tag {
     display: inline-block; margin-top: 9px; padding: 2px 9px; border-radius: 999px;
-    font-size: 11px; font-weight: 650; background: #dcf5e7; color: #146b3c;
+    font-size: 11px; font-weight: 650; background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok);
   }
   .order { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
   @media (max-width: 680px) {

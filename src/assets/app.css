@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #ffffff;
   --surface: #f6f7f9;
   --surface-2: #eef0f4;
@@ -15,6 +16,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #101216;
     --surface: #181b21;
     --surface-2: #20242c;
@@ -30,6 +32,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #101216;
   --surface: #181b21;
   --surface-2: #20242c;
@@ -89,14 +92,8 @@ a:hover { text-decoration: underline; }
 .brand-mark {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  display: block;
+  flex: none;
 }
 
 .search-wrap {
@@ -188,6 +185,7 @@ a:hover { text-decoration: underline; }
 .side a:hover { background: var(--surface); text-decoration: none; }
 .side a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .side .count { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.side a.side-about { margin-top: 12px; border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; padding-top: 12px; }
 
 /* ---------- home ---------- */
 
@@ -289,6 +287,16 @@ label {
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
+input[type="email"],
+input[type="url"],
+input[type="search"],
+input[type="tel"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="week"],
 select,
 textarea {
   width: 100%;
@@ -305,6 +313,8 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent);
 }
 textarea { min-height: 160px; resize: vertical; line-height: 1.6; }
+input[type="range"] { background: transparent; accent-color: var(--accent); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 
 .row {
   display: grid;
@@ -406,6 +416,7 @@ textarea { min-height: 160px; resize: vertical; line-height: 1.6; }
     font-size: 13.5px;
   }
   .side .count { display: none; }
+  .side a.side-about { margin-top: 0; padding-top: 7px; border-radius: 999px; }
   .hdr { gap: 10px; padding: 9px 12px; }
   .brand .brand-text { display: none; }
   .hero h1 { font-size: 23px; }

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About and Privacy — Cja's Tools</title>
+<meta name="description" content="About Cja's Tools: 171 free tools that run on your own device. No uploads, no accounts, no ads, no tracking.">
+<link rel="stylesheet" href="assets/app.css">
+<!-- cja:head -->
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+<script>try{var t=localStorage.getItem("cja-theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<!-- /cja:head -->
+<style>
+  .about-head { display: flex; gap: 18px; align-items: center; margin-bottom: 22px; }
+  .about-head img { width: 76px; height: 76px; flex: none; }
+  .about-head h1 { margin: 0 0 2px; font-size: 27px; letter-spacing: -0.4px; }
+  .about-head p { margin: 0; color: var(--muted); }
+  .panel h2 { font-size: 17px; margin: 0 0 8px; }
+  .panel ul { margin: 6px 0 0; padding-left: 20px; }
+  .panel li { margin: 4px 0; }
+  .lic td { padding: 5px 14px 5px 0; vertical-align: top; }
+  .lic td:first-child { font-weight: 600; white-space: nowrap; }
+  #update-note { margin: 10px 0 0; }
+</style>
+</head>
+<body data-page="about">
+
+  <div class="shell">
+    <main>
+      <div class="about-head">
+        <img src="assets/icon.svg" alt="">
+        <div>
+          <h1>Cja’s Tools</h1>
+          <p><span id="version">Version</span> &middot; <span id="count">171</span> free tools for everyday jobs</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Your files stay on your device</h2>
+        <p>Every tool works inside this window. Photos, PDFs, videos, recordings and text are
+          never uploaded anywhere, so they are as private as the computer or phone you are using.</p>
+        <ul>
+          <li>No account, no sign-in, no ads.</li>
+          <li>No tracking or visitor counting of any kind.</li>
+          <li>A few choices, such as light or dark colours and items you save in some tools,
+            are kept on this device only. Clearing the browser’s site data removes them.</li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h2>When the internet is used</h2>
+        <ul>
+          <li><b>The desktop app</b> works with no internet at all, except the few tools whose job
+            is to fetch something live: exchange rates, and the currency converter’s latest
+            rates.</li>
+          <li><b>On the website</b>, the video tools download their video engine once (about 32 MB)
+            from the jsDelivr network, and the browser then keeps it.</li>
+          <li><b>Check for a newer version</b>, below, asks GitHub for the latest version number
+            &mdash; only when you press it.</li>
+        </ul>
+      </div>
+
+      <div class="panel" id="get">
+        <h2>Get the app, or the newest version</h2>
+        <p id="where"></p>
+        <div class="btns">
+          <button class="btn primary" id="check">Check for a newer version</button>
+          <a class="btn" href="https://github.com/chami123jano/cjas-tools/releases/latest">Download page</a>
+          <a class="btn" href="https://chami123jano.github.io/cjas-tools/">Website</a>
+        </div>
+        <p class="hint" id="update-note" hidden></p>
+      </div>
+
+      <div class="panel">
+        <h2>Something not working?</h2>
+        <p>Please say what you did and what happened, on the
+          <a href="https://github.com/chami123jano/cjas-tools/issues">problems page</a>.
+          Press <kbd>/</kbd> on any page to jump to the search box.</p>
+        <p class="hint">Made in Sri Lanka by Chamindu Janodya Ambawatta.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Licences</h2>
+        <p>Cja’s Tools is free and open source under the
+          <a href="https://github.com/chami123jano/cjas-tools/blob/main/LICENSE">MIT licence</a>.
+          It also includes these free libraries and fonts by others, unchanged:</p>
+        <table class="lic">
+          <tr><td>pdf-lib</td><td>MIT &mdash; making and changing PDFs</td></tr>
+          <tr><td>PDF.js</td><td>Apache 2.0 &mdash; showing PDFs and reading their text</td></tr>
+          <tr><td>FFmpeg (ffmpeg.wasm)</td><td>GPL 2 or later &mdash; video and sound. Its source and exact build are listed in
+            <a href="https://github.com/chami123jano/cjas-tools/blob/main/src/assets/vendor/ffmpeg/THIRD-PARTY.txt">THIRD-PARTY.txt</a></td></tr>
+          <tr><td>jsQR</td><td>Apache 2.0 &mdash; reading QR codes</td></tr>
+          <tr><td>qrcode-generator</td><td>MIT &mdash; making QR codes</td></tr>
+          <tr><td>Noto Sans Sinhala, Tamil</td><td>SIL Open Font Licence &mdash; subtitles in Sinhala and Tamil</td></tr>
+        </table>
+        <p class="hint">Source code: <a href="https://github.com/chami123jano/cjas-tools">github.com/chami123jano/cjas-tools</a></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/tools.js"></script>
+  <script src="assets/app.js"></script>
+  <script>
+  (function () {
+    var inApp = location.hostname === 'tauri.localhost' || location.protocol === 'tauri:';
+    var mine = window.CJA_VERSION;
+    document.getElementById('version').textContent = 'Version ' + mine + (inApp ? ' (desktop app)' : ' (website)');
+    document.getElementById('count').textContent = TOOLS.length;
+    document.getElementById('where').textContent = inApp
+      ? 'You are using the desktop app. It does not update itself: check here now and then, and install a newer version over this one. Your saved choices are kept.'
+      : 'You are using the website, which is always the newest version. The desktop app for Windows has the same tools and works with no internet.';
+
+    /* "1.2.10" is newer than "1.2.9". */
+    function newer(a, b) {
+      var x = String(a).replace(/^v/, '').split('.'), y = String(b).replace(/^v/, '').split('.');
+      for (var i = 0; i < 3; i++) {
+        var d = (+x[i] || 0) - (+y[i] || 0);
+        if (d) return d > 0;
+      }
+      return false;
+    }
+    window.CJA_NEWER = newer;
+
+    document.getElementById('check').addEventListener('click', function () {
+      var btn = this, note = document.getElementById('update-note');
+      btn.disabled = true;
+      note.hidden = false;
+      note.textContent = 'Asking GitHub...';
+      fetch('https://api.github.com/repos/chami123jano/cjas-tools/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (rel) {
+          var latest = String(rel.tag_name || '').replace(/^v/, '');
+          if (!latest) throw new Error('no version');
+          note.innerHTML = newer(latest, mine)
+            ? '<b>Version ' + latest + ' is available.</b> Press <i>Download page</i> to get it.'
+            : 'You have the newest version (' + mine + ').';
+        })
+        .catch(function () {
+          note.textContent = 'GitHub could not be reached. Check the internet connection, or open the download page.';
+        })
+        .then(function () { btn.disabled = false; });
+    });
+  })();
+  </script>
+</body>
+</html>
