@@ -243,6 +243,98 @@ function serve() {
     await page.close();
   }
 
+  /* Brightness of areas of one frame of a saved video: the four corners
+     (each a tenth of the width and height) of the picture at `time`. */
+  async function corners(page, b64, type, time) {
+    return page.evaluate((b64, type, time) => new Promise((resolve) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const v = document.createElement('video');
+      v.muted = true;
+      v.src = URL.createObjectURL(new Blob([u], { type }));
+      v.onloadeddata = () => { v.currentTime = time; };
+      v.onseeked = () => {
+        const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+        const g = c.getContext('2d'); g.drawImage(v, 0, 0);
+        const area = (x0, y0) => {
+          const w = Math.round(c.width * 0.18), h = Math.round(c.height * 0.18);
+          const d = g.getImageData(x0 * (c.width - w), y0 * (c.height - h), w, h).data;
+          let bright = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] > 200) bright++;
+          return bright;
+        };
+        resolve({ w: c.width, h: c.height, tl: area(0, 0), tr: area(1, 0), bl: area(0, 1), br: area(1, 1) });
+      };
+      v.onerror = () => resolve({ error: true });
+    }), b64, type, time);
+  }
+
+  // ---------------------------------------------------------- video to gif
+  {
+    const page = await open('video-to-gif');
+    await (await page.$('#file')).uploadFile(clip);
+    await ready(page);
+    ok(/The first 0:0[34] is chosen/.test(await text(page, 'info')), 'gif: starts with the first few seconds', await text(page, 'info'));
+    ok(/480 × 270, \d+ pictures/.test(await text(page, 'plan')), 'gif: 480 wide keeps the shape (270 high)', await text(page, 'plan'));
+    await page.$eval('#to', (e) => { e.value = '0:02.0'; e.dispatchEvent(new Event('change')); });
+    ok(/0:02\.0 long, 480 × 270, 24 pictures/.test(await text(page, 'plan')), 'gif: 2 seconds at 12 a second is 24 pictures', await text(page, 'plan'));
+    await page.click('#go');
+    await page.waitForFunction(() => !document.getElementById('result').hidden || /could not|stopped/.test(document.getElementById('status').textContent),
+      { timeout: 120000 }).catch(() => {});
+    const shown = await page.$eval('#gif', (i) => new Promise((r) => (i.complete ? r([i.naturalWidth, i.naturalHeight]) : (i.onload = () => r([i.naturalWidth, i.naturalHeight])))));
+    ok(shown[0] === 480 && shown[1] === 270, 'gif: the preview shows a 480 x 270 GIF', JSON.stringify(shown));
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s[0] && s[0].name === 'holiday.gif', 'gif: saves holiday.gif', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const b = s[0].bytes;
+      ok(b.slice(0, 6).toString() === 'GIF89a' && b.readUInt16LE(6) === 480 && b.readUInt16LE(8) === 270, 'gif: a real GIF, 480 x 270');
+      ok(b.indexOf(Buffer.from('NETSCAPE2.0')) > 0, 'gif: it loops');
+      // every picture in a GIF starts with a graphic control block (21 F9 04)
+      let frames = 0;
+      for (let i = 0; i < b.length - 2; i++) if (b[i] === 0x21 && b[i + 1] === 0xf9 && b[i + 2] === 0x04) frames++;
+      ok(frames >= 20 && frames <= 26, 'gif: about 24 pictures in it', frames);
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- rotate and flip
+  {
+    const page = await open('rotate-video');
+    await (await page.$('#file')).uploadFile(clip);
+    await ready(page);
+    ok(/Nothing turned yet/.test(await text(page, 'plan')) && await page.$eval('#go', (b) => b.disabled), 'rotate: nothing to save until turned');
+    // the original: the white seconds counter is in the top-left corner
+    const orig = await corners(page, fs.readFileSync(clip).toString('base64'), 'video/webm', 2.2);
+    ok(orig.tl > 50 && orig.tr < 5, 'rotate: the test video has its counter top left', JSON.stringify(orig));
+
+    await page.click('#turns [data-turn="90"]');
+    ok(/360 × 640/.test(await text(page, 'plan')), 'rotate: turned right, it becomes 360 x 640', await text(page, 'plan'));
+    ok(/rotate\(90deg\)/.test(await page.$eval('#player', (v) => v.style.transform)), 'rotate: the preview turns at once');
+    await page.click('#go');
+    let s = await saved(page, 1, 180000);
+    ok(s[0] && s[0].name === 'holiday-turned.mp4', 'rotate: saves holiday-turned.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const c = await corners(page, s[0].b64, 'video/mp4', 2.2);
+      ok(c.w === 360 && c.h === 640, 'rotate: the saved video is 360 x 640', JSON.stringify(c));
+      ok(c.tr > 50 && c.tl < 5, 'rotate: turned right, the top-left counter is now top right', JSON.stringify(c));
+      const m = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(m.duration > 3.3, 'rotate: the whole video is kept', m.duration);
+    }
+
+    // mirror only: the counter moves to the top right of a 640 x 360 picture
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#reset');
+    await page.click('#turns [data-flip="h"]');
+    await page.click('#go');
+    s = await saved(page, 1, 180000);
+    if (s[0]) {
+      const c = await corners(page, s[0].b64, 'video/mp4', 2.2);
+      ok(c.w === 640 && c.tr > 50 && c.tl < 5, 'rotate: mirrored, the counter is top right', JSON.stringify(c));
+    } else ok(false, 'rotate: mirrored video saved');
+    await page.close();
+  }
+
   // ---------------------------------------------------------- a file that is not a video
   {
     const page = await open('trim-video');

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotate and Flip Video — Cja's Tools</title>
+<meta name="description" content="Turn a sideways or upside-down video the right way up, or mirror it, and save as MP4. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .stage { display: flex; justify-content: center; align-items: center; height: 340px; background: #000; border-radius: var(--radius); overflow: hidden; }
+  #player { max-width: 100%; max-height: 100%; transition: transform .25s; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="rotate-video">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Rotate and Flip Video</h1>
+        <p>Turn a sideways phone video the right way up, or mirror it. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <div class="stage"><video id="player" controls playsinline muted></video></div>
+        <div class="btns" id="turns" style="margin-top:12px">
+          <button class="btn" data-turn="-90">&#8634; Turn left</button>
+          <button class="btn" data-turn="90">&#8635; Turn right</button>
+          <button class="btn" data-turn="180">Upside down</button>
+          <button class="btn" data-flip="h">&#8596; Mirror</button>
+          <button class="btn" data-flip="v">&#8597; Flip top to bottom</button>
+          <button class="btn" id="reset">Start again</button>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Save the turned video</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The preview turns straight away;</b> saving rebuilds every
+          frame the new way round, which takes a while for a long video. The sound is
+          kept. The result is an MP4, which plays everywhere.
+          <br><br>
+          <b>Mirror</b> is for selfie videos where writing came out back to front.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, url = null, turn = 0, flipH = false, flipV = false;
+    var player = document.getElementById('player');
+
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    /* The FFmpeg filters for the chosen turn: flips first (in the video's
+       own frame), then the quarter turns. transpose=1 is a quarter turn
+       right, transpose=2 a quarter turn left. */
+    function filters() {
+      var f = [];
+      if (flipH) f.push('hflip');
+      if (flipV) f.push('vflip');
+      if (turn === 90) f.push('transpose=1');
+      else if (turn === 270) f.push('transpose=2');
+      else if (turn === 180) f.push('hflip', 'vflip');
+      return f;
+    }
+
+    function show() {
+      /* The preview uses the same order: flips, then the turn. */
+      /* Turned sideways, the picture's width becomes its height, so it is
+         shrunk just enough to fit the 340 pixel tall preview. */
+      var sideways = turn % 180 !== 0;
+      var scale = sideways && player.clientWidth ? Math.min(1, 340 / player.clientWidth) : 1;
+      player.style.transform = 'rotate(' + turn + 'deg) scale(' + (flipH ? -1 : 1) * scale + ',' + (flipV ? -1 : 1) * scale + ')';
+      if (!media) return;
+      var w = sideways ? media.info.height : media.info.width, h = sideways ? media.info.width : media.info.height;
+      var none = !filters().length;
+      document.getElementById('plan').textContent = none ? 'Nothing turned yet.' : 'The saved video will be ' + w + ' × ' + h + '.';
+      document.getElementById('go').disabled = none;
+    }
+
+    document.getElementById('turns').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b || b.id === 'reset' || !media) return;
+      if (b.dataset.turn) turn = ((turn + +b.dataset.turn) % 360 + 360) % 360;
+      else {
+        /* A mirror after a quarter turn is a flip in the video's own frame. */
+        var sideways = turn % 180 !== 0;
+        if ((b.dataset.flip === 'h') !== sideways) flipH = !flipH; else flipV = !flipV;
+      }
+      show();
+    });
+    document.getElementById('reset').addEventListener('click', function () { turn = 0; flipH = flipV = false; show(); });
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, input = 'input.' + media.ext;
+      var args = ['-hide_banner', '-i', input, '-map', '0:v:0', '-vf', filters().join(','),
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p'];
+      if (media.info.audio) args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', '160k');
+      /* The old "turn this when playing" mark is cleared, so players do
+         not turn it a second time. */
+      args.push('-metadata:s:v:0', 'rotate=0', '-movflags', '+faststart', 'out.mp4');
+      btn.disabled = true;
+      bar(0, 'Turning...');
+      var started = Date.now(), inputs = {};
+      inputs[input] = media.bytes;
+      CJA_FF.run(args, inputs, 'out.mp4', function (p) {
+        bar(p, 'Turning: ' + Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        CJA_IMG.download(new Blob([data], { type: 'video/mp4' }), media.base + '-turned.mp4');
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; show(); });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      turn = 0; flipH = flipV = false;
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !m.info.width) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('edit').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long.';
+        document.getElementById('edit').hidden = false;
+        document.getElementById('progress').hidden = true;
+        show();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video to GIF — Cja's Tools</title>
+<meta name="description" content="Turn part of a video into an animated GIF, with good colours, the size you choose, and a preview. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #player { width: 100%; max-height: 360px; background: #000; border-radius: var(--radius); display: block; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #gif { max-width: 100%; display: block; margin: 0 auto; }
+</style>
+</head>
+<body data-page="tool" data-slug="video-to-gif">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Video to GIF</h1>
+        <p>A short moving picture from part of a video. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="edit" hidden>
+        <video id="player" controls playsinline muted></video>
+        <div class="btns" style="margin-top:10px">
+          <button class="btn" id="mark-start">Start here</button>
+          <button class="btn" id="mark-end">End here</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field"><label for="from">From</label><input type="text" id="from" value="0:00.0"></div>
+          <div class="field"><label for="to">To</label><input type="text" id="to"></div>
+          <div class="field">
+            <label for="fps">Smoothness</label>
+            <select id="fps">
+              <option value="8">8 pictures a second (smallest)</option>
+              <option value="12" selected>12 a second (good)</option>
+              <option value="20">20 a second (smooth, larger)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="width">Width</label>
+            <select id="width">
+              <option value="320">320 pixels (small)</option>
+              <option value="480" selected>480 pixels</option>
+              <option value="640">640 pixels</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Make the GIF</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel" id="result" hidden>
+        <img id="gif" alt="The GIF">
+        <p class="hint" id="result-note" style="text-align:center"></p>
+        <div class="btns" style="justify-content:center"><button class="btn primary" id="save">Save the GIF</button></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Keep it short.</b> GIF is an old format that stores every
+          picture almost whole, so a few seconds at a small size is best: 5 seconds at
+          480 pixels is usually 1 to 3 MB. Longer clips are better shared as video.
+          <br><br>
+          <b>Colours:</b> a GIF can hold only 256 colours, so the best 256 for this clip are
+          worked out first, which keeps faces and skies looking natural.
+          <br><br>
+          GIFs have no sound.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, from = 0, to = 0, url = null, gif = null, gifUrl = null;
+    var MAX = 20;    // seconds: longer GIFs get very large
+    var player = document.getElementById('player');
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+    function outWidth() { return Math.min(+v('width'), media.info.width); }
+    function show() {
+      document.getElementById('from').value = CJA_AUDIO.time(from, true);
+      document.getElementById('to').value = CJA_AUDIO.time(to, true);
+      var w = outWidth(), h = Math.round(w * media.info.height / media.info.width / 2) * 2;
+      var frames = Math.round((to - from) * +v('fps'));
+      document.getElementById('plan').textContent = CJA_AUDIO.time(to - from, true) + ' long, ' + w + ' × ' + h + ', ' +
+        frames + ' pictures.' + (to - from > 10 ? ' That is long for a GIF and will be large.' : '');
+    }
+
+    ['from', 'to'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        var a = CJA_AUDIO.parseTime(v('from')), b = CJA_AUDIO.parseTime(v('to'));
+        if (isNaN(a) || isNaN(b) || b <= a) { CT.toast('Times are like 0:05.5 - and "to" must be after "from"'); show(); return; }
+        from = Math.max(0, a); to = Math.min(media.info.duration, b, a + MAX);
+        if (b - a > MAX) CT.toast('A GIF here can be up to ' + MAX + ' seconds');
+        show();
+      });
+    });
+    ['fps', 'width'].forEach(function (id) { document.getElementById(id).addEventListener('change', show); });
+    document.getElementById('mark-start').addEventListener('click', function () { from = Math.min(player.currentTime, to - 0.2); show(); });
+    document.getElementById('mark-end').addEventListener('click', function () {
+      to = Math.min(Math.max(player.currentTime, from + 0.2), from + MAX);
+      show();
+    });
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, input = 'input.' + media.ext;
+      /* Two passes in one: palettegen picks the best 256 colours for this
+         clip, paletteuse draws every picture with them. */
+      var filter = 'fps=' + v('fps') + ',scale=' + outWidth() + ':-2:flags=lanczos,split[a][b];' +
+        '[a]palettegen=max_colors=256:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle';
+      var args = ['-hide_banner', '-ss', from.toFixed(3), '-t', (to - from).toFixed(3), '-i', input,
+        '-filter_complex', filter, '-loop', '0', 'out.gif'];
+      btn.disabled = true;
+      document.getElementById('result').hidden = true;
+      bar(0, 'Making the GIF...');
+      var started = Date.now(), inputs = {};
+      inputs[input] = media.bytes;
+      CJA_FF.run(args, inputs, 'out.gif', function (p) {
+        bar(p, 'Making the GIF: ' + Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        gif = new Blob([data], { type: 'image/gif' });
+        bar(1, 'Done.');
+        if (gifUrl) URL.revokeObjectURL(gifUrl);
+        gifUrl = URL.createObjectURL(gif);
+        document.getElementById('gif').src = gifUrl;
+        document.getElementById('result-note').textContent = CJA_IMG.bytes(gif.size) +
+          (gif.size > 8 * 1048576 ? ' - large; a smaller width or fewer pictures a second would help.' : '');
+        document.getElementById('result').hidden = false;
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+    document.getElementById('save').addEventListener('click', function () {
+      if (gif) CJA_IMG.download(gif, media.base + '.gif');
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !m.info.width) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('edit').hidden = true;
+          return;
+        }
+        media = m;
+        from = 0; to = Math.min(m.info.duration, 5);
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long. The first ' +
+          CJA_AUDIO.time(to) + ' is chosen to start with.';
+        document.getElementById('edit').hidden = false;
+        document.getElementById('progress').hidden = true;
+        document.getElementById('result').hidden = true;
+        show();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1149,6 +1149,20 @@ const TOOLS = [
     category: 'video',
     desc: 'Make a video smaller to send or upload, as MP4.',
     keywords: ['compress video', 'reduce size', 'smaller', 'mp4', 'whatsapp', 'email', 'shrink video']
+  },
+  {
+    slug: 'video-to-gif',
+    name: 'Video to GIF',
+    category: 'video',
+    desc: 'A short animated GIF from part of a video, with good colours.',
+    keywords: ['gif', 'video to gif', 'animated', 'meme', 'mp4 to gif', 'clip']
+  },
+  {
+    slug: 'rotate-video',
+    name: 'Rotate and Flip Video',
+    category: 'video',
+    desc: 'Turn a sideways or upside-down video the right way up, or mirror it.',
+    keywords: ['rotate video', 'turn', 'sideways', 'upside down', 'flip', 'mirror', 'portrait', 'landscape']
   }
 ];
 

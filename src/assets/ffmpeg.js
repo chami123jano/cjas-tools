@@ -158,6 +158,36 @@
 
     logs: function () { return logs.slice(); },
 
+    /* The usual first step of a video tool: read the file, start the
+       engine, and look at the file. onStatus(text) reports progress.
+       Resolves { bytes, ext, base, name, size, info }. */
+    open: function (file, onStatus) {
+      var say = onStatus || function () {};
+      var ext = (/\.([a-z0-9]{1,5})$/i.exec(file.name) || [0, 'mp4'])[1].toLowerCase();
+      var out = { ext: ext, base: file.name.replace(/\.[^.]+$/, '') || 'video', name: file.name, size: file.size };
+      say('Reading the file...');
+      return file.arrayBuffer().then(function (ab) {
+        out.bytes = new Uint8Array(ab);
+        return FF.load(function (got, total) { say(FF.progressText(got, total)); });
+      }).then(function () {
+        say('Looking at the file...');
+        return FF.probe('probe.' + ext, out.bytes);
+      }).then(function (info) {
+        out.info = info;
+        return out;
+      });
+    },
+
+    /* "about 1:20 left", worked out from how far along it is. */
+    timeLeft: function (started, fraction) {
+      var secs = (Date.now() - started) / 1000;
+      if (!(fraction > 0.03)) return '';
+      var left = secs / fraction - secs;
+      if (left < 3) return '';
+      var m = Math.floor(left / 60), s = Math.round(left % 60);
+      return ', about ' + (m ? m + ' min ' : '') + s + ' s left';
+    },
+
     /* A progress bar shared by the video tools. */
     progressText: function (got, total) {
       return 'Getting the video engine ready: ' + (got / 1048576).toFixed(1) + ' of ' + (total / 1048576).toFixed(0) +
