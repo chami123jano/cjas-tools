@@ -971,6 +971,179 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.close();
   }
 
+  // ---------------------------------------------------------- fill a form
+  {
+    const page = await open('fill-pdf-form');
+    const formFile = path.join(tmp, 'application.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const p = doc.addPage([595, 842]);
+      const form = doc.getForm();
+      const name = form.createTextField('applicant.full_name');
+      name.addToPage(p, { x: 150, y: 740, width: 300, height: 22 });
+      const addr = form.createTextField('address');
+      addr.enableMultiline();
+      addr.addToPage(p, { x: 150, y: 640, width: 300, height: 70 });
+      const agree = form.createCheckBox('agree_terms');
+      agree.addToPage(p, { x: 150, y: 600, width: 14, height: 14 });
+      const district = form.createDropdown('district');
+      district.addOptions(['Colombo', 'Gampaha', 'Kandy']);
+      district.addToPage(p, { x: 150, y: 560, width: 150, height: 20 });
+      const pay = form.createRadioGroup('payment');
+      pay.addOptionToPage('Cash', p, { x: 150, y: 520, width: 14, height: 14 });
+      pay.addOptionToPage('Card', p, { x: 220, y: 520, width: 14, height: 14 });
+      fs.writeFileSync(formFile, await doc.save());
+    }
+    await give(page, formFile);
+    ok(/5 boxes to fill/.test(await text(page, 'status')), 'form: finds the five boxes', await text(page, 'status'));
+    const labels = await page.$$eval('.fld > label', (l) => l.map((x) => x.textContent.trim()));
+    ok(labels[0] === '1full name' && labels[1] === '2address', 'form: boxes in page order with readable names', labels.join(' | '));
+    ok(await page.$eval('#f1', (e) => e.tagName) === 'TEXTAREA', 'form: a multi-line box gets a big box');
+    await page.waitForFunction(() => document.querySelectorAll('#pages canvas').length === 1 && document.querySelector('#pages canvas').width > 100, { timeout: 8000 }).catch(() => {});
+    ok(await page.$eval('#pages canvas', (c) => c.width) > 100, 'form: the page is shown with its boxes numbered');
+
+    // Sinhala in a box is caught before saving
+    await page.$eval('#f0', (e) => { e.value = 'චමිදූ'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    ok(!(await page.$eval('#w0', (e) => e.hidden)), 'form: Sinhala in a box is pointed out');
+    await page.click('#save');
+    ok((await saved(page, 0)).length === 0, 'form: and it does not save a broken box');
+
+    await page.$eval('#f0', (e) => { e.value = 'Chamindu Ambawatta'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.$eval('#f1', (e) => { e.value = '12 Temple Road\nKandy'; });
+    await page.$eval('#f2', (e) => { e.checked = true; });
+    await page.select('#f3', 'Kandy');
+    await page.click('input[name="f4"][value="Card"]');
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'application-filled.pdf', 'form: saves application-filled.pdf');
+    if (s[0]) {
+      const f = (await PDFDocument.load(s[0].bytes)).getForm();
+      ok(f.getTextField('applicant.full_name').getText() === 'Chamindu Ambawatta', 'form: the name is filled');
+      ok(f.getTextField('address').getText() === '12 Temple Road\nKandy', 'form: the address keeps its two lines');
+      ok(f.getCheckBox('agree_terms').isChecked(), 'form: the box is ticked');
+      ok(f.getDropdown('district').getSelected()[0] === 'Kandy', 'form: the district is chosen');
+      ok(f.getRadioGroup('payment').getSelected() === 'Card', 'form: the payment choice is made');
+    }
+
+    // permanent answers: no boxes left, but the words are on the page
+    await page.evaluate(() => { window.__saved = []; });
+    await page.$eval('#flatten', (e) => { e.checked = true; });
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes);
+      ok(d.getForm().getFields().length === 0, 'form: permanent answers leave no boxes');
+      const r = await readBack(page, s[0].bytes, 1);
+      ok(/Chamindu Ambawatta/.test(r.texts[0]) && /Kandy/.test(r.texts[0]), 'form: and the answers are printed on the page', r.texts[0]);
+    }
+
+    // a PDF with no boxes
+    await give(page, ten);
+    ok(/no boxes to fill/.test(await text(page, 'status')) && await page.$eval('#form-panel', (e) => e.hidden),
+       'form: a plain PDF points to Add Text', await text(page, 'status'));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- add text over a fillable box
+  {
+    const page = await open('add-text-to-pdf');
+    await page.setViewport({ width: 1100, height: 1500 });
+    const withBox = path.join(tmp, 'boxed.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const p = doc.addPage([595, 842]);
+      doc.getForm().createTextField('name').addToPage(p, { x: 150, y: 700, width: 300, height: 24 });
+      fs.writeFileSync(withBox, await doc.save());
+    }
+    await give(page, withBox);
+    await wait(600);
+    await page.$eval('#sheet', (e) => e.scrollIntoView({ block: 'start' }));
+    const r = await (await page.$('#page')).boundingBox();
+    // click inside the box: x 150-450 of 595, y 700-724 from the bottom of 842
+    await page.mouse.click(r.x + r.width * 0.3, r.y + r.height * (1 - 718 / 842));
+    await wait(150);
+    await page.keyboard.type('Over the box');
+    await page.$eval('.item[contenteditable="true"]', (e) => e.blur()).catch(() => {});
+    await page.click('#save');
+    const s = await saved(page);
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes);
+      ok(d.getForm().getFields().length === 0, 'add text: a box under the text is made permanent');
+      const t = await readBack(page, s[0].bytes, 1);
+      ok(t.texts[0] === 'Over the box', 'add text: and the text shows on top of it', JSON.stringify(t.texts));
+      const toast = await page.$eval('.toast', (e) => e.textContent).catch(() => '');
+      ok(/made permanent/.test(toast), 'add text: and says so', toast);
+    } else ok(false, 'add text: saved over a box');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- add text
+  {
+    const page = await open('add-text-to-pdf');
+    await page.setViewport({ width: 1100, height: 1500 });   // the whole A4 page on screen
+    const paper = path.join(tmp, 'paper-form.pdf');
+    {
+      const doc = await PDFDocument.create();
+      doc.addPage([595, 842]);
+      const p2 = doc.addPage([595, 842]); p2.setRotation(degrees(90));
+      fs.writeFileSync(paper, await doc.save());
+    }
+    await give(page, paper);
+    await wait(800);
+    await page.$eval('#sheet', (e) => e.scrollIntoView({ block: 'start' }));
+    let r = await (await page.$('#page')).boundingBox();
+    /* Measured fresh each time: typing can scroll the page. */
+    const at = async (fx, fy) => {
+      await page.$eval('#sheet', (e) => e.scrollIntoView({ block: 'start' }));
+      r = await (await page.$('#page')).boundingBox();
+      await page.mouse.click(r.x + r.width * fx, r.y + r.height * fy);
+      await wait(150);
+    };
+
+    // text at the top left area, typed in place
+    await at(0.15, 0.12);
+    await page.keyboard.type('Nimal Perera');
+    await page.$eval('.item[contenteditable="true"]', (e) => e.blur()).catch(() => {});   // finish typing
+    ok(await page.$$eval('.item', (i) => i.length) === 1, 'add text: one text item');
+    ok((await page.$eval('.item', (e) => e.textContent)).indexOf('Nimal Perera') === 0, 'add text: typed in place');
+
+    // a tick in the bottom right area
+    await page.click('#tools [data-tool="tick"]');
+    await at(0.8, 0.85);
+    // Sinhala text in the middle
+    await page.click('#tools [data-tool="text"]');
+    await at(0.4, 0.5);
+    await page.keyboard.type('ශ්‍රී ලංකාව');
+    await page.$eval('.item[contenteditable="true"]', (e) => e.blur()).catch(() => {});
+    ok(/3 added in all/.test(await text(page, 'count')), 'add text: three things added', await text(page, 'count'));
+
+    // the sideways page 2: a date at the top left as seen
+    await page.click('#next');
+    await wait(800);
+    r = await (await page.$('#page')).boundingBox();
+    await page.click('#tools [data-tool="date"]');
+    await at(0.1, 0.1);
+    ok(r.width > r.height, 'add text: page 2 is shown sideways');
+
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s[0] && s[0].name === 'paper-form-filled.pdf', 'add text: saves paper-form-filled.pdf',
+       (s[0] ? s[0].name : 'nothing saved') + ' / ' + await page.$eval('.toast', (e) => e.textContent).catch(() => 'no message'));
+    if (s[0]) {
+      const t = await readBack(page, s[0].bytes, 1);
+      ok(t.texts[0] === 'Nimal Perera', 'add text: English is real text (Sinhala is a picture)', JSON.stringify(t.texts));
+      ok(/^\d\d\/\d\d\/\d{4}$/.test(t.texts[1]), 'add text: the date on page 2', t.texts[1]);
+      const m1 = await inkMap(page, s[0].bytes, 1);
+      // top left (name), middle (Sinhala picture), bottom right (tick)
+      ok(m1.grid[0] > 30 && m1.grid[4] > 30 && m1.grid[8] > 10, 'add text: each lands where it was clicked', JSON.stringify(m1.grid));
+      ok(m1.grid[2] === 0 && m1.grid[6] === 0, 'add text: and nowhere else', JSON.stringify(m1.grid));
+      const m2 = await inkMap(page, s[0].bytes, 2);
+      ok(m2.w > m2.h && m2.grid[0] > 10 && m2.grid.slice(1).every((n) => n === 0),
+         'add text: top left as seen on the sideways page', JSON.stringify(m2));
+    }
+    await page.close();
+  }
+
   // ---------------------------------------------------------- protected PDFs
   {
     const page = await open('split-pdf');

@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fill PDF Form — Cja's Tools</title>
+<meta name="description" content="Type into the boxes of a fillable PDF form, tick its checkboxes and choose its options, then save. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .form-page { margin-bottom: 18px; }
+  .form-page h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .form-wrap { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 760px) { .form-wrap { grid-template-columns: minmax(0, 1fr); } }
+  .form-wrap canvas { width: 100%; height: auto; border: 1px solid var(--border); background: #fff; display: block; }
+  .fields { display: grid; gap: 10px; }
+  .fld label { display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; }
+  .fld .no {
+    flex: none; display: inline-block; min-width: 22px; text-align: center; border-radius: 9px;
+    background: var(--accent); color: #fff; font-size: 11.5px; padding: 1px 5px;
+  }
+  .fld .warn { color: var(--danger); font-size: 12px; margin-top: 3px; }
+  .fld .choice { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 4px; font-size: 14px; }
+  .fld .choice label { font-weight: 400; }
+</style>
+</head>
+<body data-page="tool" data-slug="fill-pdf-form">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Fill PDF Form</h1>
+        <p>Type into the boxes of a fillable form, then save it. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF form</b>, or drag one here
+          <span>Forms with boxes you can click and type in</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+        <p class="hint" id="status"></p>
+      </div>
+
+      <div class="panel" id="form-panel" hidden>
+        <div id="pages"></div>
+        <label>
+          <input type="checkbox" id="flatten" style="width:auto;margin-right:7px">
+          Make the answers permanent, so they cannot be changed later
+        </label>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="save">Save the filled form</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which boxes are which:</b> each box on the page has a number,
+          and the same number is beside its place to type. Forms often give their boxes
+          unhelpful names like "Text1", so the numbers are the thing to go by.
+          <br><br>
+          <b>Sinhala and Tamil cannot go into form boxes</b> here: the boxes use a basic
+          font built into every PDF reader, which has only English-style letters. To
+          write Sinhala or Tamil on a form, use <a href="add-text-to-pdf.html">Add Text to PDF</a>,
+          which places the words anywhere on the page.
+          <br><br>
+          <b>No fillable boxes?</b> Many forms are just a printed page saved as PDF. Use
+          <a href="add-text-to-pdf.html">Add Text to PDF</a> to type on those.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, base = 'form', fields = [];
+    /* Letters the built-in PDF font can show (the Windows-1252 set). */
+    var WINANSI = /^[\x00-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/;
+
+    function esc(s) { return CJA_IMG.escape(s == null ? '' : String(s)); }
+
+    /* A readable label from a box's internal name: "applicant.full_name" ->
+       "full name". */
+    function nice(name) {
+      var last = String(name).split('.').pop();
+      return last.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim() || name;
+    }
+
+    function kindOf(f) {
+      if (f instanceof PDFLib.PDFTextField) return 'text';
+      if (f instanceof PDFLib.PDFCheckBox) return 'check';
+      if (f instanceof PDFLib.PDFRadioGroup) return 'radio';
+      if (f instanceof PDFLib.PDFDropdown) return 'dropdown';
+      if (f instanceof PDFLib.PDFOptionList) return 'list';
+      return null;   // buttons and signature boxes are not filled here
+    }
+
+    function inputFor(f, i) {
+      var id = 'f' + i;
+      if (f.kind === 'text') {
+        var max = f.field.getMaxLength();
+        var attrs = ' id="' + id + '" data-i="' + i + '"' + (max ? ' maxlength="' + max + '"' : '');
+        return f.field.isMultiline()
+          ? '<textarea rows="3"' + attrs + '>' + esc(f.field.getText()) + '</textarea>'
+          : '<input type="text"' + attrs + ' value="' + esc(f.field.getText()) + '">';
+      }
+      if (f.kind === 'check') {
+        return '<div class="choice"><label><input type="checkbox" id="' + id + '" data-i="' + i + '" style="width:auto"' +
+          (f.field.isChecked() ? ' checked' : '') + '> Ticked</label></div>';
+      }
+      if (f.kind === 'radio') {
+        var sel = f.field.getSelected();
+        return '<div class="choice">' + f.field.getOptions().map(function (o, k) {
+          return '<label><input type="radio" name="' + id + '" data-i="' + i + '" value="' + esc(o) + '" style="width:auto"' +
+            (o === sel ? ' checked' : '') + '> ' + esc(o) + '</label>';
+        }).join('') + '</div>';
+      }
+      var opts = f.field.getOptions(), chosen = f.field.getSelected();
+      return '<select id="' + id + '" data-i="' + i + '"' + (f.kind === 'list' && f.field.isMultiselect() ? ' multiple' : '') + '>' +
+        (f.kind === 'dropdown' ? '<option value="">-</option>' : '') +
+        opts.map(function (o) {
+          return '<option value="' + esc(o) + '"' + (chosen.indexOf(o) !== -1 ? ' selected' : '') + '>' + esc(o) + '</option>';
+        }).join('') + '</select>';
+    }
+
+    /* Builds one section per page: the page picture with numbered boxes,
+       and the places to type beside it. */
+    function build(doc) {
+      var byPage = {};
+      fields.forEach(function (f, i) { (byPage[f.page] = byPage[f.page] || []).push(i); });
+      var html = Object.keys(byPage).map(Number).sort(function (a, b) { return a - b; }).map(function (p) {
+        return '<div class="form-page"><h3>Page ' + (p + 1) + '</h3><div class="form-wrap">' +
+          '<canvas data-page="' + p + '" width="1" height="1"></canvas><div class="fields">' +
+          byPage[p].map(function (i) {
+            var f = fields[i];
+            return '<div class="fld"><label for="f' + i + '"><span class="no">' + (i + 1) + '</span>' +
+              esc(nice(f.name)) + (f.field.isRequired && f.field.isRequired() ? ' *' : '') + '</label>' +
+              inputFor(f, i) + '<div class="warn" id="w' + i + '" hidden></div></div>';
+          }).join('') + '</div></div></div>';
+      }).join('');
+      document.getElementById('pages').innerHTML = html;
+      drawPages(Object.keys(byPage).map(Number));
+    }
+
+    function drawPages(list) {
+      CJA_PDF.load(bytes).then(function (pdf) {
+        return list.reduce(function (p, n) {
+          return p.then(function () {
+            return pdf.getPage(n + 1).then(function (page) {
+              var base1 = page.getViewport({ scale: 1 });
+              var vp = page.getViewport({ scale: 720 / base1.width });
+              return CJA_PDF.render(pdf, n + 1, 720).then(function (c) {
+                var ctx = c.getContext('2d');
+                ctx.font = 'bold 15px Segoe UI, Arial, sans-serif';
+                fields.forEach(function (f, i) {
+                  if (f.page !== n) return;
+                  /* The viewport's transform turns the box's page coordinates
+                     into the picture's, sideways pages included. */
+                  var t = vp.transform;
+                  var pt = function (x, y) { return [t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]]; };
+                  var p1 = pt(f.rect.x, f.rect.y), p2 = pt(f.rect.x + f.rect.width, f.rect.y + f.rect.height);
+                  var r = [p1[0], p1[1], p2[0], p2[1]];
+                  var x = Math.min(r[0], r[2]), y = Math.min(r[1], r[3]);
+                  var w = Math.abs(r[2] - r[0]), h = Math.abs(r[3] - r[1]);
+                  ctx.strokeStyle = '#3b6fe0'; ctx.lineWidth = 2;
+                  ctx.fillStyle = 'rgba(59,111,224,0.12)';
+                  ctx.fillRect(x, y, w, h);
+                  ctx.strokeRect(x, y, w, h);
+                  var label = String(i + 1), lw = ctx.measureText(label).width + 8;
+                  ctx.fillStyle = '#3b6fe0';
+                  ctx.fillRect(x, y - 18 < 0 ? y : y - 18, lw, 18);
+                  ctx.fillStyle = '#fff';
+                  ctx.fillText(label, x + 4, (y - 18 < 0 ? y : y - 18) + 14);
+                });
+                var spot = document.querySelector('#pages canvas[data-page="' + n + '"]');
+                if (spot) spot.replaceWith(c);
+              });
+            });
+          });
+        }, Promise.resolve()).then(function () { CJA_PDF.close(pdf); });
+      }).catch(function () { /* pictures are optional */ });
+    }
+
+    /* Checks typed text can be shown by the form's font. */
+    function check(i) {
+      var f = fields[i];
+      if (f.kind !== 'text') return true;
+      var val = document.getElementById('f' + i).value;
+      var okay = WINANSI.test(val);
+      var w = document.getElementById('w' + i);
+      w.hidden = okay;
+      w.textContent = okay ? '' : 'Form boxes cannot show Sinhala, Tamil or these symbols. Use Add Text to PDF for this.';
+      return okay;
+    }
+    document.getElementById('pages').addEventListener('input', function (e) {
+      if (e.target.dataset.i !== undefined) check(+e.target.dataset.i);
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var bad = fields.map(function (_, i) { return check(i); }).indexOf(false);
+      if (bad !== -1) {
+        CT.toast('Box ' + (bad + 1) + ' has letters the form cannot show');
+        document.getElementById('f' + bad).focus();
+        return;
+      }
+      var btn = this;
+      btn.disabled = true;
+      CJA_PDF.open(bytes).then(function (doc) {
+        var form = doc.getForm();
+        if (form.hasXFA()) form.deleteXFA();
+        var fresh = form.getFields();
+        fields.forEach(function (f, i) {
+          var field = fresh[f.index];
+          if (f.kind === 'text') field.setText(document.getElementById('f' + i).value || undefined);
+          else if (f.kind === 'check') {
+            if (document.getElementById('f' + i).checked) field.check(); else field.uncheck();
+          } else if (f.kind === 'radio') {
+            var r = document.querySelector('input[name="f' + i + '"]:checked');
+            if (r) field.select(r.value); else field.clear();
+          } else {
+            var sel = Array.from(document.getElementById('f' + i).selectedOptions).map(function (o) { return o.value; }).filter(Boolean);
+            if (sel.length) field.select(f.kind === 'list' ? sel : sel[0]); else field.clear();
+          }
+        });
+        if (document.getElementById('flatten').checked) form.flatten();
+        return CJA_PDF.save(doc);
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-filled.pdf');
+      }).catch(function (e) {
+        CT.toast('Could not save the form: ' + e.message);
+      }).then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      var status = document.getElementById('status');
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          base = f.name.replace(/\.pdf$/i, '') || 'form';
+          document.getElementById('drop').innerHTML = '<b>' + esc(f.name) + '</b><span>' +
+            doc.getPageCount() + ' page' + (doc.getPageCount() === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          var form = doc.getForm();
+          var xfa = form.hasXFA();
+          if (xfa) form.deleteXFA();
+          fields = [];
+          form.getFields().forEach(function (field, index) {
+            var kind = kindOf(field);
+            var widgets = field.acroField.getWidgets();
+            if (!kind || !widgets.length) return;
+            fields.push({ field: field, index: index, kind: kind, name: field.getName(),
+                          page: CJA_PDF.widgetPage(doc, widgets[0]), rect: widgets[0].getRectangle() });
+          });
+          fields.sort(function (a, b) { return a.page - b.page || (b.rect.y - a.rect.y) || (a.rect.x - b.rect.x); });
+          if (!fields.length) {
+            document.getElementById('form-panel').hidden = true;
+            status.innerHTML = 'This PDF has no boxes to fill in &mdash; it is probably a printed form saved as PDF. ' +
+              'Use <a href="add-text-to-pdf.html">Add Text to PDF</a> to type on it.';
+            return;
+          }
+          status.textContent = fields.length + ' box' + (fields.length === 1 ? '' : 'es') + ' to fill.' +
+            (xfa ? ' This form was made with Adobe LiveCycle; its standard boxes are used, which most readers show.' : '');
+          document.getElementById('form-panel').hidden = false;
+          build(doc);
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -2997,12 +2997,47 @@ pending.push(function currencyLive() {
 (function () {
   ['merge-pdf', 'split-pdf', 'images-to-pdf', 'pdf-to-images', 'rotate-pdf', 'remove-pages',
    'organize-pdf', 'pdf-page-numbers', 'watermark-pdf', 'sign-pdf', 'pdf-to-text',
-   'compress-pdf', 'pdf-metadata', 'crop-pdf'].forEach((slug) => {
+   'compress-pdf', 'pdf-metadata', 'crop-pdf', 'fill-pdf-form', 'add-text-to-pdf'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file'), slug + ' has a drop zone');
     ok(!!t.window.CJA_PDF && !!t.window.PDFLib, slug + ' loads the PDF helpers');
     t.close();
   });
+})();
+
+// ---------------------------------------------------------------- the PDF category is complete
+
+(function () {
+  const win = {};
+  new Function('window', fs.readFileSync(path.join(SRC, 'assets/tools.js'), 'utf8'))(win);
+  const pdf = win.CATEGORIES.find((c) => c.id === 'pdf');
+  const built = win.TOOLS.filter((t) => t.category === 'pdf');
+  ok(built.length === pdf.planned, 'all ' + pdf.planned + ' planned PDF tools are built', 'built ' + built.length);
+  built.forEach((t) => ok(fs.existsSync(path.join(SRC, 'tools', t.slug + '.html')), 'PDF tool page exists: ' + t.slug));
+  // every link from one tool page to another points at a page that exists
+  const pages = fs.readdirSync(path.join(SRC, 'tools')).filter((f) => f.endsWith('.html'));
+  const broken = [];
+  pages.forEach((f) => {
+    const html = fs.readFileSync(path.join(SRC, 'tools', f), 'utf8');
+    for (const m of html.matchAll(/href="([a-z0-9-]+\.html)"/g)) {
+      if (!fs.existsSync(path.join(SRC, 'tools', m[1]))) broken.push(f + ' -> ' + m[1]);
+    }
+  });
+  ok(broken.length === 0, 'no tool links to a page that does not exist', broken.join(', '));
+})();
+
+// ---------------------------------------------------------------- every page's own code parses
+// (the harness reports a page's script error but carries on, so check directly)
+
+(function () {
+  const bad = [];
+  fs.readdirSync(path.join(SRC, 'tools')).filter((f) => f.endsWith('.html')).forEach((f) => {
+    const html = fs.readFileSync(path.join(SRC, 'tools', f), 'utf8');
+    [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach((m) => {
+      try { new Function(m[1]); } catch (e) { bad.push(f + ': ' + e.message); }
+    });
+  });
+  ok(bad.length === 0, 'the script inside every tool page parses', bad.join('; '));
 })();
 
 // ---------------------------------------------------------------- report

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add Text to PDF — Cja's Tools</title>
+<meta name="description" content="Type on any PDF - a printed form, a letter - and add ticks, crosses and the date, in English, Sinhala or Tamil. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  /* The tools stay in reach under the site header while scrolling down a
+     long page to place things. */
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;
+    position: sticky; top: 62px; z-index: 20; background: var(--surface); padding: 8px 0;
+  }
+  .toolbar select { width: auto; }
+  .pager { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+  .sheet { position: relative; display: inline-block; max-width: 100%; touch-action: none; }
+  .sheet canvas { display: block; border: 1px solid var(--border); background: #fff; cursor: text; }
+  .item {
+    position: absolute; white-space: pre; line-height: 1.15; cursor: move;
+    font-family: Helvetica, Arial, 'Iskoola Pota', 'Nirmala UI', sans-serif; outline: 1px dashed transparent;
+  }
+  .item:hover, .item.on { outline-color: var(--accent); }
+  .item[contenteditable="true"] { cursor: text; outline-color: var(--accent); min-width: 20px; }
+  .item .x {
+    position: absolute; top: -10px; right: -10px; width: 18px; height: 18px; border-radius: 50%; border: none;
+    background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; padding: 0; cursor: pointer; display: none;
+  }
+  .item.on .x { display: block; }
+</style>
+</head>
+<body data-page="tool" data-slug="add-text-to-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Add Text to PDF</h1>
+        <p>Type on any PDF, and tick boxes on printed forms. English, Sinhala and Tamil. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="edit-panel" hidden>
+        <div class="toolbar" id="tools">
+          <button class="btn primary" data-tool="text">Text</button>
+          <button class="btn" data-tool="tick">&#10003; Tick</button>
+          <button class="btn" data-tool="cross">&#10007; Cross</button>
+          <button class="btn" data-tool="date">Today's date</button>
+          <select id="size" title="Text size">
+            <option value="9">Small</option>
+            <option value="11" selected>Normal</option>
+            <option value="14">Large</option>
+            <option value="20">Very large</option>
+          </select>
+          <select id="colour" title="Colour">
+            <option value="#111111" selected>Black</option>
+            <option value="#1a3fa0">Blue</option>
+            <option value="#c0161e">Red</option>
+          </select>
+          <button class="btn" id="undo">Undo</button>
+          <span class="pager">
+            <button class="btn" id="prev" title="Previous page">&larr;</button>
+            <span id="page-label"></span>
+            <button class="btn" id="next" title="Next page">&rarr;</button>
+          </span>
+          <span class="hint" id="count" style="margin:0"></span>
+        </div>
+        <div class="sheet" id="sheet"><canvas id="page"></canvas></div>
+        <p class="hint">Click the page to add. Drag anything to move it; click text to change
+          it; the red &times; removes it.</p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save the PDF</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>English text goes in as real text,</b> so it can be searched
+          and copied. <b>Sinhala and Tamil</b> are drawn with the fonts that come with
+          Windows and placed as a sharp picture, so they show correctly in every PDF
+          reader, even ones without those fonts.
+          <br><br>
+          <b>For a fillable form</b> &mdash; one where you can click in the boxes &mdash;
+          <a href="fill-pdf-form.html">Fill PDF Form</a> fills the real boxes instead.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var WINANSI = /^[\x00-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/;
+    var NATIVE_FONT = "'Iskoola Pota', 'Nirmala UI', 'Latha', sans-serif";
+    var bytes = null, total = 0, base = 'document', viewer = null, current = 1;
+    var tool = 'text';
+    var items = [];          // { page, x, y (fractions of the page as seen, top left), kind, text, size, colour }
+    var scale = 1;           // screen pixels per point on the shown page
+    var seen = { w: 1, h: 1 };
+    var sheet = document.getElementById('sheet');
+
+    function v(id) { return document.getElementById(id).value; }
+    function today() { return new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+
+    // ------------------------------------------------ showing the page and items
+    function showPage() {
+      document.getElementById('page-label').textContent = 'Page ' + current + ' of ' + total;
+      document.getElementById('prev').disabled = current === 1;
+      document.getElementById('next').disabled = current === total;
+      viewer.getPage(current).then(function (p) {
+        var vp = p.getViewport({ scale: 1 });
+        seen = { w: vp.width, h: vp.height };
+        var w = Math.min(760, sheet.parentElement.getBoundingClientRect().width || 760);
+        scale = w / vp.width;
+        var ratio = window.devicePixelRatio || 1;
+        return CJA_PDF.render(viewer, current, w * ratio).then(function (c) {
+          var page = document.getElementById('page');
+          page.width = c.width; page.height = c.height;
+          page.style.width = w + 'px';
+          page.style.height = (w * vp.height / vp.width) + 'px';
+          page.getContext('2d').drawImage(c, 0, 0);
+          drawItems();
+        });
+      });
+    }
+
+    function drawItems() {
+      sheet.querySelectorAll('.item').forEach(function (el) { el.remove(); });
+      items.forEach(function (it, i) {
+        if (it.page !== current) return;
+        var el = document.createElement('div');
+        el.className = 'item';
+        el.dataset.i = i;
+        el.style.left = it.x * seen.w * scale + 'px';
+        el.style.top = it.y * seen.h * scale + 'px';
+        el.style.fontSize = it.size * scale + 'px';
+        el.style.color = it.colour;
+        if (it.kind !== 'text') el.style.fontWeight = '700';
+        el.textContent = it.kind === 'tick' ? '✓' : it.kind === 'cross' ? '✗' : it.text;
+        var x = document.createElement('button');
+        x.className = 'x'; x.textContent = '×'; x.title = 'Remove';
+        el.appendChild(x);
+        sheet.appendChild(el);
+      });
+      var n = items.length;
+      document.getElementById('count').textContent = n ? n + ' added in all' : '';
+    }
+
+    /* Typing into a text item, in place. */
+    function edit(el) {
+      var it = items[+el.dataset.i];
+      if (it.kind !== 'text') return;
+      el.querySelector('.x').remove();
+      el.contentEditable = 'true';
+      el.focus();
+      document.getSelection().selectAllChildren(el);
+      function done() {
+        el.removeEventListener('blur', done);
+        var t = el.innerText.replace(/\n+$/, '');
+        if (!t.trim()) items.splice(+el.dataset.i, 1); else it.text = t;
+        drawItems();
+      }
+      el.addEventListener('blur', done);
+      el.addEventListener('keydown', function (e) {
+        /* Enter starts a new line; Escape or a click elsewhere finishes. */
+        if (e.key === 'Escape') { e.preventDefault(); el.blur(); }
+      });
+    }
+
+    // ------------------------------------------------ clicking and dragging
+    var drag = null;
+    sheet.addEventListener('pointerdown', function (e) {
+      if (e.target.isContentEditable) return;
+      var r = document.getElementById('page').getBoundingClientRect();
+      var el = e.target.closest('.item');
+      if (e.target.classList.contains('x')) {
+        items.splice(+el.dataset.i, 1);
+        drawItems();
+        return;
+      }
+      if (el) {
+        sheet.querySelectorAll('.item.on').forEach(function (x) { x.classList.remove('on'); });
+        el.classList.add('on');
+        var it = items[+el.dataset.i];
+        drag = { el: el, it: it, sx: e.clientX, sy: e.clientY, x: it.x, y: it.y, moved: false };
+        sheet.setPointerCapture(e.pointerId);
+        return;
+      }
+      /* A click on the page adds something there. The click point is the
+         middle of a tick or cross, and the top left of text. */
+      var fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+      var size = +v('size');
+      var item = { page: current, x: fx, y: fy, kind: tool, size: size, colour: v('colour'), text: '' };
+      if (tool === 'tick' || tool === 'cross') {
+        item.size = size * 1.4;
+        item.x = fx - (item.size * 0.35) / seen.w;
+        item.y = fy - (item.size * 0.6) / seen.h;
+      } else {
+        item.y = fy - (size * 0.6) / seen.h;
+        if (tool === 'date') { item.kind = 'text'; item.text = today(); }
+      }
+      items.push(item);
+      drawItems();
+      /* Wait until the browser has finished with the click, which would
+         otherwise take the typing cursor straight back out of the box. */
+      if (tool === 'text') {
+        var fresh = sheet.querySelector('.item[data-i="' + (items.length - 1) + '"]');
+        setTimeout(function () { edit(fresh); }, 0);
+      }
+    });
+    sheet.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var r = document.getElementById('page').getBoundingClientRect();
+      var dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      drag.it.x = Math.max(0, Math.min(0.98, drag.x + dx / r.width));
+      drag.it.y = Math.max(0, Math.min(0.98, drag.y + dy / r.height));
+      drag.el.style.left = drag.it.x * r.width + 'px';
+      drag.el.style.top = drag.it.y * r.height + 'px';
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      sheet.addEventListener(ev, function () {
+        if (!drag) return;
+        var d = drag;
+        drag = null;
+        /* A click without a move on text means "change it". */
+        if (!d.moved && d.it.kind === 'text') setTimeout(function () { edit(d.el); }, 0);
+      });
+    });
+
+    document.getElementById('tools').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tool]');
+      if (!b) return;
+      tool = b.dataset.tool;
+      document.querySelectorAll('#tools [data-tool]').forEach(function (x) { x.classList.toggle('primary', x === b); });
+    });
+    document.getElementById('undo').addEventListener('click', function () { items.pop(); drawItems(); });
+    document.getElementById('prev').addEventListener('click', function () { if (current > 1) { current--; showPage(); } });
+    document.getElementById('next').addEventListener('click', function () { if (current < total) { current++; showPage(); } });
+
+    // ------------------------------------------------ saving
+    /* Sinhala, Tamil and other letters the built-in PDF font lacks are
+       drawn on a canvas with the system's fonts, then placed as a picture. */
+    function textPicture(it) {
+      var px = it.size * 6;     // six pixels per point: sharp when printed
+      var lines = it.text.split('\n');
+      var probe = CJA_IMG.canvas(1, 1).getContext('2d');
+      probe.font = px + 'px ' + NATIVE_FONT;
+      var w = Math.max.apply(null, lines.map(function (l) { return probe.measureText(l).width; })) + px * 0.2;
+      var lineH = px * 1.15;
+      var c = CJA_IMG.canvas(Math.ceil(w), Math.ceil(lineH * lines.length + px * 0.3));
+      var ctx = c.getContext('2d');
+      ctx.font = px + 'px ' + NATIVE_FONT;
+      ctx.fillStyle = it.colour;
+      ctx.textBaseline = 'top';
+      lines.forEach(function (l, i) { ctx.fillText(l, 0, i * lineH + px * 0.1); });
+      return CJA_IMG.toBlob(c, 'image/png').then(function (b) { return b.arrayBuffer(); })
+        .then(function (ab) { return { png: new Uint8Array(ab), w: c.width / 6, h: c.height / 6 }; });
+    }
+
+    function hexRgb(h) {
+      var n = parseInt(h.slice(1), 16);
+      return PDFLib.rgb((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+    }
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!items.length) { CT.toast('Click the page to add something first'); return; }
+      var btn = this;
+      btn.disabled = true;
+      var flattened = false;
+      CJA_PDF.open(bytes).then(function (doc) {
+        return doc.embedFont(PDFLib.StandardFonts.Helvetica).then(function (font) {
+          var pages = doc.getPages();
+          /* A fillable form box is drawn on top of the page, so anything
+             added under one would be hidden. If an addition overlaps a box,
+             the boxes are made permanent first, so the addition shows. */
+          var form = doc.getForm();
+          var boxes = [];
+          form.getFields().forEach(function (f) {
+            f.acroField.getWidgets().forEach(function (w) {
+              boxes.push({ page: CJA_PDF.widgetPage(doc, w), r: w.getRectangle() });
+            });
+          });
+          var overlaps = items.some(function (it) {
+            var fr = CJA_PDF.frame(pages[it.page - 1]);
+            var lines = it.kind === 'text' ? it.text.split(/\n/) : ['M'];
+            /* Sinhala and Tamil are measured with the system font they are
+               drawn in; the built-in PDF font cannot measure them. */
+            var probe = CJA_IMG.canvas(1, 1).getContext('2d');
+            probe.font = it.size + 'px ' + NATIVE_FONT;
+            var widthOf = function (l) { return WINANSI.test(l) ? font.widthOfTextAtSize(l, it.size) : probe.measureText(l).width; };
+            var w = it.kind === 'text' ? Math.max.apply(null, lines.map(widthOf)) : it.size;
+            var h = it.size * 1.15 * lines.length;
+            var left = it.x * fr.width, top = fr.height - it.y * fr.height;
+            var a = fr.toPage(left, top - h), b = fr.toPage(left + w, top);
+            var x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+            return boxes.some(function (bx) {
+              return bx.page === it.page - 1 && x0 < bx.r.x + bx.r.width && x1 > bx.r.x && y0 < bx.r.y + bx.r.height && y1 > bx.r.y;
+            });
+          });
+          if (overlaps) { form.flatten(); flattened = true; }
+          return items.reduce(function (p, it) {
+            return p.then(function () {
+              var page = pages[it.page - 1];
+              var fr = CJA_PDF.frame(page);
+              var left = it.x * fr.width, top = fr.height - it.y * fr.height;   // top-left corner, as seen
+              var colour = hexRgb(it.colour);
+              if (it.kind === 'tick' || it.kind === 'cross') {
+                /* Drawn as lines, so no font is needed. Points are as seen. */
+                var s = it.size, t = Math.max(1, s / 9);
+                var strokes = it.kind === 'tick'
+                  ? [[[0.08, 0.55], [0.35, 0.82]], [[0.35, 0.82], [0.85, 0.15]]]
+                  : [[[0.12, 0.15], [0.78, 0.82]], [[0.78, 0.15], [0.12, 0.82]]];
+                strokes.forEach(function (st) {
+                  var a = fr.toPage(left + st[0][0] * s, top - st[0][1] * s);
+                  var b = fr.toPage(left + st[1][0] * s, top - st[1][1] * s);
+                  page.drawLine({ start: a, end: b, thickness: t, color: colour, lineCap: PDFLib.LineCapStyle.Round });
+                });
+                return;
+              }
+              if (WINANSI.test(it.text)) {
+                it.text.split('\n').forEach(function (line, n) {
+                  /* The baseline sits about 0.8 of the size below the top. */
+                  var at = fr.toPage(left, top - it.size * (0.82 + n * 1.15));
+                  page.drawText(line, { x: at.x, y: at.y, size: it.size, font: font, color: colour,
+                    rotate: PDFLib.degrees(fr.angle) });
+                });
+                return;
+              }
+              return textPicture(it).then(function (pic) {
+                return doc.embedPng(pic.png).then(function (img) {
+                  var at = fr.toPage(left, top - pic.h);
+                  page.drawImage(img, { x: at.x, y: at.y, width: pic.w, height: pic.h, rotate: PDFLib.degrees(fr.angle) });
+                });
+              });
+            });
+          }, Promise.resolve()).then(function () { return CJA_PDF.save(doc); });
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-filled.pdf');
+        if (flattened) CT.toast('Some of what you added was over fillable boxes, so those boxes were made permanent to let it show.');
+      }).catch(function (e) { CT.toast('Could not save: ' + e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          current = 1;
+          items = [];
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('edit-panel').hidden = false;
+          CJA_PDF.close(viewer);
+          return CJA_PDF.load(b).then(function (pdf) { viewer = pdf; showPage(); });
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

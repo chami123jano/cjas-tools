@@ -1051,6 +1051,20 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Trim the margins of PDF pages, by measurement or automatically.',
     keywords: ['crop', 'trim', 'margins', 'cut', 'pdf', 'white space']
+  },
+  {
+    slug: 'fill-pdf-form',
+    name: 'Fill PDF Form',
+    category: 'pdf',
+    desc: 'Type into the boxes of a fillable PDF form and save it.',
+    keywords: ['fill form', 'pdf form', 'fillable', 'application form', 'acroform', 'checkbox', 'pdf']
+  },
+  {
+    slug: 'add-text-to-pdf',
+    name: 'Add Text to PDF',
+    category: 'pdf',
+    desc: 'Type on any PDF and tick boxes on printed forms, in English, Sinhala or Tamil.',
+    keywords: ['add text', 'type on pdf', 'write on pdf', 'tick', 'annotate', 'sinhala', 'tamil', 'edit pdf']
   }
 ];
 

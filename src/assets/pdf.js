@@ -246,6 +246,19 @@
       };
     },
 
+    /* Which page (from 0) a form box's widget is drawn on. */
+    widgetPage: function (doc, widget) {
+      var pages = doc.getPages();
+      for (var i = 0; i < pages.length; i++) {
+        var annots = pages[i].node.Annots();
+        if (!annots) continue;
+        for (var k = 0; k < annots.size(); k++) {
+          if (annots.lookup(k) === widget.dict) return i;
+        }
+      }
+      return 0;
+    },
+
     /* The page tiles for a grid: a blank canvas and the page number each.
        Past `max` pages, tiles have no picture, to keep memory in hand. */
     tiles: function (total, max) {
