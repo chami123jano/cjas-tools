@@ -107,10 +107,10 @@ function serve() {
 
   /* A test video made in the browser: a moving box, a seconds counter and
      a 440 Hz tone, recorded to WebM. */
-  async function makeClip(file, w, h, secs) {
+  async function makeClip(file, w, h, secs, sound = true, heavy = false) {
     const maker = await browser.newPage();
     await maker.goto(base + 'video-to-mp3.html');
-    const b64 = await maker.evaluate((w, h, secs) => new Promise((resolve) => {
+    const b64 = await maker.evaluate((w, h, secs, sound, heavy) => new Promise((resolve) => {
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       const g = c.getContext('2d');
       const ac = new AudioContext();
@@ -118,8 +118,10 @@ function serve() {
       const gain = ac.createGain(); gain.gain.value = 0.3;
       const dest = ac.createMediaStreamDestination();
       osc.connect(gain).connect(dest); osc.start();
-      const stream = new MediaStream([...c.captureStream(25).getVideoTracks(), ...dest.stream.getAudioTracks()]);
-      const rec = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8,opus' });
+      const stream = new MediaStream([...c.captureStream(25).getVideoTracks(), ...(sound ? dest.stream.getAudioTracks() : [])]);
+      /* 'heavy' is like a phone camera: a high bitrate and a grainy picture. */
+      const rec = new MediaRecorder(stream, Object.assign({ mimeType: sound ? 'video/webm;codecs=vp8,opus' : 'video/webm;codecs=vp8' },
+        heavy ? { videoBitsPerSecond: 8000000 } : {}));
       const chunks = [];
       rec.ondataavailable = (e) => chunks.push(e.data);
       rec.onstop = () => new Blob(chunks).arrayBuffer().then((ab) => {
@@ -130,13 +132,14 @@ function serve() {
       let t = 0;
       const draw = setInterval(() => {
         g.fillStyle = '#123'; g.fillRect(0, 0, w, h);
+        if (heavy) for (let k = 0; k < 4000; k++) { g.fillStyle = 'hsl(' + (k * 37 % 360) + ',60%,' + (20 + Math.random() * 40) + '%)'; g.fillRect(Math.random() * w, Math.random() * h, 4, 4); }
         g.fillStyle = '#f80'; g.fillRect((t * 8) % (w - 60), h / 2 - 30, 60, 60);
         g.fillStyle = '#fff'; g.font = '40px sans-serif'; g.fillText(String(Math.floor(t / 25)), 20, 50);
         t++;
       }, 40);
       rec.start();
       setTimeout(() => { rec.stop(); clearInterval(draw); }, secs * 1000);
-    }), w, h, secs);
+    }), w, h, secs, sound, heavy);
     await maker.close();
     fs.writeFileSync(file, Buffer.from(b64, 'base64'));
     return file;
@@ -217,7 +220,7 @@ function serve() {
 
   // ---------------------------------------------------------- compress
   {
-    const big = await makeClip(path.join(tmp, 'wedding.webm'), 1280, 720, 3);
+    const big = await makeClip(path.join(tmp, 'wedding.webm'), 1280, 720, 3, true, true);
     const page = await open('compress-video');
     await (await page.$('#file')).uploadFile(big);
     await ready(page);
@@ -233,8 +236,11 @@ function serve() {
     ok(!(await page.$eval('#result', (r) => r.hidden)), 'compress: finishes', await text(page, 'status'));
     const saving = await text(page, 's-saved');
     ok(/^\d+%$/.test(saving), 'compress: and is smaller', saving + ' (' + await text(page, 's-before') + ' to ' + await text(page, 's-after') + ')');
-    await page.click('#save');
-    const s = await saved(page);
+    if (await page.$eval('#save', (b) => b.hidden || b.offsetParent === null)) {
+      ok(false, 'compress: offers to save', 'status: ' + await text(page, 'status') + ' / note: ' + await text(page, 'note') +
+         ' / sizes ' + await text(page, 's-before') + ' to ' + await text(page, 's-after'));
+    } else await page.click('#save');
+    const s = await saved(page, 1, 5000);
     ok(s[0] && s[0].name === 'wedding-compressed.mp4', 'compress: saves wedding-compressed.mp4');
     if (s[0]) {
       const m = await mediaInfo(page, s[0].b64, 'video/mp4');
@@ -332,6 +338,134 @@ function serve() {
       const c = await corners(page, s[0].b64, 'video/mp4', 2.2);
       ok(c.w === 640 && c.tr > 50 && c.tl < 5, 'rotate: mirrored, the counter is top right', JSON.stringify(c));
     } else ok(false, 'rotate: mirrored video saved');
+    await page.close();
+  }
+
+  /* What the engine itself says about a saved file. */
+  async function probeSaved(page, b64, name) {
+    return page.evaluate(async (b64, name) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      return window.CJA_FF.probe(name, u);
+    }, b64, name);
+  }
+  /* A 6 second 440 Hz tone as WAV, to use as music. */
+  const music = path.join(tmp, 'song.wav');
+  {
+    const rate = 44100, n = rate * 6, b = Buffer.alloc(44 + n * 2);
+    b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVE', 8); b.write('fmt ', 12);
+    b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(rate, 24);
+    b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+    for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * i / rate) * 9000), 44 + i * 2);
+    fs.writeFileSync(music, b);
+  }
+
+  // ---------------------------------------------------------- join videos
+  {
+    const silentWide = await makeClip(path.join(tmp, 'drone.webm'), 1280, 720, 2, false);
+    const page = await open('join-videos');
+    await (await page.$('#file')).uploadFile(clip, silentWide);
+    await page.waitForFunction(() => document.querySelectorAll('#list .file-row').length === 2, { timeout: 180000 }).catch(() => {});
+    const rows = await page.$eval('#list', (e) => e.textContent);
+    ok(/holiday\.webm/.test(rows) && /drone\.webm/.test(rows) && /no sound/.test(rows), 'join: both clips listed; the silent one noticed', rows);
+    ok(/2 clips, 0:0[56] in all, at 640 × 360/.test(await text(page, 'plan')), 'join: plan at the first clip\'s size', await text(page, 'plan'));
+    await page.click('#go');
+    const s = await saved(page, 1, 240000);
+    ok(s[0] && s[0].name === 'joined.mp4', 'join: saves joined.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const m = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(m.width === 640 && m.height === 360 && m.duration > 5.2 && m.duration < 6.6, 'join: one 640 x 360 video, both clips long', JSON.stringify(m));
+      const p = await probeSaved(page, s[0].b64, 'check.mp4');
+      ok(p.video && p.audio && p.videoCodec === 'h264' && p.audioCodec === 'aac', 'join: H.264 picture and AAC sound', JSON.stringify(p));
+      // the second clip (wide 1280 x 720) is fitted, not stretched: the frame from it still shows its counter top left
+      const c = await corners(page, s[0].b64, 'video/mp4', m.duration - 0.6);
+      ok(c.w === 640 && c.tl > 5, 'join: the second clip appears after the first', JSON.stringify(c));
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- video sound
+  {
+    const page = await open('video-sound');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    ok(/The video will have no sound/.test(await text(page, 'plan')), 'sound: remove is the first choice');
+    await page.click('#go');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'holiday-silent.webm', 'sound: saves holiday-silent.webm', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const p = await probeSaved(page, s[0].b64, 'check.webm');
+      ok(p.video && !p.audio && p.width === 640, 'sound: the saved video has no sound', JSON.stringify(p));
+      ok(Math.abs(p.duration - 4) < 0.5, 'sound: and is still the full length', p.duration);
+    }
+
+    // replace with music
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'replace');
+    ok(/Choose the music/.test(await text(page, 'plan')) && await page.$eval('#go', (b) => b.disabled), 'sound: asks for the music');
+    await (await page.$('#music')).uploadFile(music);
+    await page.waitForFunction(() => /Music: song\.wav/.test(document.getElementById('plan').textContent), { timeout: 60000 }).catch(() => {});
+    ok(/cut to the video/.test(await text(page, 'plan')), 'sound: a longer song is cut to the video', await text(page, 'plan'));
+    await page.click('#go');
+    s = await saved(page);
+    ok(s[0] && s[0].name === 'holiday-music.webm', 'sound: saves holiday-music.webm', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const p = await probeSaved(page, s[0].b64, 'check2.webm');
+      ok(p.video && p.audio && p.audioCodec === 'vorbis', 'sound: a WebM gets WebM sound (Vorbis)', JSON.stringify(p));
+      ok(p.duration < 4.6, 'sound: no longer than the video', p.duration);
+    }
+
+    // add music under the existing sound
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'add');
+    await page.click('#go');
+    s = await saved(page);
+    if (s[0]) {
+      const p = await probeSaved(page, s[0].b64, 'check3.webm');
+      ok(p.audio && p.video, 'sound: music added under the sound', JSON.stringify(p));
+    } else ok(false, 'sound: added music saved', await text(page, 'status') + ' | ' + (await page.evaluate(() => window.CJA_FF.logs().slice(-8).join(' / '))));
+
+    // a 1.5 second jingle repeats to fill the 4 second video
+    const jingle = path.join(tmp, 'jingle.wav');
+    fs.writeFileSync(jingle, Buffer.concat([fs.readFileSync(music).slice(0, 44), fs.readFileSync(music).slice(44, 44 + 44100 * 2 * 1.5)]));
+    { const j = fs.readFileSync(jingle); j.writeUInt32LE(j.length - 8, 4); j.writeUInt32LE(j.length - 44, 40); fs.writeFileSync(jingle, j); }
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'replace');
+    await (await page.$('#music')).uploadFile(jingle);
+    await page.waitForFunction(() => /Music: jingle\.wav/.test(document.getElementById('plan').textContent), { timeout: 60000 }).catch(() => {});
+    ok(/repeats to fill/.test(await text(page, 'plan')), 'sound: a short jingle is set to repeat', await text(page, 'plan'));
+    await page.click('#go');
+    s = await saved(page);
+    if (s[0]) {
+      const p = await probeSaved(page, s[0].b64, 'check4.webm');
+      const sound = await page.evaluate(async (b64) => {
+        const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        return new AudioContext().decodeAudioData(u.buffer).then((b) => b.duration, () => -1);
+      }, s[0].b64);
+      ok(p.audio && sound > 3.3, 'sound: the repeated jingle lasts the whole video', 'sound ' + sound + ' s');
+    } else ok(false, 'sound: repeated jingle saved', await text(page, 'status'));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- the engine restarts itself after a crash
+  {
+    /* This build of FFmpeg crashes when its Opus encoder gets stereo sound;
+       the tools avoid that, so it is used here on purpose to check that a
+       crash gives a clear message and the next job still works. */
+    const page = await open('video-sound');
+    const r = await page.evaluate(async () => {
+      const n = 48000, d = new Float32Array(n);
+      for (let i = 0; i < n; i++) d[i] = Math.sin(i / 10) * 0.2;
+      const wav = window.CJA_AUDIO.wavBytes([d, d], 48000);
+      const first = await window.CJA_FF.run(['-i', 'a.wav', '-c:a', 'libopus', 'a.webm'], { 'a.wav': wav }, 'a.webm')
+        .then(() => 'no crash', (e) => e.message);
+      const second = await window.CJA_FF.run(['-i', 'a.wav', '-c:a', 'libmp3lame', 'a.mp3'], { 'a.wav': wav }, 'a.mp3')
+        .then((x) => 'OK ' + x.length, (e) => 'ERROR ' + e.message);
+      return [first, second];
+    });
+    ok(/restarted/.test(r[0]), 'engine: a crash gives a clear message', r[0]);
+    ok(/^OK \d+/.test(r[1]), 'engine: and the next job works after the restart', r[1]);
     await page.close();
   }
 

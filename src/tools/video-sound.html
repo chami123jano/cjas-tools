@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Sound — Cja's Tools</title>
+<meta name="description" content="Remove the sound from a video, replace it with music, or add background music under it. Fast, with the picture untouched. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="video-sound">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Video Sound</h1>
+        <p>Remove the sound, replace it, or add music under it. Your files stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="mode">What to do</label>
+            <select id="mode">
+              <option value="remove" selected>Remove the sound (silent video)</option>
+              <option value="replace">Replace the sound with music</option>
+              <option value="add">Add music under the sound</option>
+            </select>
+          </div>
+        </div>
+        <div id="music-part" hidden>
+          <div class="btns">
+            <button class="btn" id="music-btn">Choose the music</button>
+          </div>
+          <input type="file" id="music" accept="audio/*,video/*" hidden>
+          <div class="row" style="margin-top:12px">
+            <div class="field" id="mix-field">
+              <label for="mix">Music volume under the voices: <span id="mix-v">25</span>%</label>
+              <input type="range" id="mix" min="5" max="100" value="25">
+            </div>
+            <div class="field">
+              <label>
+                <input type="checkbox" id="loop" checked style="width:auto;margin-right:7px">
+                Repeat the music if it is shorter than the video
+              </label>
+            </div>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Save the video</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This is quick, even for long videos:</b> the picture is copied
+          exactly as it is and only the sound is changed.
+          <br><br>
+          <b>The music fades out</b> over the last two seconds so it does not stop
+          suddenly. With "add music", 20 to 30% keeps voices easy to hear.
+          <br><br>
+          <b>Music and copyright:</b> songs you did not make may be blocked or muted when
+          you upload the video to YouTube, Facebook or Instagram.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, music = null;
+    /* Containers that take a copied picture as it is; anything else goes
+       into MKV, which accepts almost every kind of video. */
+    var KEEP = ['mp4', 'm4v', 'mov', 'mkv', 'webm'];
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    function plan() {
+      var mode = v('mode');
+      document.getElementById('music-part').hidden = mode === 'remove';
+      document.getElementById('mix-field').hidden = mode !== 'add';
+      document.getElementById('mix-v').textContent = v('mix');
+      if (!media) return;
+      var go = document.getElementById('go'), p = document.getElementById('plan');
+      if (mode === 'remove') { p.textContent = 'The video will have no sound.'; go.disabled = !media.info.audio; return; }
+      if (!music) { p.textContent = 'Choose the music to use.'; go.disabled = true; return; }
+      go.disabled = false;
+      var shorter = music.info.duration < media.info.duration;
+      p.textContent = (mode === 'add' && !media.info.audio ? 'This video has no sound of its own, so the music becomes its sound. ' : '') +
+        'Music: ' + music.name + ', ' + CJA_AUDIO.time(music.info.duration) + '. Video: ' + CJA_AUDIO.time(media.info.duration) + '.' +
+        (shorter ? (document.getElementById('loop').checked ? ' The music repeats to fill the video.' : ' The music ends before the video does.') : ' The music is cut to the video’s length.');
+    }
+    ['mode', 'loop'].forEach(function (id) { document.getElementById(id).addEventListener('change', plan); });
+    document.getElementById('mix').addEventListener('input', plan);
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, mode = v('mode'), input = 'video.' + media.ext;
+      var outExt = KEEP.indexOf(media.ext) !== -1 ? media.ext : 'mkv';
+      /* WebM gets Vorbis sound: this build of the engine crashes when its
+         Opus encoder is given stereo sound, and every browser plays Vorbis. */
+      var aCodec = outExt === 'webm' ? ['-c:a', 'libvorbis', '-q:a', '5'] : ['-c:a', 'aac', '-b:a', '192k'];
+      var out = 'out.' + outExt, inputs = {}, args = ['-hide_banner', '-i', input];
+      inputs[input] = media.bytes;
+      var D = media.info.duration, fade = 'afade=t=out:st=' + Math.max(0, D - 2).toFixed(2) + ':d=2';
+      if (mode === 'remove') {
+        args.push('-map', '0:v:0', '-c:v', 'copy', '-an');
+      } else {
+        var mname = 'music.' + music.ext;
+        inputs[mname] = music.bytes;
+        /* Repeated exactly as many times as the video needs. */
+        var md = music.info.duration;
+        if (document.getElementById('loop').checked && md > 0 && md < D) {
+          args.push('-stream_loop', String(Math.ceil(D / md) - 1));
+        }
+        args.push('-i', mname);
+        if (mode === 'add' && media.info.audio) {
+          /* amix halves each of its two inputs, so the result is doubled
+             back to keep the voices at their own level. */
+          var vol = (+v('mix') / 100).toFixed(2);
+          args.push('-filter_complex', '[1:a:0]volume=' + vol + ',' + fade + '[m];[0:a:0][m]amix=inputs=2:duration=first[mix];[mix]volume=2[a]',
+            '-map', '0:v:0', '-map', '[a]');
+        } else {
+          args.push('-filter_complex', '[1:a:0]' + fade + '[a]', '-map', '0:v:0', '-map', '[a]');
+        }
+        args.push('-c:v', 'copy');
+        args = args.concat(aCodec);
+        /* Never longer than the video itself. */
+        args.push('-t', D.toFixed(3));
+      }
+      if (outExt === 'mp4' || outExt === 'm4v' || outExt === 'mov') args.push('-movflags', '+faststart');
+      args.push(out);
+      btn.disabled = true;
+      bar(0, 'Working...');
+      var started = Date.now();
+      CJA_FF.run(args, inputs, out, function (p) {
+        bar(p, Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        var type = outExt === 'webm' ? 'video/webm' : outExt === 'mkv' ? 'video/x-matroska' : outExt === 'mov' ? 'video/quicktime' : 'video/mp4';
+        CJA_IMG.download(new Blob([data], { type: type }), media.base + (mode === 'remove' ? '-silent' : '-music') + '.' + outExt);
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    document.getElementById('music-btn').addEventListener('click', function () { document.getElementById('music').click(); });
+    document.getElementById('music').addEventListener('change', function () {
+      var f = this.files[0];
+      this.value = '';
+      if (!f) return;
+      var info = document.getElementById('info');
+      CJA_FF.open(f, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.audio) { CT.toast('That file has no sound in it'); return; }
+        music = m;
+        document.getElementById('music-btn').textContent = f.name;
+        info.textContent = media.info.width + ' × ' + media.info.height + ', ' + CJA_AUDIO.time(media.info.duration) + ' long.';
+        plan();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !isFinite(m.info.duration)) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long' +
+          (m.info.audio ? '.' : ', no sound.');
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        plan();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+    plan();
+  })();
+  </script>
+</body>
+</html>

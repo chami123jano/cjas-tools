@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join Videos — Cja's Tools</title>
+<meta name="description" content="Put several video clips together into one MP4, in the order you choose, even if they are different sizes. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="join-videos">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Join Videos</h1>
+        <p>Several clips into one video, in the order you choose. Your videos stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose video clips</b> (several at once), or drag them here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP &middot; different sizes are fine</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" multiple hidden>
+        <p class="hint" id="info"></p>
+        <div class="file-list" id="list"></div>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="size">Size of the finished video</label>
+            <select id="size"></select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Join and save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Clips of different shapes</b> &mdash; an upright phone clip next to
+          a wide one &mdash; are fitted inside the chosen size with black bars, never
+          stretched or cut. Clips with no sound get silence, so the sound stays in step.
+          <br><br>
+          <b>Every clip is rebuilt</b> into one matching MP4, which takes a while for long
+          clips. The browser has to hold all the clips at once, so keep the total under
+          about 500 MB.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var clips = [];   // what CJA_FF.open gave for each
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+    function even(n) { return Math.max(2, Math.round(n / 2) * 2); }
+
+    function size() {
+      var s = v('size');
+      if (s === 'first' || !s) return { w: even(clips[0].info.width), h: even(clips[0].info.height) };
+      var p = s.split('x');
+      return { w: +p[0], h: +p[1] };
+    }
+
+    function sizes() {
+      var keep = v('size') || 'first';
+      var f = clips[0].info;
+      document.getElementById('size').innerHTML =
+        '<option value="first">Like the first clip (' + f.width + ' × ' + f.height + ')</option>' +
+        '<option value="1280x720">Wide 1280 × 720</option>' +
+        '<option value="720x1280">Upright 720 × 1280 (phone, status, reels)</option>' +
+        '<option value="1080x1080">Square 1080 × 1080</option>' +
+        '<option value="1920x1080">Full HD 1920 × 1080</option>';
+      document.getElementById('size').value = keep;
+    }
+
+    function draw() {
+      document.getElementById('list').innerHTML = clips.map(function (c, i) {
+        return '<div class="file-row"><div class="info"><b>' + (i + 1) + '. ' + CJA_IMG.escape(c.name) + '</b><span>' +
+          c.info.width + ' × ' + c.info.height + ' &middot; ' + CJA_AUDIO.time(c.info.duration) +
+          (c.info.audio ? '' : ' &middot; no sound') + ' &middot; ' + CJA_IMG.bytes(c.size) + '</span></div>' +
+          '<div class="acts"><button class="btn" data-up="' + i + '"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+          '<button class="btn" data-down="' + i + '"' + (i === clips.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+          '<button class="btn" data-remove="' + i + '">&times;</button></div></div>';
+      }).join('');
+      document.getElementById('options').hidden = !clips.length;
+      if (!clips.length) return;
+      sizes();
+      plan();
+    }
+
+    function plan() {
+      var total = clips.reduce(function (n, c) { return n + c.info.duration; }, 0);
+      var bytes = clips.reduce(function (n, c) { return n + c.size; }, 0);
+      var s = size();
+      document.getElementById('plan').textContent = clips.length < 2 ? 'Add at least one more clip to join.'
+        : clips.length + ' clips, ' + CJA_AUDIO.time(total) + ' in all, at ' + s.w + ' × ' + s.h + '.' +
+          (bytes > 500 * 1048576 ? ' That is a lot for a browser to hold; it may run out of memory.' : '');
+      document.getElementById('go').disabled = clips.length < 2;
+    }
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      var i;
+      if (b.dataset.up !== undefined) { i = +b.dataset.up; clips.splice(i - 1, 0, clips.splice(i, 1)[0]); }
+      else if (b.dataset.down !== undefined) { i = +b.dataset.down; clips.splice(i + 1, 0, clips.splice(i, 1)[0]); }
+      else if (b.dataset.remove !== undefined) clips.splice(+b.dataset.remove, 1);
+      draw();
+    });
+    document.getElementById('size').addEventListener('change', plan);
+
+    /* One filter graph: every clip is fitted into the same size with black
+       bars, set to 30 pictures a second, and its sound (or silence) set to
+       the same form; then concat plays them one after another. */
+    document.getElementById('go').addEventListener('click', function () {
+      if (clips.length < 2) return;
+      var btn = this, s = size(), args = ['-hide_banner'], inputs = {}, graph = [], joins = '';
+      clips.forEach(function (c, k) {
+        var name = 'clip' + k + '.' + c.ext;
+        inputs[name] = c.bytes;
+        args.push('-i', name);
+      });
+      var silent = clips.length;   // input numbers for the silences come after the clips
+      clips.forEach(function (c, k) {
+        graph.push('[' + k + ':v:0]scale=' + s.w + ':' + s.h + ':force_original_aspect_ratio=decrease,' +
+          'pad=' + s.w + ':' + s.h + ':(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p[v' + k + ']');
+        var a;
+        if (c.info.audio) a = k + ':a:0';
+        else {
+          args.push('-f', 'lavfi', '-t', c.info.duration.toFixed(3), '-i', 'anullsrc=r=48000:cl=stereo');
+          a = (silent++) + ':a:0';
+        }
+        graph.push('[' + a + ']aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a' + k + ']');
+        joins += '[v' + k + '][a' + k + ']';
+      });
+      graph.push(joins + 'concat=n=' + clips.length + ':v=1:a=1[v][a]');
+      args.push('-filter_complex', graph.join(';'), '-map', '[v]', '-map', '[a]',
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k',
+        '-movflags', '+faststart', 'joined.mp4');
+      btn.disabled = true;
+      bar(0, 'Joining...');
+      var started = Date.now();
+      CJA_FF.run(args, inputs, 'joined.mp4', function (p) {
+        bar(p, 'Joining: ' + Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        CJA_IMG.download(new Blob([data], { type: 'video/mp4' }), 'joined.mp4');
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    /* Clips are looked at one after another, as the engine does one job
+       at a time. */
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var info = document.getElementById('info');
+      files.reduce(function (p, f) {
+        return p.then(function () {
+          return CJA_FF.open(f, function (t) { info.textContent = f.name + ': ' + t; }).then(function (m) {
+            if (!m.info.video || !m.info.width || !isFinite(m.info.duration)) { CT.toast(f.name + ' could not be read as a video'); return; }
+            clips.push(m);
+          }).catch(function (e) { CT.toast(f.name + ': ' + e.message); });
+        });
+      }, Promise.resolve()).then(function () {
+        info.textContent = '';
+        draw();
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -111,10 +111,20 @@
           if (code !== 0) throw new Error(FF.reason());
           return engine.readFile(output);
         }).then(function (data) {
-          return data;
-        }).finally(function () {
           engine.off('progress', listener);
           names.concat([output]).forEach(function (n) { engine.deleteFile(n).catch(function () {}); });
+          return data;
+        }, function (e) {
+          engine.off('progress', listener);
+          /* A crash inside the engine leaves it unusable, so it is closed
+             and started afresh for the next job. */
+          if (e && (e.name === 'RuntimeError' || /RuntimeError|memory access|unreachable/.test(String(e.message || e)))) {
+            try { engine.terminate(); } catch (x) { /* already gone */ }
+            ff = null; loading = null;
+            throw new Error('The video engine ran into a problem with this file and has been restarted. Please try again, or try a different setting.');
+          }
+          names.concat([output]).forEach(function (n) { engine.deleteFile(n).catch(function () {}); });
+          throw e instanceof Error ? e : new Error(String(e));
         });
       });
     },

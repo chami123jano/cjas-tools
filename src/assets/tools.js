@@ -1163,6 +1163,20 @@ const TOOLS = [
     category: 'video',
     desc: 'Turn a sideways or upside-down video the right way up, or mirror it.',
     keywords: ['rotate video', 'turn', 'sideways', 'upside down', 'flip', 'mirror', 'portrait', 'landscape']
+  },
+  {
+    slug: 'join-videos',
+    name: 'Join Videos',
+    category: 'video',
+    desc: 'Several clips into one MP4, in the order you choose, even of different sizes.',
+    keywords: ['join videos', 'merge videos', 'combine clips', 'video joiner', 'concatenate', 'mp4']
+  },
+  {
+    slug: 'video-sound',
+    name: 'Video Sound',
+    category: 'video',
+    desc: 'Remove the sound from a video, replace it, or add background music.',
+    keywords: ['mute video', 'remove audio', 'add music', 'background music', 'replace audio', 'silent video']
   }
 ];
 
