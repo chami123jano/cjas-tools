@@ -1086,6 +1086,27 @@ const TOOLS = [
     category: 'audio',
     desc: 'Make a recording louder or quieter, without crackling.',
     keywords: ['volume', 'louder', 'quieter', 'boost', 'normalize', 'gain', 'audio']
+  },
+  {
+    slug: 'audio-joiner',
+    name: 'Join Audio',
+    category: 'audio',
+    desc: 'Several clips into one file, with a gap or a crossfade.',
+    keywords: ['join', 'merge', 'combine', 'mp3 joiner', 'crossfade', 'audio', 'songs']
+  },
+  {
+    slug: 'audio-speed',
+    name: 'Speed and Reverse',
+    category: 'audio',
+    desc: 'Speed up or slow down a recording, keeping the voice natural, or reverse it.',
+    keywords: ['speed', 'slow down', 'faster', 'tempo', 'pitch', 'reverse', 'backwards', 'audio']
+  },
+  {
+    slug: 'tone-generator',
+    name: 'Tone Generator',
+    category: 'audio',
+    desc: 'A tone at any pitch, or a sweep, to test speakers, tune or check hearing.',
+    keywords: ['tone', 'frequency', 'hz', 'sine wave', 'hearing test', 'speaker test', 'tuning']
   }
 ];
 

@@ -197,6 +197,114 @@ function readWav(b) {
     await page.close();
   }
 
+  /* The main pitch of a stretch of a WAV, from how often it crosses zero. */
+  function pitch(w, fromSec, toSec, c = 0) {
+    const a = Math.round(fromSec * w.rate), b = Math.round(toSec * w.rate);
+    let crossings = 0, prev = w.sample(a, c);
+    for (let f = a + 1; f < b; f++) { const s = w.sample(f, c); if ((prev < 0) !== (s < 0)) crossings++; prev = s; }
+    return crossings / 2 / ((b - a) / w.rate);
+  }
+  function rms(w, fromSec, toSec, c = 0) {
+    const a = Math.round(fromSec * w.rate), b = Math.round(toSec * w.rate);
+    let sum = 0;
+    for (let f = a; f < b; f++) sum += w.sample(f, c) ** 2;
+    return Math.sqrt(sum / (b - a));
+  }
+
+  // ---------------------------------------------------------- join
+  {
+    const page = await open('audio-joiner');
+    const two = makeWav(path.join(tmp, 'two.wav'), 2, 0.25);
+    await (await page.$('#file')).uploadFile(tone, two);
+    await page.waitForFunction(() => document.querySelectorAll('#list .file-row').length === 2, { timeout: 10000 }).catch(() => {});
+    ok(/2 clips, 0:08\.0 in all/.test(await text(page, 'plan')), 'join: two clips, 8 seconds', await text(page, 'plan'));
+    await page.click('#save');
+    let s = await saved(page);
+    let w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'joined.wav' && w && Math.abs(w.seconds - 8) < 0.01 && w.ch === 2, 'join: an 8 second stereo file', w && w.seconds);
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#between', 'gap');
+    await setVal(page, 'secs', '1.5');
+    ok(/9\.5 in all/.test(await text(page, 'plan')), 'join: a 1.5 s gap makes 9.5 s', await text(page, 'plan'));
+    await page.click('#save');
+    s = await saved(page);
+    w = s[0] && readWav(s[0].bytes);
+    ok(w && Math.abs(w.seconds - 9.5) < 0.01 && rms(w, 6.2, 7.3) < 0.001, 'join: the gap is silent', w && [w.seconds, rms(w, 6.2, 7.3)].join());
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#between', 'fade');
+    await setVal(page, 'secs', '1');
+    await page.click('#save');
+    s = await saved(page);
+    w = s[0] && readWav(s[0].bytes);
+    ok(w && Math.abs(w.seconds - 7) < 0.01, 'join: a 1 s crossfade overlaps to 7 s', w && w.seconds);
+    if (w) {
+      const before = rms(w, 4, 5), during = rms(w, 5.3, 5.7);
+      ok(during > before * 0.9, 'join: no dip in loudness through the crossfade', before.toFixed(3) + ' / ' + during.toFixed(3));
+    }
+    await page.click('[data-remove="1"]');
+    ok(/at least one more/.test(await text(page, 'plan')) && await page.$eval('#save', (b) => b.disabled), 'join: one clip is not enough');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- speed and reverse
+  {
+    const page = await open('audio-speed');
+    await give(page, tone);
+    await page.click('#presets [data-s="2"]');
+    ok(/0:06\.0 becomes 0:03\.0/.test(await text(page, 'plan')), 'speed: 2x halves the length', await text(page, 'plan'));
+    await page.click('#save');
+    let s = await saved(page);
+    let w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'tone-2x.wav' && w && Math.abs(w.seconds - 3) < 0.06, 'speed: a 3 second file', w && w.seconds);
+    if (w) {
+      const p = pitch(w, 1, 2.5);
+      ok(Math.abs(p - 440) < 12, 'speed: natural voice keeps 440 Hz', p.toFixed(1));
+      ok(Math.abs(rms(w, 1, 2.5) - 0.25 / Math.SQRT2) < 0.03, 'speed: and its loudness', rms(w, 1, 2.5).toFixed(3));
+    }
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#pitch', 'tape');
+    await page.click('#save');
+    s = await saved(page);
+    w = s[0] && readWav(s[0].bytes);
+    if (w) ok(Math.abs(pitch(w, 1, 2.5) - 880) < 12, 'speed: like a tape, 2x is an octave higher (880 Hz)', pitch(w, 1, 2.5).toFixed(1));
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#presets [data-s="1"]');
+    await page.$eval('#reverse', (e) => { e.checked = true; e.dispatchEvent(new Event('change')); });
+    await page.click('#save');
+    s = await saved(page);
+    w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'tone-reversed.wav' && w && rms(w, 5.1, 5.9, 1) < 0.001 && rms(w, 0.2, 0.8, 1) > 0.1,
+       'speed: reversed, the silent second is at the end', w && [rms(w, 5.1, 5.9, 1), rms(w, 0.2, 0.8, 1)].join());
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- tone generator
+  {
+    const page = await open('tone-generator');
+    await page.click('#presets [data-f="261.63"]');
+    ok(/C4/.test(await text(page, 'note-name')), 'tone: middle C is named C4', await text(page, 'note-name'));
+    await page.click('#presets [data-f="1000"]');
+    ok(await text(page, 'hz') === '1.00k', 'tone: 1 kHz shown', await text(page, 'hz'));
+    await setVal(page, 'secs', '2');
+    await page.click('#save');
+    const s = await saved(page);
+    const w = s[0] && readWav(s[0].bytes);
+    ok(s[0] && s[0].name === 'tone-1000hz-2s.wav' && w && Math.abs(w.seconds - 2) < 0.001, 'tone: saves a 2 second file', s[0] && s[0].name);
+    if (w) {
+      ok(Math.abs(pitch(w, 0.1, 1.9) - 1000) < 3, 'tone: it really is 1000 Hz', pitch(w, 0.1, 1.9).toFixed(1));
+      ok(Math.abs(w.sample(0, 0)) < 0.001, 'tone: starts without a click');
+    }
+    await page.click('#play');
+    await wait(300);
+    ok(/Stop/.test(await page.$eval('#play', (b) => b.textContent)), 'tone: plays and offers stop');
+    await page.click('#play');
+    await page.close();
+  }
+
   // ---------------------------------------------------------- recorder (fake microphone)
   {
     const page = await open('voice-recorder');

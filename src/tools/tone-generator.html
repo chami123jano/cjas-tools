@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tone Generator — Cja's Tools</title>
+<meta name="description" content="Play a tone at any pitch to test speakers, tune an instrument or check your hearing, or save it as a WAV file. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .freq { font-size: 46px; font-weight: 650; letter-spacing: -1px; text-align: center; font-variant-numeric: tabular-nums; }
+  .note { text-align: center; color: var(--muted); margin-top: -4px; }
+</style>
+</head>
+<body data-page="tool" data-slug="tone-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=audio">Audio</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Tone Generator</h1>
+        <p>A steady tone at any pitch, or a sweep from low to high.</p>
+      </div>
+
+      <div class="panel">
+        <div class="freq"><span id="hz">440</span> Hz</div>
+        <p class="note" id="note-name">A4 &mdash; the note orchestras tune to</p>
+        <div class="field">
+          <label for="slider">Pitch</label>
+          <input type="range" id="slider" min="0" max="1000" value="0">
+        </div>
+        <div class="row">
+          <div class="field"><label for="exact">Exact (Hz)</label><input type="number" id="exact" value="440" min="20" max="20000" step="1"></div>
+          <div class="field">
+            <label for="shape">Sound</label>
+            <select id="shape">
+              <option value="sine" selected>Pure (sine)</option>
+              <option value="square">Buzzy (square)</option>
+              <option value="triangle">Soft (triangle)</option>
+              <option value="sawtooth">Bright (sawtooth)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="vol">Volume: <span id="vol-label">20</span>%</label>
+            <input type="range" id="vol" min="1" max="100" value="20">
+          </div>
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-f="50">50 Hz (bass)</button>
+          <button class="btn" data-f="261.63">Middle C</button>
+          <button class="btn" data-f="440">A 440</button>
+          <button class="btn" data-f="1000">1 kHz (test tone)</button>
+          <button class="btn" data-f="8000">8 kHz</button>
+          <button class="btn" data-f="15000">15 kHz</button>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="play">&#9654; Play</button>
+          <button class="btn" id="sweep">Sweep 20 Hz to 20 kHz</button>
+        </div>
+        <p class="hint" id="sweep-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field"><label for="secs">Length to save (seconds)</label><input type="number" id="secs" value="5" min="1" max="600" step="1"></div>
+        </div>
+        <div class="btns"><button class="btn" id="save">Save this tone as WAV</button></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Start quiet.</b> Very high and very low tones can be louder
+          than they seem, and headphones put them right at your ears. 20% is plenty to
+          begin with.
+          <br><br>
+          <b>Checking your hearing:</b> during the sweep, note the number when the sound
+          disappears. Young ears hear up to about 17 to 20 kHz; it falls with age, which
+          is normal. This is a rough check, not a medical test; small speakers also cannot
+          play very high or very low tones.
+          <br><br>
+          <b>Testing speakers:</b> a pure tone that crackles or buzzes points to a damaged
+          speaker. The low bass tones show whether a subwoofer is working.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script>
+  (function () {
+    var NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    var ctx = null, osc = null, gain = null, sweeping = null;
+    var freq = 440;
+
+    function el(id) { return document.getElementById(id); }
+
+    /* The slider runs 20 Hz to 20 kHz on a log scale, as hearing does. */
+    function fromSlider(x) { return 20 * Math.pow(1000, x / 1000); }
+    function toSlider(f) { return Math.log(f / 20) / Math.log(1000) * 1000; }
+
+    /* The nearest musical note, and how far off it is in cents. */
+    function noteName(f) {
+      var n = Math.round(12 * Math.log2(f / 440)) + 57;
+      var exact = 440 * Math.pow(2, (n - 57) / 12);
+      var cents = Math.round(1200 * Math.log2(f / exact));
+      return NOTES[((n % 12) + 12) % 12] + Math.floor(n / 12) + (cents ? ' (' + (cents > 0 ? '+' : '') + cents + ' cents)' : '');
+    }
+
+    function show() {
+      el('hz').textContent = freq >= 1000 ? (freq / 1000).toFixed(freq >= 10000 ? 1 : 2) + 'k' : (Math.round(freq * 10) / 10);
+      el('note-name').textContent = Math.abs(freq - 440) < 0.05 ? 'A4 — the note orchestras tune to' : 'Nearest note: ' + noteName(freq);
+      el('slider').value = toSlider(freq);
+      el('exact').value = Math.round(freq * 100) / 100;
+      el('vol-label').textContent = el('vol').value;
+      if (osc) osc.frequency.setTargetAtTime(freq, ctx.currentTime, 0.01);
+    }
+
+    function setFreq(f) { freq = Math.max(20, Math.min(20000, f)); show(); }
+
+    function start() {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!ctx) ctx = new AC();
+      if (ctx.state === 'suspended') ctx.resume();
+      osc = ctx.createOscillator();
+      gain = ctx.createGain();
+      osc.type = el('shape').value;
+      osc.frequency.value = freq;
+      /* A short fade in avoids a click when the sound starts. */
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(+el('vol').value / 100 * 0.5, ctx.currentTime + 0.03);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start();
+      el('play').innerHTML = '&#9632; Stop';
+    }
+    function stop() {
+      if (sweeping) { clearInterval(sweeping); sweeping = null; el('sweep').textContent = 'Sweep 20 Hz to 20 kHz'; }
+      if (!osc) return;
+      var o = osc;
+      gain.gain.setTargetAtTime(0, ctx.currentTime, 0.015);
+      setTimeout(function () { try { o.stop(); } catch (e) { /* already stopped */ } }, 80);
+      osc = null;
+      el('play').innerHTML = '&#9654; Play';
+    }
+
+    el('play').addEventListener('click', function () { if (osc) stop(); else start(); });
+    el('slider').addEventListener('input', function () { setFreq(fromSlider(+this.value)); });
+    el('exact').addEventListener('change', function () { setFreq(+this.value || 440); });
+    el('shape').addEventListener('change', function () { if (osc) osc.type = this.value; });
+    el('vol').addEventListener('input', function () {
+      el('vol-label').textContent = this.value;
+      if (gain) gain.gain.setTargetAtTime(+this.value / 100 * 0.5, ctx.currentTime, 0.02);
+    });
+    el('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-f]');
+      if (b) setFreq(+b.dataset.f);
+    });
+
+    /* The sweep climbs evenly on the log scale over 20 seconds. */
+    el('sweep').addEventListener('click', function () {
+      if (sweeping) { stop(); return; }
+      setFreq(20);
+      if (!osc) start();
+      var t0 = Date.now();
+      el('sweep').textContent = 'Stop the sweep';
+      el('sweep-note').textContent = 'Note the number when you stop hearing it.';
+      sweeping = setInterval(function () {
+        var x = Math.min(1, (Date.now() - t0) / 20000);
+        setFreq(20 * Math.pow(1000, x));
+        if (x >= 1) stop();
+      }, 50);
+    });
+
+    /* Saving: the same tone calculated directly, with a 10 ms fade at
+       each end so the file does not click. */
+    el('save').addEventListener('click', function () {
+      var secs = Math.max(1, Math.min(600, +el('secs').value || 5));
+      var rate = 44100, n = Math.round(secs * rate), data = new Float32Array(n);
+      var shape = el('shape').value, amp = +el('vol').value / 100 * 0.5, fade = Math.round(rate * 0.01);
+      for (var i = 0; i < n; i++) {
+        var ph = (freq * i / rate) % 1, s;
+        if (shape === 'sine') s = Math.sin(2 * Math.PI * ph);
+        else if (shape === 'square') s = ph < 0.5 ? 1 : -1;
+        else if (shape === 'triangle') s = 1 - 4 * Math.abs(ph - 0.5);
+        else s = 2 * ph - 1;
+        var g = Math.min(1, i / fade, (n - 1 - i) / fade);
+        data[i] = s * amp * g;
+      }
+      CJA_IMG.download(new Blob([CJA_AUDIO.wavBytes([data], rate)], { type: 'audio/wav' }),
+        'tone-' + Math.round(freq) + 'hz-' + secs + 's.wav');
+    });
+
+    show();
+  })();
+  </script>
+</body>
+</html>
