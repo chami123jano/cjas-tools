@@ -1205,6 +1205,20 @@ const TOOLS = [
     category: 'video',
     desc: 'A moment as a photo, a picture every few seconds, or a thumbnail sheet.',
     keywords: ['video to jpg', 'screenshot video', 'frame grab', 'extract frames', 'thumbnail', 'still', 'video to image']
+  },
+  {
+    slug: 'add-subtitles',
+    name: 'Add Subtitles to Video',
+    category: 'video',
+    desc: 'Burn subtitles into a video, from an SRT file or typed in. Sinhala and Tamil too.',
+    keywords: ['subtitles', 'captions', 'srt', 'burn subtitles', 'sinhala subtitles', 'tamil subtitles', 'text on video']
+  },
+  {
+    slug: 'screen-recorder',
+    name: 'Screen Recorder',
+    category: 'video',
+    desc: 'Record your screen, a window or a tab, with your voice, and save as WebM or MP4.',
+    keywords: ['screen recorder', 'record screen', 'screen capture', 'screencast', 'tutorial', 'record tab', 'webm', 'mp4']
   }
 ];
 

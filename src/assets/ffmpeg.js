@@ -194,6 +194,17 @@
       if (f) info.fps = parseFloat(f[1]);
       var a = /Stream #[^\n]*Audio:\s*([a-z0-9_]+)/i.exec(text);
       if (a) { info.audio = true; info.audioCodec = a[1]; }
+      /* Phones often store an upright video sideways with a note saying
+         "turn this a quarter". FFmpeg obeys the note when it works on the
+         video, so the size reported here is the size as it will be shown:
+         width and height are swapped for a quarter turn. */
+      var r = /displaymatrix: rotation of (-?\d+(?:\.\d+)?) degrees/.exec(text) || /\brotate\s*:\s*(-?\d+)/.exec(text);
+      if (r) {
+        info.rotation = ((Math.round(parseFloat(r[1])) % 360) + 360) % 360;
+        if (info.rotation === 90 || info.rotation === 270) {
+          var w = info.width; info.width = info.height; info.height = w;
+        }
+      }
       return info;
     },
 

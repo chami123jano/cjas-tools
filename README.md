@@ -23,7 +23,7 @@ Download the latest `.exe` from [Releases](https://github.com/chami123jano/cjas-
 
 In active development. See [PLAN.md](PLAN.md) for the build schedule.
 
-Currently: **169 tools** · target **171 by 29 December 2026**
+Currently: **171 tools** · target **171 by 29 December 2026**
 
 ## Built with
 
@@ -38,4 +38,5 @@ The tools also use free libraries written by others, kept unchanged in
 `src/assets/vendor/` with their own licences: pdf-lib (MIT), PDF.js (Apache 2.0),
 jsQR (Apache 2.0), qrcode-generator (MIT), and FFmpeg for video and sound
 (GPL 2 or later, via ffmpeg.wasm). FFmpeg's source code and the exact build are
-listed in `src/assets/vendor/ffmpeg/THIRD-PARTY.txt`.
+listed in `src/assets/vendor/ffmpeg/THIRD-PARTY.txt`. Subtitles in Sinhala and Tamil
+use the Noto Sans fonts (SIL Open Font Licence, in `src/assets/vendor/fonts/`).

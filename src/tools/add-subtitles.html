@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add Subtitles to Video — Cja's Tools</title>
+<meta name="description" content="Burn subtitles into a video, from an SRT file or typed in, in English, Sinhala or Tamil. They show on every phone and app. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #player { width: 100%; max-height: 300px; background: #000; border-radius: var(--radius); display: block; }
+  #preview { width: 100%; height: auto; background: #000; border-radius: var(--radius); display: block; margin-top: 10px; }
+  #typed { font-family: ui-monospace, Consolas, monospace; font-size: 13px; min-height: 140px; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="add-subtitles">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Add Subtitles to Video</h1>
+        <p>Words on screen that show everywhere the video is played. English, Sinhala and Tamil. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="source">The subtitles</label>
+            <select id="source">
+              <option value="type" selected>Type them here</option>
+              <option value="file">From a subtitle file (.srt or .vtt)</option>
+            </select>
+          </div>
+        </div>
+        <div data-source="type">
+          <div class="field">
+            <label for="typed">One per line: start - end, then the words. Use | for a second line.</label>
+            <textarea id="typed" spellcheck="false">0:00.5 - 0:02.5 Welcome to our channel
+0:02.8 - 0:04 ආයුබෝවන් | வணக்கம்</textarea>
+          </div>
+          <div class="btns"><button class="btn" id="save-srt">Save these as an .srt file</button></div>
+        </div>
+        <div data-source="file" hidden>
+          <div class="btns"><button class="btn" id="srt-btn">Choose the subtitle file</button></div>
+          <input type="file" id="srt" accept=".srt,.vtt,text/vtt,application/x-subrip" hidden>
+        </div>
+        <p class="hint" id="cue-note"></p>
+        <div class="row">
+          <div class="field">
+            <label for="size">Size</label>
+            <select id="size">
+              <option value="0.045">Small</option>
+              <option value="0.06" selected>Normal</option>
+              <option value="0.08">Large</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="colour">Colour</label>
+            <select id="colour">
+              <option value="#ffffff" selected>White</option>
+              <option value="#ffe14d">Yellow</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="look">Behind the words</label>
+            <select id="look">
+              <option value="outline" selected>A dark outline</option>
+              <option value="box">A dark box</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="place">Where</label>
+            <select id="place">
+              <option value="bottom" selected>Bottom</option>
+              <option value="top">Top</option>
+            </select>
+          </div>
+        </div>
+        <video id="player" controls playsinline muted></video>
+        <canvas id="preview" width="1" height="1"></canvas>
+        <p class="hint">The picture above shows exactly how the subtitles will look at the moment the video is paused.</p>
+        <div class="btns">
+          <button class="btn primary" id="go">Add the subtitles and save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Burned in</b> means the words become part of the picture, so they
+          show on WhatsApp, Facebook, Instagram and every phone, with nothing to switch on.
+          They cannot be turned off afterwards, so keep the original video.
+          <br><br>
+          <b>Times</b> can be written as seconds (<code>5</code> or <code>5.5</code>), minutes and
+          seconds (<code>1:05</code>), or hours too (<code>1:02:05</code>).
+          <br><br>
+          <b>Sinhala and Tamil</b> are drawn with Noto fonts included in this tool, so letters
+          join correctly on every device.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, url = null, cues = [], fileCues = [];
+    var player = document.getElementById('player');
+    /* Latin from the system's own font; Sinhala and Tamil from the Noto
+       fonts that come with the tool, so they join correctly everywhere. */
+    var FONT = '"Segoe UI", Arial, "CJA Sinhala", "CJA Tamil", "Iskoola Pota", "Nirmala UI", sans-serif';
+    var fontsReady = Promise.all([
+      new FontFace('CJA Sinhala', 'url(../assets/vendor/fonts/NotoSansSinhala-Bold.ttf)', { weight: '700' }),
+      new FontFace('CJA Sinhala', 'url(../assets/vendor/fonts/NotoSansSinhala-Regular.ttf)', { weight: '400' }),
+      new FontFace('CJA Tamil', 'url(../assets/vendor/fonts/NotoSansTamil-Regular.ttf)')
+    ].map(function (f) {
+      return f.load().then(function (loaded) { document.fonts.add(loaded); }).catch(function () { /* the system fonts will do */ });
+    }));
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    /* "1:05.5", "65.5", "00:01:05,500" -> seconds. */
+    function seconds(t) { return CJA_AUDIO.parseTime(String(t).trim().replace(',', '.')); }
+
+    /* SRT and WebVTT: blocks of an optional number, a time line, then text.
+       Styling tags such as <i> and {\an8} are taken out. */
+    function parseSubtitles(text) {
+      var out = [];
+      String(text).replace(/\r/g, '').split(/\n\s*\n/).forEach(function (block) {
+        var lines = block.split('\n').filter(function (l) { return l.trim() !== ''; });
+        var i = lines.findIndex(function (l) { return /-->/.test(l); });
+        if (i === -1) return;
+        var m = /([\d:.,]+)\s*-->\s*([\d:.,]+)/.exec(lines[i]);
+        if (!m) return;
+        var a = seconds(m[1]), b = seconds(m[2]);
+        var words = lines.slice(i + 1).join('\n').replace(/<[^>]+>/g, '').replace(/\{\\[^}]*\}/g, '').trim();
+        if (isFinite(a) && isFinite(b) && b > a && words) out.push({ start: a, end: b, text: words });
+      });
+      return out;
+    }
+
+    /* The typed form: "0:01 - 0:04 Hello | second line". */
+    function parseTyped(text) {
+      var out = [], bad = [];
+      String(text).split('\n').forEach(function (line, n) {
+        if (!line.trim()) return;
+        var m = /^\s*([\d:.]+)\s*[-–]\s*([\d:.]+)\s+(.+)$/.exec(line);
+        var a = m && seconds(m[1]), b = m && seconds(m[2]);
+        if (!m || !isFinite(a) || !isFinite(b) || b <= a) { bad.push(n + 1); return; }
+        out.push({ start: a, end: b, text: m[3].split('|').map(function (s) { return s.trim(); }).join('\n') });
+      });
+      return { cues: out, bad: bad };
+    }
+
+    /* Sorted, and an overlapping subtitle is ended where the next begins. */
+    function tidy(list) {
+      list = list.slice().sort(function (x, y) { return x.start - y.start; });
+      for (var i = 0; i < list.length - 1; i++) if (list[i].end > list[i + 1].start) list[i].end = list[i + 1].start;
+      return list.filter(function (c) { return c.end - c.start > 0.05; });
+    }
+
+    function srtTime(s) {
+      var ms = Math.round(s * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, sec = Math.floor(ms / 1000) % 60;
+      var p = function (n, w) { return ('000' + n).slice(-w); };
+      return p(h, 2) + ':' + p(m, 2) + ':' + p(sec, 2) + ',' + p(ms % 1000, 3);
+    }
+
+    function refresh() {
+      var src = v('source');
+      document.querySelectorAll('[data-source]').forEach(function (el) { el.hidden = el.dataset.source !== src; });
+      var note = document.getElementById('cue-note'), bad = [];
+      if (src === 'type') { var r = parseTyped(v('typed')); cues = tidy(r.cues); bad = r.bad; }
+      else cues = tidy(fileCues);
+      note.textContent = cues.length
+        ? cues.length + ' subtitle' + (cues.length === 1 ? '' : 's') + ', from ' + CJA_AUDIO.time(cues[0].start, true) + ' to ' +
+          CJA_AUDIO.time(cues[cues.length - 1].end, true) + '.' + (bad.length ? ' Line ' + bad.join(', ') + ' could not be read.' : '')
+        : (src === 'file' ? 'Choose a subtitle file.' : 'No subtitles yet.') + (bad.length ? ' Line ' + bad.join(', ') + ' could not be read.' : '');
+      document.getElementById('go').disabled = !cues.length || !media;
+      preview();
+    }
+
+    /* Draws one subtitle onto a canvas the size of the video. Used for the
+       preview and for the pictures laid over the video, so both match. */
+    function drawCue(g, W, H, text) {
+      var px = Math.round(H * +v('size'));
+      g.font = '700 ' + px + 'px ' + FONT;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      /* Long lines wrap at nine tenths of the width. */
+      var lines = [];
+      text.split('\n').forEach(function (para) {
+        var line = '';
+        para.split(/\s+/).forEach(function (word) {
+          var t = line ? line + ' ' + word : word;
+          if (line && g.measureText(t).width > W * 0.9) { lines.push(line); line = word; } else line = t;
+        });
+        lines.push(line);
+      });
+      var lh = px * 1.3, block = lh * lines.length, margin = H * 0.06;
+      var top = v('place') === 'top' ? margin : H - margin - block;
+      lines.forEach(function (l, i) {
+        var y = top + lh * (i + 0.5);
+        if (v('look') === 'box') {
+          var w = g.measureText(l).width + px * 0.8;
+          g.fillStyle = 'rgba(0,0,0,0.7)';
+          g.fillRect(W / 2 - w / 2, y - lh / 2, w, lh);
+        } else {
+          g.lineJoin = 'round';
+          g.lineWidth = Math.max(2, px / 6);
+          g.strokeStyle = 'rgba(0,0,0,0.9)';
+          g.strokeText(l, W / 2, y);
+        }
+        g.fillStyle = v('colour');
+        g.fillText(l, W / 2, y);
+      });
+    }
+
+    function size() {
+      /* The size the video is shown at (a turned phone video is upright). */
+      return { w: media.info.width, h: media.info.height };
+    }
+
+    function preview() {
+      if (!media) return;
+      var s = size(), c = document.getElementById('preview');
+      c.width = s.w; c.height = s.h;
+      var g = c.getContext('2d');
+      g.fillStyle = '#000'; g.fillRect(0, 0, s.w, s.h);
+      if (player.videoWidth) g.drawImage(player, 0, 0, s.w, s.h);
+      var t = player.currentTime || 0;
+      var cue = cues.filter(function (q) { return t >= q.start && t < q.end; })[0] || cues[0];
+      if (cue) fontsReady.then(function () { drawCue(g, s.w, s.h, cue.text); });
+    }
+
+    ['typed'].forEach(function (id) { document.getElementById(id).addEventListener('input', refresh); });
+    ['source', 'size', 'colour', 'look', 'place'].forEach(function (id) { document.getElementById(id).addEventListener('change', refresh); });
+    ['loadeddata', 'seeked', 'pause', 'timeupdate'].forEach(function (ev) { player.addEventListener(ev, preview); });
+
+    document.getElementById('srt-btn').addEventListener('click', function () { document.getElementById('srt').click(); });
+    document.getElementById('srt').addEventListener('change', function () {
+      var f = this.files[0];
+      this.value = '';
+      if (!f) return;
+      f.text().then(function (t) {
+        fileCues = parseSubtitles(t);
+        document.getElementById('srt-btn').textContent = f.name;
+        if (!fileCues.length) CT.toast('No subtitles could be read from that file');
+        refresh();
+      });
+    });
+
+    document.getElementById('save-srt').addEventListener('click', function () {
+      if (!cues.length) { CT.toast('Type some subtitles first'); return; }
+      var srt = cues.map(function (c, i) { return (i + 1) + '\n' + srtTime(c.start) + ' --> ' + srtTime(c.end) + '\n' + c.text + '\n'; }).join('\n');
+      CJA_IMG.download(new Blob(['﻿' + srt], { type: 'application/x-subrip;charset=utf-8' }), (media ? media.base : 'subtitles') + '.srt');
+    });
+
+    /* Each subtitle becomes a see-through picture the size of the video;
+       a list tells the engine how long each shows (blank pictures fill
+       the gaps), and the whole sequence is laid over the video. */
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, s = size(), D = media.info.duration, input = 'input.' + media.ext;
+      btn.disabled = true;
+      bar(0, 'Drawing the subtitles...');
+      fontsReady.then(function () {
+        var c = CJA_IMG.canvas(s.w, s.h), g = c.getContext('2d');
+        var pics = [];
+        function picture(text) {
+          g.clearRect(0, 0, s.w, s.h);
+          if (text) drawCue(g, s.w, s.h, text);
+          return CJA_IMG.toBlob(c, 'image/png').then(function (b) { return b.arrayBuffer(); }).then(function (ab) { return new Uint8Array(ab); });
+        }
+        var list = ['ffconcat version 1.0'], inputs = {}, at = 0, jobs = Promise.resolve();
+        inputs[input] = media.bytes;
+        jobs = jobs.then(function () { return picture(''); }).then(function (blank) { inputs['blank.png'] = blank; });
+        cues.forEach(function (q, i) {
+          var start = Math.min(q.start, D), end = Math.min(q.end, D);
+          if (end <= start) return;
+          if (start > at) { list.push('file blank.png', 'duration ' + (start - at).toFixed(3)); }
+          jobs = jobs.then(function () { return picture(q.text); }).then(function (p) { inputs['sub' + i + '.png'] = p; });
+          list.push('file sub' + i + '.png', 'duration ' + (end - start).toFixed(3));
+          at = end;
+        });
+        list.push('file blank.png', 'duration ' + Math.max(0.1, D - at).toFixed(3), 'file blank.png');
+        return jobs.then(function () {
+          inputs['subs.txt'] = new TextEncoder().encode(list.join('\n') + '\n');
+          var args = ['-hide_banner', '-i', input, '-f', 'concat', '-safe', '0', '-i', 'subs.txt',
+            '-filter_complex', '[1:v]format=rgba[s];[0:v:0][s]overlay=0:0:eof_action=repeat:format=auto,format=yuv420p[v]',
+            '-map', '[v]'];
+          if (media.info.audio) args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', '160k');
+          args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-t', D.toFixed(3), '-movflags', '+faststart', 'out.mp4');
+          var started = Date.now();
+          return CJA_FF.run(args, inputs, 'out.mp4', function (p) {
+            bar(p, 'Adding the subtitles: ' + Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+          });
+        });
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        CJA_IMG.download(new Blob([data], { type: 'video/mp4' }), media.base + '-subtitled.mp4');
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !m.info.width) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long.';
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        player.currentTime = 1;
+        refresh();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+    refresh();
+  })();
+  </script>
+</body>
+</html>

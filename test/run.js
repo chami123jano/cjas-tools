@@ -3087,6 +3087,17 @@ pending.push(function currencyLive() {
   const song = FF.parse(['  Duration: 00:03:30.12, start: 0', '  Stream #0:0: Audio: mp3, 44100 Hz, stereo, fltp, 320 kb/s'].join(String.fromCharCode(10)));
   ok(song.audio && !song.video && song.audioCodec === 'mp3', 'video: a song has sound and no picture');
   ok(isNaN(FF.parse('nonsense').duration), 'video: nothing readable gives no length');
+  // an upright phone video stored sideways with a quarter-turn note is reported upright
+  const turned = FF.parse(['  Duration: 00:00:10.00, start: 0',
+    '  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080, 30 fps',
+    '    Side data:', '      displaymatrix: rotation of -90.00 degrees'].join(String.fromCharCode(10)));
+  ok(turned.width === 1080 && turned.height === 1920 && turned.rotation === 270, 'video: a quarter-turned phone video is reported upright',
+     JSON.stringify(turned));
+  const older = FF.parse(['  Duration: 00:00:10.00, start: 0', '  Stream #0:0: Video: h264, yuv420p, 1280x720, 30 fps',
+    '    Metadata:', '      rotate          : 90'].join(String.fromCharCode(10)));
+  ok(older.width === 720 && older.height === 1280, 'video: the older way of noting a turn too', JSON.stringify(older));
+  const flipped = FF.parse(['  Stream #0:0: Video: h264, yuv420p, 1280x720', '      displaymatrix: rotation of 180.00 degrees'].join(String.fromCharCode(10)));
+  ok(flipped.width === 1280 && flipped.rotation === 180, 'video: upside down keeps its width and height');
   t.close();
 })();
 

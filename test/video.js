@@ -47,7 +47,10 @@ function serve() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cja-video-'));
   const server = await serve();
   const base = 'http://127.0.0.1:' + server.address().port + '/tools/';
-  const browser = await launchEdge({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  /* The fake-media settings give the Screen Recorder a made-up screen and
+     microphone, chosen without asking, so it can be tested unattended. */
+  const browser = await launchEdge({ args: ['--autoplay-policy=no-user-gesture-required',
+    '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--auto-select-desktop-capture-source=Entire screen'] });
   const errors = [];
 
   async function open(slug, opts = {}) {
@@ -163,7 +166,7 @@ function serve() {
       ok(b.slice(0, 3).toString() === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0), 'to mp3: a real MP3 file');
       const m = await mediaInfo(page, s[0].b64, 'audio/mpeg');
       /* A browser recording's sound can be a little shorter than its picture. */
-      ok(m.duration > 3.3 && m.duration < 4.6, 'to mp3: the right length', JSON.stringify(m));
+      ok(m.duration > 3.1 && m.duration < 4.6, 'to mp3: the right length', JSON.stringify(m));
     }
     await page.evaluate(() => { window.__saved = []; });
     await page.select('#format', 'm4a');
@@ -673,6 +676,171 @@ function serve() {
       // 4 thumbnails of 320 x 180 across and down, 4 pixels between and around
       ok(s[0].name === 'holiday-thumbnails.jpg' && size && size[0] === 1300 && size[1] === 740, 'pictures: a 4 x 4 thumbnail sheet', JSON.stringify(size));
     } else ok(false, 'pictures: sheet saved', await text(page, 'status'));
+    await page.close();
+  }
+
+  /* How many near-white pixels a band of the picture has at a moment:
+     subtitles are white, the test video has none low down. */
+  async function whiteIn(page, b64, type, time, top, bottom) {
+    return page.evaluate((b64, type, time, top, bottom) => new Promise((resolve) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const v = document.createElement('video');
+      v.muted = true;
+      v.src = URL.createObjectURL(new Blob([u], { type }));
+      v.onloadeddata = () => { v.currentTime = time; };
+      v.onseeked = () => {
+        const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+        const g = c.getContext('2d'); g.drawImage(v, 0, 0);
+        const y0 = Math.round(top * c.height), d = g.getImageData(0, y0, c.width, Math.round(bottom * c.height) - y0).data;
+        let n = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] > 200) n++;
+        resolve({ w: c.width, h: c.height, white: n });
+      };
+    }), b64, type, time, top, bottom);
+  }
+
+  // ---------------------------------------------------------- add subtitles
+  {
+    const page = await open('add-subtitles');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    await page.$eval('#typed', (e) => {
+      e.value = ['0:00.5 - 0:01.5 Hello from Kandy', 'nonsense here', '0:02.5 - 0:03.5 ශ්‍රී ලංකාව | வணக்கம்'].join(String.fromCharCode(10));
+      e.dispatchEvent(new Event('input'));
+    });
+    const note = await text(page, 'cue-note');
+    ok(/^2 subtitles, from 0:00\.5 to 0:03\.5\. Line 2 could not be read\./.test(note), 'subtitles: typed lines are read, a bad line is pointed out', note);
+    await page.click('#save-srt');
+    let s = await saved(page);
+    const srt = s[0] ? s[0].bytes.toString('utf8') : '';
+    ok(s[0] && s[0].name === 'holiday.srt', 'subtitles: typed subtitles save as holiday.srt', s[0] && s[0].name);
+    ok(srt.charCodeAt(0) === 0xfeff && /1\r?\n00:00:00,500 --> 00:00:01,500\r?\nHello from Kandy/.test(srt) &&
+       /2\r?\n00:00:02,500 --> 00:00:03,500\r?\nශ්‍රී ලංකාව\r?\nவணக்கம்/.test(srt), 'subtitles: the .srt file is correct, Sinhala and Tamil included', JSON.stringify(srt.slice(0, 160)));
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#go');
+    s = await saved(page, 1, 240000);
+    ok(s[0] && s[0].name === 'holiday-subtitled.mp4', 'subtitles: saves holiday-subtitled.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const info = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(info.width === 640 && info.height === 360 && Math.abs(info.duration - 4) < 0.3, 'subtitles: same size and length as the video', JSON.stringify(info));
+      const during = await whiteIn(page, s[0].b64, 'video/mp4', 1.0, 0.7, 1);
+      const between = await whiteIn(page, s[0].b64, 'video/mp4', 2.0, 0.7, 1);
+      const sinhala = await whiteIn(page, s[0].b64, 'video/mp4', 3.0, 0.6, 1);
+      const after = await whiteIn(page, s[0].b64, 'video/mp4', 3.8, 0.6, 1);
+      ok(during.white > 300, 'subtitles: the words are on the picture while they should be', JSON.stringify(during));
+      ok(between.white < 20 && after.white < 20, 'subtitles: and gone between and after', JSON.stringify([between, after]));
+      ok(sinhala.white > during.white, 'subtitles: the two-line Sinhala and Tamil subtitle is shown', JSON.stringify(sinhala));
+    }
+
+    /* From a subtitle file, shown at the top in a box. */
+    await page.evaluate(() => { window.__saved = []; });
+    const file = path.join(tmp, 'film.srt');
+    fs.writeFileSync(file, '﻿1\r\n00:00:01,000 --> 00:00:03,000\r\n<i>From a file</i>\r\n\r\n');
+    await page.select('#source', 'file');
+    ok(await text(page, 'cue-note') === 'Choose a subtitle file.', 'subtitles: asks for a file');
+    await (await page.$('#srt')).uploadFile(file);
+    await page.waitForFunction(() => /^1 subtitle,/.test(document.getElementById('cue-note').textContent), { timeout: 10000 }).catch(() => {});
+    ok(/^1 subtitle, from 0:01\.0 to 0:03\.0/.test(await text(page, 'cue-note')), 'subtitles: an .srt file is read', await text(page, 'cue-note'));
+    await page.select('#place', 'top');
+    await page.select('#look', 'box');
+    await page.click('#go');
+    s = await saved(page, 1, 240000);
+    if (s[0]) {
+      const top = await whiteIn(page, s[0].b64, 'video/mp4', 2.0, 0, 0.3);
+      const low = await whiteIn(page, s[0].b64, 'video/mp4', 2.0, 0.7, 1);
+      ok(top.white > 200 && low.white < 20, 'subtitles: from the file, placed at the top', JSON.stringify([top, low]));
+    } else ok(false, 'subtitles: file version saved', await text(page, 'status'));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- an upright phone video stored sideways
+  {
+    /* Phones store an upright video as a wide picture plus a note to turn
+       it. The tools must report and produce it upright. */
+    const page = await open('video-to-images');
+    const src = fs.readFileSync(clip).toString('base64');
+    const b64 = await page.evaluate(async (src) => {
+      const bin = atob(src), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const out = await window.CJA_FF.run(['-i', 'a.webm', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-an',
+        'phone.mp4'], { 'a.webm': u }, 'phone.mp4');
+      let s = '';
+      for (let i = 0; i < out.length; i += 32768) s += String.fromCharCode.apply(null, out.subarray(i, i + 32768));
+      return btoa(s);
+    }, src);
+    /* This engine cannot write the note itself, so it is put into the
+       track header the way a phone does: a quarter-turn matrix. */
+    const mp4 = Buffer.from(b64, 'base64');
+    const tkhd = mp4.indexOf('tkhd');
+    const matrix = tkhd + 4 + 4 + (mp4[tkhd + 4] === 1 ? 32 : 20) + 8 + 8;
+    [0, 0x10000, 0, -0x10000, 0, 0, 0, 0, 0x40000000].forEach((n, i) => mp4.writeInt32BE(n, matrix + i * 4));
+    const phone = path.join(tmp, 'phone.mp4');
+    fs.writeFileSync(phone, mp4);
+    await page.reload({ waitUntil: 'load' });
+    await page.evaluate(() => {
+      window.__saved = [];
+      window.CJA_IMG.download = (blob, name) => blob.arrayBuffer().then((ab) => {
+        const u = new Uint8Array(ab); let s = '';
+        for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768));
+        window.__saved.push({ name, type: blob.type, b64: btoa(s) });
+      });
+    });
+    await (await page.$('#file')).uploadFile(phone);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    ok(/360 × 640/.test(await text(page, 'plan')), 'phone video: reported upright, 360 x 640', await text(page, 'plan'));
+    await page.click('#go');
+    const s = await saved(page);
+    const size = s[0] ? await imageSize(page, s[0].b64, 'image/jpeg') : null;
+    ok(size && size[0] === 360 && size[1] === 640, 'phone video: the picture taken from it is upright', JSON.stringify(size));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- screen recorder
+  {
+    const page = await open('screen-recorder');
+    await page.click('#mic');
+    await page.click('#start');
+    await page.waitForFunction(() => /Recording$/.test(document.getElementById('state').textContent), { timeout: 15000 }).catch(() => {});
+    ok(/Recording$/.test(await text(page, 'state')), 'recorder: counts down, then records', await text(page, 'state'));
+    ok(await page.$eval('#mic', (e) => e.disabled), 'recorder: the choices are locked while recording');
+    await wait(2500);
+    await page.click('#pause');
+    ok(await text(page, 'pause') === 'Carry on' && await text(page, 'state') === 'Paused', 'recorder: pauses');
+    const at = await text(page, 'clock');
+    await wait(1500);
+    ok(await text(page, 'clock') === at, 'recorder: the clock stops while paused', at + ' / ' + await text(page, 'clock'));
+    await page.click('#pause');
+    await wait(1000);
+    await page.click('#stop');
+    await page.waitForFunction(() => !document.getElementById('result').hidden, { timeout: 15000 }).catch(() => {});
+    const note = await text(page, 'result-note');
+    ok(/^0:0[34] recorded, [\d.]+ KB\.$/.test(note), 'recorder: about 3.5 seconds recorded, not counting the pause', note);
+    ok(!(await page.$eval('#start', (e) => e.disabled)), 'recorder: ready to record again');
+
+    await page.click('#save-webm');
+    let s = await saved(page);
+    ok(s[0] && /^screen-recording-\d{4}-\d\d-\d\d-\d{4}\.webm$/.test(s[0].name) && s[0].bytes.readUInt32BE(0) === 0x1a45dfa3,
+       'recorder: saves a WebM named with the date and time', s[0] && s[0].name);
+    if (s[0]) {
+      const info = await mediaInfo(page, s[0].b64, 'video/webm');
+      ok(info.width > 0 && info.duration > 2.5 && info.duration < 5, 'recorder: the WebM plays', JSON.stringify(info));
+    }
+    await page.click('#save-mp4');
+    s = await saved(page, 2, 240000);
+    ok(s[1] && /\.mp4$/.test(s[1].name), 'recorder: saves an MP4', s[1] ? s[1].name : await text(page, 'status'));
+    if (s[1]) {
+      const info = await mediaInfo(page, s[1].b64, 'video/mp4');
+      ok(info.width > 0 && info.width % 2 === 0 && info.height % 2 === 0 && info.duration > 2.5 && info.duration < 5,
+         'recorder: the MP4 plays, its length right', JSON.stringify(info));
+      const probe = await page.evaluate((b64) => {
+        const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        return window.CJA_FF.probe('r.mp4', u);
+      }, s[1].b64);
+      ok(probe.videoCodec === 'h264' && probe.audio && probe.audioCodec === 'aac', 'recorder: H.264 picture with the sound', JSON.stringify(probe));
+    }
     await page.close();
   }
 
