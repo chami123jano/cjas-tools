@@ -557,6 +557,125 @@ function serve() {
     await page.close();
   }
 
+  /* The colour at a spot (fractions across and down) of one frame of a
+     saved video, averaged over a small square. */
+  async function colourAt(page, b64, type, time, fx, fy) {
+    return page.evaluate((b64, type, time, fx, fy) => new Promise((resolve) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const v = document.createElement('video');
+      v.muted = true;
+      v.src = URL.createObjectURL(new Blob([u], { type }));
+      v.onloadeddata = () => { v.currentTime = time; };
+      v.onseeked = () => {
+        const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+        const g = c.getContext('2d'); g.drawImage(v, 0, 0);
+        const d = g.getImageData(Math.round(fx * c.width) - 4, Math.round(fy * c.height) - 4, 8, 8).data;
+        let r = 0, gr = 0, b = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; gr += d[i + 1]; b += d[i + 2]; }
+        const n = d.length / 4;
+        resolve({ w: c.width, h: c.height, r: Math.round(r / n), g: Math.round(gr / n), b: Math.round(b / n) });
+      };
+    }), b64, type, time, fx, fy);
+  }
+  async function imageSize(page, b64, type) {
+    return page.evaluate((b64, type) => new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve([img.naturalWidth, img.naturalHeight]);
+      img.onerror = () => resolve(null);
+      img.src = 'data:' + type + ';base64,' + b64;
+    }), b64, type);
+  }
+
+  // ---------------------------------------------------------- resize for social media
+  {
+    const page = await open('resize-video');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    ok(await page.$eval('#shape', (e) => e.value) === '9:16', 'resize: a wide video starts as upright 9:16');
+    ok(/720 × 1280 pixels/.test(await text(page, 'plan')), 'resize: 720 x 1280', await text(page, 'plan'));
+    await wait(800);
+    ok(await page.$eval('#preview', (c) => c.width > 50 && c.height > c.width), 'resize: an upright preview is drawn');
+    await page.click('#go');
+    let s = await saved(page, 1, 240000);
+    ok(s[0] && s[0].name === 'holiday-9x16.mp4', 'resize: saves holiday-9x16.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const top = await colourAt(page, s[0].b64, 'video/mp4', 2, 0.5, 0.08);
+      ok(top.w === 720 && top.h === 1280, 'resize: the saved video is 720 x 1280', JSON.stringify(top));
+      // the background colour of the test video is dark blue (17, 34, 51); blurred, it fills the top
+      ok(top.b > 30 && top.b > top.r, 'resize: the space above is the blurred video, not black', JSON.stringify(top));
+    }
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#fit', 'bars');
+    await page.click('#go');
+    s = await saved(page, 1, 240000);
+    if (s[0]) {
+      const top = await colourAt(page, s[0].b64, 'video/mp4', 2, 0.5, 0.08);
+      ok(top.r < 12 && top.g < 12 && top.b < 12, 'resize: with bars, the space above is black', JSON.stringify(top));
+      const mid = await colourAt(page, s[0].b64, 'video/mp4', 2, 0.5, 0.5);
+      ok(mid.b > 30, 'resize: and the video is in the middle', JSON.stringify(mid));
+    } else ok(false, 'resize: bars version saved', await text(page, 'status'));
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#shape', '1:1');
+    await page.select('#fit', 'fill');
+    await page.click('#go');
+    s = await saved(page, 1, 240000);
+    if (s[0]) {
+      const c = await colourAt(page, s[0].b64, 'video/mp4', 2, 0.5, 0.05);
+      ok(c.w === 720 && c.h === 720 && c.b > 30, 'resize: square filled to the edges, 720 x 720', JSON.stringify(c));
+    } else ok(false, 'resize: square saved', await text(page, 'status'));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- video to pictures
+  {
+    const page = await open('video-to-images');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    await page.$eval('#player', (v) => new Promise((r) => { v.onseeked = r; v.currentTime = 2.2; }));
+    ok(/The picture at 0:02\.2, 640 × 360/.test(await text(page, 'plan')), 'pictures: this moment, at full size', await text(page, 'plan'));
+    await page.click('#go');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'holiday-0-02.jpg', 'pictures: saves holiday-0-02.jpg', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const size = await imageSize(page, s[0].b64, 'image/jpeg');
+      ok(size && size[0] === 640 && size[1] === 360, 'pictures: a 640 x 360 JPG', JSON.stringify(size));
+    }
+    ok(!(await page.$eval('#result', (r) => r.hidden)), 'pictures: the picture is shown');
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'every');
+    await page.select('#every', '1');
+    await page.select('#format', 'png');
+    await page.click('#go');
+    s = await saved(page, 1, 180000);
+    ok(s[0] && s[0].name === 'holiday-pictures.zip', 'pictures: every second comes as a zip', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const files = [];
+      let i = 0;
+      const b = s[0].bytes;
+      while (b.readUInt32LE(i) === 0x04034b50) {
+        const size = b.readUInt32LE(i + 18), nl = b.readUInt16LE(i + 26);
+        files.push(b.slice(i + 30, i + 30 + nl).toString());
+        i += 30 + nl + size;
+      }
+      ok(files.length >= 4 && files.length <= 5, 'pictures: four or five pictures from four seconds', files.join(', '));
+      ok(files[0] === 'holiday-0m00s.png' && files[1] === 'holiday-0m01s.png', 'pictures: named by when they were taken', files.join(', '));
+    }
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'sheet');
+    await page.select('#format', 'jpg');
+    await page.click('#go');
+    s = await saved(page, 1, 180000);
+    if (s[0]) {
+      const size = await imageSize(page, s[0].b64, 'image/jpeg');
+      // 4 thumbnails of 320 x 180 across and down, 4 pixels between and around
+      ok(s[0].name === 'holiday-thumbnails.jpg' && size && size[0] === 1300 && size[1] === 740, 'pictures: a 4 x 4 thumbnail sheet', JSON.stringify(size));
+    } else ok(false, 'pictures: sheet saved', await text(page, 'status'));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- the engine restarts itself after a crash
   {
     /* This build of FFmpeg crashes when its Opus encoder gets stereo sound;

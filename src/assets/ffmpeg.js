@@ -129,6 +129,45 @@
       });
     },
 
+    /* Like run, for commands that write many files (pictures every few
+       seconds): returns every file whose name starts with `prefix`, in
+       name order, as [{ name, data }]. */
+    runFiles: function (args, inputs, prefix, onProgress) {
+      return FF.load().then(function (engine) {
+        var names = Object.keys(inputs);
+        logs = [];
+        var listener = function (p) {
+          if (onProgress && isFinite(p.progress)) onProgress(Math.max(0, Math.min(1, p.progress)));
+        };
+        engine.on('progress', listener);
+        var made = [];
+        return names.reduce(function (p, n) {
+          return p.then(function () { return engine.writeFile(n, inputs[n].slice()); });
+        }, Promise.resolve()).then(function () {
+          return engine.exec(args);
+        }).then(function (code) {
+          if (code !== 0) throw new Error(FF.reason());
+          return engine.listDir('/');
+        }).then(function (list) {
+          made = list.filter(function (f) { return !f.isDir && f.name.indexOf(prefix) === 0; })
+            .map(function (f) { return f.name; }).sort();
+          return made.reduce(function (p, n) {
+            return p.then(function (out) {
+              return engine.readFile(n).then(function (data) { out.push({ name: n, data: data }); return out; });
+            });
+          }, Promise.resolve([]));
+        }).then(function (files) {
+          engine.off('progress', listener);
+          names.concat(made).forEach(function (n) { engine.deleteFile(n).catch(function () {}); });
+          return files;
+        }, function (e) {
+          engine.off('progress', listener);
+          names.concat(made).forEach(function (n) { engine.deleteFile(n).catch(function () {}); });
+          throw e instanceof Error ? e : new Error(String(e));
+        });
+      });
+    },
+
     /* Looks at a media file without changing it: length, picture size,
        and whether it has sound and picture. Read from FFmpeg's own report. */
     probe: function (name, bytes) {

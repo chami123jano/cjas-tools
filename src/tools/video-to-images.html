@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video to Pictures — Cja's Tools</title>
+<meta name="description" content="Save a moment from a video as a picture, a picture every few seconds, or one sheet of thumbnails. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #player { width: 100%; max-height: 360px; background: #000; border-radius: var(--radius); display: block; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #result-img { max-width: 100%; display: block; margin: 0 auto; border-radius: 6px; }
+</style>
+</head>
+<body data-page="tool" data-slug="video-to-images">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Video to Pictures</h1>
+        <p>Save a moment as a photo, a picture every few seconds, or a sheet of thumbnails. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <video id="player" controls playsinline muted></video>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="mode">What to save</label>
+            <select id="mode">
+              <option value="one" selected>This moment, as one picture</option>
+              <option value="every">A picture every few seconds (in a .zip)</option>
+              <option value="sheet">One sheet of thumbnails of the whole video</option>
+            </select>
+          </div>
+          <div class="field" data-mode="every" hidden>
+            <label for="every">Every</label>
+            <select id="every">
+              <option value="1">1 second</option>
+              <option value="2">2 seconds</option>
+              <option value="5" selected>5 seconds</option>
+              <option value="10">10 seconds</option>
+              <option value="30">30 seconds</option>
+            </select>
+          </div>
+          <div class="field" data-mode="sheet" hidden>
+            <label for="grid">Thumbnails</label>
+            <select id="grid">
+              <option value="3x3">9 (3 × 3)</option>
+              <option value="4x4" selected>16 (4 × 4)</option>
+              <option value="5x5">25 (5 × 5)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="format">Picture type</label>
+            <select id="format">
+              <option value="jpg" selected>JPG (smaller)</option>
+              <option value="png">PNG (sharpest)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel" id="result" hidden>
+        <img id="result-img" alt="The picture taken from the video">
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>For a sharp still,</b> pause on a moment where nothing is moving
+          quickly: video blurs fast movement in each frame, which a photo shows clearly.
+          <br><br>
+          <b>Pictures are taken at the video's full size,</b> not the size of the player on
+          screen. A 1080p video gives 1920 &times; 1080 pictures.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, url = null, shownUrl = null;
+    var player = document.getElementById('player');
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+    function quality() { return v('format') === 'jpg' ? ['-q:v', '2'] : []; }
+
+    function plan() {
+      var mode = v('mode');
+      document.querySelectorAll('[data-mode]').forEach(function (el) { el.hidden = el.dataset.mode !== mode; });
+      if (!media) return;
+      var p = document.getElementById('plan'), d = media.info.duration;
+      if (mode === 'one') p.textContent = 'The picture at ' + CJA_AUDIO.time(player.currentTime || 0, true) + ', ' +
+        media.info.width + ' × ' + media.info.height + '. Play or drag the video to choose the moment.';
+      else if (mode === 'every') p.textContent = 'About ' + Math.max(1, Math.floor(d / +v('every')) + 1) + ' pictures, saved together in a .zip.';
+      else p.textContent = v('grid').replace('x', ' × ') + ' thumbnails, spread evenly through the whole video, on one picture.';
+    }
+    ['mode', 'every', 'grid', 'format'].forEach(function (id) { document.getElementById(id).addEventListener('change', plan); });
+    ['seeked', 'pause', 'timeupdate'].forEach(function (ev) { player.addEventListener(ev, function () { if (v('mode') === 'one') plan(); }); });
+
+    function show(blob) {
+      if (shownUrl) URL.revokeObjectURL(shownUrl);
+      shownUrl = URL.createObjectURL(blob);
+      document.getElementById('result-img').src = shownUrl;
+      document.getElementById('result').hidden = false;
+    }
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, mode = v('mode'), ext = v('format'), input = 'input.' + media.ext;
+      var type = ext === 'png' ? 'image/png' : 'image/jpeg', inputs = {};
+      inputs[input] = media.bytes;
+      btn.disabled = true;
+      bar(0, 'Working...');
+      var started = Date.now();
+      var job;
+      if (mode === 'one') {
+        var t = Math.min(player.currentTime || 0, Math.max(0, media.info.duration - 0.05));
+        job = CJA_FF.run(['-hide_banner', '-ss', t.toFixed(3), '-i', input, '-frames:v', '1'].concat(quality(), ['shot.' + ext]),
+          inputs, 'shot.' + ext).then(function (data) {
+          var blob = new Blob([data], { type: type });
+          show(blob);
+          CJA_IMG.download(blob, media.base + '-' + CJA_AUDIO.time(t).replace(/:/g, '-') + '.' + ext);
+          return 'Saved the picture at ' + CJA_AUDIO.time(t, true) + '.';
+        });
+      } else if (mode === 'every') {
+        var n = +v('every');
+        job = CJA_FF.runFiles(['-hide_banner', '-i', input, '-vf', 'fps=1/' + n].concat(quality(), ['pic_%04d.' + ext]), inputs, 'pic_',
+          function (p) { bar(p, Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p)); }).then(function (files) {
+          if (!files.length) throw new Error('No pictures came out of this video.');
+          /* Named by the time each was taken: holiday-0m05s.jpg. */
+          var named = files.map(function (f, i) {
+            var secs = i * n;
+            return { name: media.base + '-' + Math.floor(secs / 60) + 'm' + ('0' + secs % 60).slice(-2) + 's.' + ext, data: f.data };
+          });
+          show(new Blob([files[0].data], { type: type }));
+          CJA_IMG.download(CJA_IMG.zip(named), media.base + '-pictures.zip');
+          return 'Saved ' + files.length + ' pictures in a .zip.';
+        });
+      } else {
+        var g = v('grid').split('x').map(Number), count = g[0] * g[1];
+        /* Evenly spread: one picture every (length / count) seconds. */
+        var rate = (count / Math.max(0.5, media.info.duration)).toFixed(4);
+        job = CJA_FF.run(['-hide_banner', '-i', input, '-vf', 'fps=' + rate + ',scale=320:-2,tile=' + g[0] + 'x' + g[1] + ':padding=4:margin=4',
+          '-frames:v', '1'].concat(quality(), ['sheet.' + ext]), inputs, 'sheet.' + ext,
+          function (p) { bar(p, Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p)); }).then(function (data) {
+          var blob = new Blob([data], { type: type });
+          show(blob);
+          CJA_IMG.download(blob, media.base + '-thumbnails.' + ext);
+          return 'Saved the sheet of ' + count + ' thumbnails.';
+        });
+      }
+      job.then(function (msg) { bar(1, msg); })
+        .catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      document.getElementById('result').hidden = true;
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !m.info.width) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long.';
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        plan();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+    plan();
+  })();
+  </script>
+</body>
+</html>

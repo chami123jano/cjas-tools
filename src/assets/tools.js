@@ -1191,6 +1191,20 @@ const TOOLS = [
     category: 'video',
     desc: 'Slow motion, faster playback or a time-lapse, with natural-sounding voices.',
     keywords: ['speed up video', 'slow motion', 'time-lapse', 'timelapse', 'fast forward', 'slow down video']
+  },
+  {
+    slug: 'resize-video',
+    name: 'Resize for Social Media',
+    category: 'video',
+    desc: 'Upright for Status and Reels, square, 4:5 or wide, cropped or on a blurred background.',
+    keywords: ['resize video', '9:16', 'reels', 'whatsapp status', 'tiktok', 'square video', 'blurred background', 'aspect ratio']
+  },
+  {
+    slug: 'video-to-images',
+    name: 'Video to Pictures',
+    category: 'video',
+    desc: 'A moment as a photo, a picture every few seconds, or a thumbnail sheet.',
+    keywords: ['video to jpg', 'screenshot video', 'frame grab', 'extract frames', 'thumbnail', 'still', 'video to image']
   }
 ];
 

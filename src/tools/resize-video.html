@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resize Video for Social Media — Cja's Tools</title>
+<meta name="description" content="Make a video upright for Status and Reels, square, 4:5 or wide, by cropping or by fitting it on bars or a blurred background. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; align-items: start; }
+  @media (max-width: 720px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  #player { width: 100%; max-height: 300px; background: #000; border-radius: var(--radius); display: block; }
+  .preview-box { text-align: center; }
+  #preview { max-width: 100%; max-height: 380px; background: #000; border-radius: 6px; }
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="resize-video">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Resize Video for Social Media</h1>
+        <p>Upright for Status and Reels, square, or wide for YouTube. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="layout">
+          <div>
+            <video id="player" controls playsinline muted></video>
+            <div class="row" style="margin-top:12px">
+              <div class="field">
+                <label for="shape">Shape</label>
+                <select id="shape">
+                  <option value="9:16" selected>Upright 9:16</option>
+                  <option value="4:5">Tall 4:5</option>
+                  <option value="1:1">Square 1:1</option>
+                  <option value="16:9">Wide 16:9</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="fit">To make it fit</label>
+                <select id="fit">
+                  <option value="blur" selected>Blur behind</option>
+                  <option value="bars">Black bars</option>
+                  <option value="fill">Fill, cut the edges</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="quality">Size</label>
+                <select id="quality">
+                  <option value="1080">Full HD 1080</option>
+                  <option value="720" selected>HD 720 (quicker)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="preview-box">
+            <canvas id="preview" width="1" height="1"></canvas>
+            <p class="hint" id="plan"></p>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="go">Make and save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which shape?</b> Upright 9:16 for WhatsApp Status, Instagram
+          Reels, TikTok and YouTube Shorts. Tall 4:5 for Instagram and Facebook posts.
+          Square for posts anywhere. Wide 16:9 for YouTube and TV.
+          <br><br>
+          <b>Which way to fit?</b> Cutting off the edges fills the screen but
+          loses the sides (or top and bottom) &mdash; check the preview that nothing important
+          goes. The blurred background keeps the whole picture and looks finished, the way
+          most phone apps do it. Black bars keep it all, plainly.
+          <br><br>
+          The preview shows the moment the video is paused at; play or drag to check
+          other moments.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, url = null;
+    var player = document.getElementById('player');
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    /* The finished size: the shorter side is 1080 or 720. */
+    function size() {
+      var r = v('shape').split(':').map(Number), base = +v('quality');
+      var w, h;
+      if (r[0] <= r[1]) { w = base; h = Math.round(base * r[1] / r[0] / 2) * 2; }
+      else { h = base; w = Math.round(base * r[0] / r[1] / 2) * 2; }
+      return { w: w, h: h };
+    }
+
+    /* The FFmpeg filters for the chosen fit. */
+    function filter(W, H) {
+      var fill = 'scale=' + W + ':' + H + ':force_original_aspect_ratio=increase,crop=' + W + ':' + H;
+      var fit = 'scale=' + W + ':' + H + ':force_original_aspect_ratio=decrease';
+      if (v('fit') === 'fill') return '[0:v:0]' + fill + ',setsar=1,format=yuv420p[v]';
+      if (v('fit') === 'bars') return '[0:v:0]' + fit + ',pad=' + W + ':' + H + ':(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=yuv420p[v]';
+      /* Blurred: a filled, blurred copy behind, the whole picture on top. */
+      return '[0:v:0]split=2[a][b];[a]' + fill + ',boxblur=20:2[bg];[b]' + fit + '[fg];' +
+        '[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]';
+    }
+
+    /* The same layout drawn from the paused frame, small. */
+    function preview() {
+      if (!media) return;
+      var s = size(), k = Math.min(240 / s.w, 380 / s.h);
+      var c = document.getElementById('preview');
+      c.width = Math.round(s.w * k); c.height = Math.round(s.h * k);
+      var g = c.getContext('2d');
+      g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height);
+      var vw = player.videoWidth, vh = player.videoHeight;
+      document.getElementById('plan').textContent = s.w + ' × ' + s.h + ' pixels.';
+      if (!vw) return;
+      var cover = Math.max(c.width / vw, c.height / vh), contain = Math.min(c.width / vw, c.height / vh);
+      var fit = v('fit');
+      if (fit === 'fill' || fit === 'blur') {
+        g.save();
+        if (fit === 'blur') g.filter = 'blur(' + Math.round(c.width / 25) + 'px)';
+        g.drawImage(player, (c.width - vw * cover) / 2, (c.height - vh * cover) / 2, vw * cover, vh * cover);
+        g.restore();
+      }
+      if (fit !== 'fill') g.drawImage(player, (c.width - vw * contain) / 2, (c.height - vh * contain) / 2, vw * contain, vh * contain);
+    }
+
+    ['shape', 'fit', 'quality'].forEach(function (id) { document.getElementById(id).addEventListener('change', preview); });
+    ['loadeddata', 'seeked', 'pause', 'timeupdate'].forEach(function (ev) { player.addEventListener(ev, preview); });
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, input = 'input.' + media.ext, s = size();
+      var args = ['-hide_banner', '-i', input, '-filter_complex', filter(s.w, s.h), '-map', '[v]'];
+      if (media.info.audio) args.push('-map', '0:a:0', '-c:a', 'aac', '-b:a', '160k');
+      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-movflags', '+faststart', 'out.mp4');
+      btn.disabled = true;
+      bar(0, 'Working...');
+      var started = Date.now(), inputs = {};
+      inputs[input] = media.bytes;
+      CJA_FF.run(args, inputs, 'out.mp4', function (p) {
+        bar(p, Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        CJA_IMG.download(new Blob([data], { type: 'video/mp4' }), media.base + '-' + v('shape').replace(':', 'x') + '.mp4');
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(file);
+      player.src = url;
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !m.info.width) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long.';
+        /* Wide videos are usually being made upright, and the other way. */
+        document.getElementById('shape').value = m.info.width >= m.info.height ? '9:16' : '16:9';
+        if (Math.min(m.info.width, m.info.height) >= 1080) document.getElementById('quality').value = '1080';
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        /* Show a moment a little way in, not a black first frame. */
+        player.currentTime = Math.min(1, m.info.duration / 3);
+        preview();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+  })();
+  </script>
+</body>
+</html>
