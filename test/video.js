@@ -448,6 +448,115 @@ function serve() {
     await page.close();
   }
 
+  /* The main pitch of a saved file's sound, from zero crossings. */
+  async function soundPitch(page, b64, fromSec, toSec) {
+    return page.evaluate(async (b64, a, b) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const buf = await new AudioContext().decodeAudioData(u.buffer).catch(() => null);
+      if (!buf) return { error: true };
+      const d = buf.getChannelData(0), s0 = Math.round(a * buf.sampleRate), s1 = Math.min(d.length, Math.round(b * buf.sampleRate));
+      let x = 0;
+      for (let i = s0 + 1; i < s1; i++) if ((d[i - 1] < 0) !== (d[i] < 0)) x++;
+      return { hz: x / 2 / ((s1 - s0) / buf.sampleRate), seconds: buf.duration };
+    }, b64, fromSec, toSec);
+  }
+
+  // ---------------------------------------------------------- convert video
+  {
+    const page = await open('convert-video');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    ok(/WEBM video, 640 × 360.*Picture: vp8, sound: opus/.test(await text(page, 'info')), 'convert: describes the video', await text(page, 'info'));
+    ok(await page.$eval('#format', (e) => e.value) === 'mp4', 'convert: suggests MP4 for a WebM');
+    ok(/has to be rebuilt for MP4/.test(await text(page, 'plan')), 'convert: WebM to MP4 needs rebuilding', await text(page, 'plan'));
+    await page.click('#go');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'holiday.mp4', 'convert: saves holiday.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    const mp4 = path.join(tmp, 'holiday.mp4');
+    if (s[0]) {
+      fs.writeFileSync(mp4, s[0].bytes);
+      const p = await probeSaved(page, s[0].b64, 'c1.mp4');
+      ok(p.videoCodec === 'h264' && p.audioCodec === 'aac' && Math.abs(p.duration - 4) < 0.5, 'convert: H.264 and AAC, full length', JSON.stringify(p));
+      const m = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(m.width === 640, 'convert: plays in the browser', JSON.stringify(m));
+    }
+
+    // MP4 to MKV: instant, the picture copied untouched
+    if (fs.existsSync(mp4)) {
+      await page.evaluate(() => { window.__saved = []; });
+      await (await page.$('#file')).uploadFile(mp4);
+      await page.waitForFunction(() => /^MP4 video/.test(document.getElementById('info').textContent), { timeout: 60000 }).catch(() => {});
+      await page.select('#format', 'mkv');
+      ok(/Instant: the picture \(h264\) and sound \(aac\)/.test(await text(page, 'plan')), 'convert: MP4 to MKV is instant', await text(page, 'plan'));
+      const t0 = Date.now();
+      await page.click('#go');
+      s = await saved(page);
+      const took = Date.now() - t0;
+      if (s[0]) {
+        const p = await probeSaved(page, s[0].b64, 'c2.mkv');
+        ok(s[0].name === 'holiday.mkv' && p.videoCodec === 'h264' && Math.abs(s[0].bytes.length - fs.statSync(mp4).size) < fs.statSync(mp4).size * 0.1,
+           'convert: an MKV with the same H.264 inside, about the same size', JSON.stringify(p) + ' ' + s[0].bytes.length);
+        ok(took < 8000, 'convert: and it took seconds', took + ' ms');
+      } else ok(false, 'convert: MKV saved', await text(page, 'status'));
+
+      // MP4 to WebM: rebuilt as VP8 with Vorbis sound
+      await page.evaluate(() => { window.__saved = []; });
+      await page.select('#format', 'webm');
+      ok(/rebuilt for WEBM/.test(await text(page, 'plan')), 'convert: MP4 to WebM needs rebuilding');
+      await page.click('#go');
+      s = await saved(page, 1, 180000);
+      if (s[0]) {
+        const p = await probeSaved(page, s[0].b64, 'c3.webm');
+        ok(p.videoCodec === 'vp8' && p.audioCodec === 'vorbis', 'convert: WebM has VP8 picture and Vorbis sound', JSON.stringify(p));
+        const m = await mediaInfo(page, s[0].b64, 'video/webm');
+        ok(m.width === 640 && m.duration > 3.3, 'convert: and plays in the browser', JSON.stringify(m));
+      } else ok(false, 'convert: WebM saved', await text(page, 'status'));
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- video speed
+  {
+    const page = await open('video-speed');
+    await (await page.$('#file')).uploadFile(clip);
+    await page.waitForFunction(() => !document.getElementById('options').hidden, { timeout: 180000 }).catch(() => {});
+    ok(/0:0[34] becomes 0:0[12], with sound/.test(await text(page, 'plan')), 'speed: 2x halves it', await text(page, 'plan'));
+    await page.click('#go');
+    let s = await saved(page, 1, 180000);
+    ok(s[0] && s[0].name === 'holiday-2x.mp4', 'speed: saves holiday-2x.mp4', s[0] ? s[0].name : await text(page, 'status'));
+    if (s[0]) {
+      const m = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(m.duration > 1.6 && m.duration < 2.4, 'speed: about 2 seconds long', JSON.stringify(m));
+      const p = await soundPitch(page, s[0].b64, 0.3, 1.5);
+      ok(Math.abs(p.hz - 440) < 15, 'speed: the 440 Hz tone is still 440 Hz (voices keep their pitch)', JSON.stringify(p));
+    }
+
+    // slow motion: twice as long, still the same pitch
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#speeds [data-s="0.5"]');
+    await page.click('#go');
+    s = await saved(page, 1, 240000);
+    if (s[0]) {
+      const m = await mediaInfo(page, s[0].b64, 'video/mp4');
+      ok(m.duration > 7 && m.duration < 9, 'speed: 0.5x is about 8 seconds', JSON.stringify(m));
+      const p = await soundPitch(page, s[0].b64, 1, 6);
+      ok(Math.abs(p.hz - 440) < 15, 'speed: slowed down, still 440 Hz', JSON.stringify(p));
+    } else ok(false, 'speed: slow motion saved', await text(page, 'status'));
+
+    // time-lapse: sound removed by default
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#speeds [data-s="8"]');
+    ok(await page.$eval('#sound', (e) => e.value) === 'remove' && /without sound/.test(await text(page, 'plan')), 'speed: 8x removes the sound by default');
+    await page.click('#go');
+    s = await saved(page);
+    if (s[0]) {
+      const p = await probeSaved(page, s[0].b64, 's8.mp4');
+      ok(!p.audio && p.duration < 0.8, 'speed: an 8x time-lapse of half a second with no sound', JSON.stringify(p));
+    } else ok(false, 'speed: time-lapse saved', await text(page, 'status'));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- the engine restarts itself after a crash
   {
     /* This build of FFmpeg crashes when its Opus encoder gets stereo sound;

@@ -1177,6 +1177,20 @@ const TOOLS = [
     category: 'video',
     desc: 'Remove the sound from a video, replace it, or add background music.',
     keywords: ['mute video', 'remove audio', 'add music', 'background music', 'replace audio', 'silent video']
+  },
+  {
+    slug: 'convert-video',
+    name: 'Convert Video',
+    category: 'video',
+    desc: 'Change a video to MP4, WebM, MOV or MKV, instantly when it allows.',
+    keywords: ['convert video', 'mkv to mp4', 'mov to mp4', 'webm to mp4', 'avi to mp4', 'video converter', 'format']
+  },
+  {
+    slug: 'video-speed',
+    name: 'Video Speed',
+    category: 'video',
+    desc: 'Slow motion, faster playback or a time-lapse, with natural-sounding voices.',
+    keywords: ['speed up video', 'slow motion', 'time-lapse', 'timelapse', 'fast forward', 'slow down video']
   }
 ];
 

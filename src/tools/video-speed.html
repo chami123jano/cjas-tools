@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Speed — Cja's Tools</title>
+<meta name="description" content="Slow motion, faster playback or a time-lapse from any video, with voices kept at their natural pitch. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; margin: 10px 0 4px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+</style>
+</head>
+<body data-page="tool" data-slug="video-speed">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=video">Video</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Video Speed</h1>
+        <p>Slow motion, faster, or a time-lapse. Your video stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a video</b>, or drag one here
+          <span>MP4, MOV, MKV, WEBM, AVI, 3GP</span>
+        </div>
+        <input type="file" id="file" accept="video/*,.mkv,.3gp" hidden>
+        <p class="hint" id="info"></p>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="btns" id="speeds">
+          <button class="btn" data-s="0.25">0.25× slow motion</button>
+          <button class="btn" data-s="0.5">0.5×</button>
+          <button class="btn" data-s="0.75">0.75×</button>
+          <button class="btn" data-s="1.5">1.5×</button>
+          <button class="btn primary" data-s="2">2×</button>
+          <button class="btn" data-s="4">4×</button>
+          <button class="btn" data-s="8">8× time-lapse</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="sound">Sound</label>
+            <select id="sound">
+              <option value="keep" selected>Keep, with voices at their natural pitch</option>
+              <option value="remove">Remove (usual for time-lapse and slow motion)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Change the speed and save</button>
+        </div>
+        <div id="progress" hidden><div class="bar"><i id="bar"></i></div><p class="hint" id="status" style="margin:0"></p></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Slow motion</b> works best on videos filmed at a high frame rate
+          (many phones have a "slo-mo" setting at 120 or 240 frames a second). From an
+          ordinary 30 frames a second video, each picture is simply shown for longer, so
+          fast movement can look a little jerky.
+          <br><br>
+          <b>Sound:</b> sped-up or slowed voices keep their own pitch rather than going
+          squeaky or deep. Above 4&times; speech is too fast to follow, so removing the sound
+          is usually better.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/audio.js"></script>
+  <script src="../assets/ffmpeg.js"></script>
+  <script>
+  (function () {
+    var media = null, speed = 2;
+
+    function v(id) { return document.getElementById(id).value; }
+    function bar(fraction, text) {
+      document.getElementById('progress').hidden = false;
+      document.getElementById('bar').style.width = Math.round(fraction * 100) + '%';
+      document.getElementById('status').textContent = text;
+    }
+
+    /* atempo changes speed without changing pitch, but only between 0.5
+       and 2 in one go, so bigger changes are made in steps: 4x is 2 x 2,
+       0.25x is 0.5 x 0.5. */
+    function atempo(s) {
+      var parts = [];
+      while (s > 2) { parts.push('atempo=2'); s /= 2; }
+      while (s < 0.5) { parts.push('atempo=0.5'); s /= 0.5; }
+      if (Math.abs(s - 1) > 1e-6) parts.push('atempo=' + s.toFixed(4));
+      return parts.join(',');
+    }
+
+    function plan() {
+      if (!media) return;
+      var keepSound = v('sound') === 'keep' && media.info.audio;
+      document.getElementById('plan').textContent = CJA_AUDIO.time(media.info.duration) + ' becomes ' +
+        CJA_AUDIO.time(media.info.duration / speed) + (keepSound ? ', with sound.' : ', without sound.') +
+        (media.info.audio ? '' : ' (This video has no sound.)');
+    }
+
+    document.getElementById('speeds').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-s]');
+      if (!b) return;
+      speed = +b.dataset.s;
+      document.querySelectorAll('#speeds .btn').forEach(function (x) { x.classList.toggle('primary', x === b); });
+      /* Above 4x, sound is rarely wanted. */
+      if (speed > 4) document.getElementById('sound').value = 'remove';
+      plan();
+    });
+    document.getElementById('sound').addEventListener('change', plan);
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, input = 'input.' + media.ext;
+      var keepSound = v('sound') === 'keep' && media.info.audio;
+      /* setpts squeezes or stretches the picture times; fps=30 then keeps
+         a normal frame rate (dropping frames when sped up). */
+      var args = ['-hide_banner', '-i', input];
+      if (keepSound) {
+        args.push('-filter_complex', '[0:v:0]setpts=PTS/' + speed + ',fps=30[v];[0:a:0]' + atempo(speed) + '[a]',
+          '-map', '[v]', '-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
+      } else {
+        args.push('-map', '0:v:0', '-vf', 'setpts=PTS/' + speed + ',fps=30', '-an');
+      }
+      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', 'out.mp4');
+      btn.disabled = true;
+      bar(0, 'Working...');
+      var started = Date.now(), inputs = {};
+      inputs[input] = media.bytes;
+      CJA_FF.run(args, inputs, 'out.mp4', function (p) {
+        bar(p, Math.round(p * 100) + '%' + CJA_FF.timeLeft(started, p));
+      }).then(function (data) {
+        bar(1, 'Done: ' + CJA_IMG.bytes(data.length) + '.');
+        CJA_IMG.download(new Blob([data], { type: 'video/mp4' }), media.base + '-' + speed + 'x.mp4');
+      }).catch(function (e) { bar(0, e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_AUDIO.zone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var file = files[0], info = document.getElementById('info');
+      document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(file.name) + '</b><span>' +
+        CJA_IMG.bytes(file.size) + ' &middot; click to choose another</span>';
+      CJA_FF.open(file, function (t) { info.textContent = t; }).then(function (m) {
+        if (!m.info.video || !isFinite(m.info.duration)) {
+          info.textContent = 'This file could not be read as a video.';
+          document.getElementById('options').hidden = true;
+          return;
+        }
+        media = m;
+        info.textContent = m.info.width + ' × ' + m.info.height + ', ' + CJA_AUDIO.time(m.info.duration) + ' long' +
+          (m.info.fps ? ', ' + Math.round(m.info.fps) + ' frames a second.' : '.');
+        document.getElementById('options').hidden = false;
+        document.getElementById('progress').hidden = true;
+        plan();
+      }).catch(function (e) { info.textContent = e.message; });
+    });
+  })();
+  </script>
+</body>
+</html>
