@@ -3,20 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cja's Tools</title>
-<meta name="description" content="Every little tool, on your computer. Free, private, works offline.">
+<title>Cja's Tools — every little tool, on your computer</title>
+<meta name="description" content="Free tools for PDFs, images, video, audio, text, money and more. Everything runs on your own device — your files are never uploaded.">
 <link rel="stylesheet" href="assets/app.css">
 </head>
-<body>
-  <main class="splash">
-    <div class="logo">CJA</div>
-    <h1>Cja's Tools</h1>
-    <p class="tagline">Every little tool, on your computer.</p>
-    <p class="note">Free &middot; Private &middot; Works offline</p>
-    <div class="status">
-      <span class="dot"></span>
-      <span>Day 1 &mdash; setup complete. 171 tools on the way.</span>
-    </div>
-  </main>
+<body data-page="home">
+
+  <div class="shell">
+    <main>
+      <div class="hero">
+        <h1 id="hero-title">All tools</h1>
+        <p id="hero-sub">Free, private, and they work with no internet. Your files never leave your device.</p>
+      </div>
+      <div id="tool-list"></div>
+    </main>
+  </div>
+
+  <script src="assets/tools.js"></script>
+  <script src="assets/app.js"></script>
 </body>
 </html>

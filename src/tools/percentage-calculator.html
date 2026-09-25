@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Percentage Calculator — Cja's Tools</title>
+<meta name="description" content="Work out percentages, percentage increases and decreases, and discounts. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="percentage-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Percentage Calculator</h1>
+        <p>Answers appear as you type. Nothing is sent anywhere.</p>
+      </div>
+
+      <div class="panel">
+        <label>What is a percentage of a number?</label>
+        <div class="row">
+          <div class="field">
+            <label for="a-pct">Percentage</label>
+            <input type="number" id="a-pct" value="15" step="any">
+          </div>
+          <div class="field">
+            <label for="a-of">of</label>
+            <input type="number" id="a-of" value="2500" step="any">
+          </div>
+        </div>
+        <div class="result" id="a-out">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <label>One number is what percentage of another?</label>
+        <div class="row">
+          <div class="field">
+            <label for="b-part">This number</label>
+            <input type="number" id="b-part" value="45" step="any">
+          </div>
+          <div class="field">
+            <label for="b-whole">out of</label>
+            <input type="number" id="b-whole" value="180" step="any">
+          </div>
+        </div>
+        <div class="result" id="b-out">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <label>Increase or decrease between two numbers</label>
+        <div class="row">
+          <div class="field">
+            <label for="c-from">From</label>
+            <input type="number" id="c-from" value="1200" step="any">
+          </div>
+          <div class="field">
+            <label for="c-to">To</label>
+            <input type="number" id="c-to" value="1560" step="any">
+          </div>
+        </div>
+        <div class="result" id="c-out">&mdash;</div>
+        <p class="hint">Useful for price rises, salary changes and discounts.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function val(id) {
+      var raw = document.getElementById(id).value;
+      if (raw.trim() === '') return null;
+      var n = parseFloat(raw);
+      return isFinite(n) ? n : null;
+    }
+
+    function set(id, main, sub) {
+      var el = document.getElementById(id);
+      el.innerHTML = main + (sub ? '<small>' + sub + '</small>' : '');
+    }
+
+    function calc() {
+      var pct = val('a-pct'), of = val('a-of');
+      if (pct === null || of === null) {
+        set('a-out', '&mdash;', 'Fill in both boxes');
+      } else {
+        set('a-out', CT.num(of * pct / 100),
+            pct + '% of ' + CT.num(of));
+      }
+
+      var part = val('b-part'), whole = val('b-whole');
+      if (part === null || whole === null) {
+        set('b-out', '&mdash;', 'Fill in both boxes');
+      } else if (whole === 0) {
+        set('b-out', '&mdash;', 'Cannot divide by zero');
+      } else {
+        set('b-out', CT.num(part / whole * 100) + '%',
+            CT.num(part) + ' out of ' + CT.num(whole));
+      }
+
+      var from = val('c-from'), to = val('c-to');
+      if (from === null || to === null) {
+        set('c-out', '&mdash;', 'Fill in both boxes');
+      } else if (from === 0) {
+        set('c-out', '&mdash;', 'Cannot work out a change from zero');
+      } else {
+        var change = (to - from) / Math.abs(from) * 100;
+        var word = change > 0 ? 'increase' : change < 0 ? 'decrease' : 'no change';
+        set('c-out',
+            (change > 0 ? '+' : '') + CT.num(change) + '%',
+            word === 'no change' ? 'The two numbers are the same'
+              : CT.num(Math.abs(to - from)) + ' ' + word);
+      }
+    }
+
+    document.querySelectorAll('input').forEach(function (i) {
+      i.addEventListener('input', calc);
+    });
+    calc();
+  })();
+  </script>
+</body>
+</html>

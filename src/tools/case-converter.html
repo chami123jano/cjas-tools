@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case Converter — Cja's Tools</title>
+<meta name="description" content="Change text to UPPERCASE, lowercase, Title Case, Sentence case, camelCase, snake_case or kebab-case. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="case-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Case Converter</h1>
+        <p>Pick a style and your text changes straight away.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="text">Your text</label>
+          <textarea id="text" placeholder="Type or paste your text here&hellip;" spellcheck="false">the quick brown fox jumps over the lazy dog</textarea>
+        </div>
+        <div class="btns" id="modes">
+          <button class="btn" data-mode="upper">UPPERCASE</button>
+          <button class="btn" data-mode="lower">lowercase</button>
+          <button class="btn" data-mode="title">Title Case</button>
+          <button class="btn" data-mode="sentence">Sentence case</button>
+          <button class="btn" data-mode="camel">camelCase</button>
+          <button class="btn" data-mode="pascal">PascalCase</button>
+          <button class="btn" data-mode="snake">snake_case</button>
+          <button class="btn" data-mode="kebab">kebab-case</button>
+          <button class="btn" data-mode="alternating">aLtErNaTiNg</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="replace">Use as input</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var input = document.getElementById('text');
+    var output = document.getElementById('out');
+    var mode = 'upper';
+
+    /* Words of four letters or fewer that stay lowercase inside a title,
+       unless they are the first or last word. */
+    var SMALL = ['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'if', 'in',
+                 'nor', 'of', 'off', 'on', 'or', 'per', 'so', 'the', 'to',
+                 'up', 'via', 'vs', 'with', 'yet'];
+
+    /* Split into words regardless of the incoming style, so camelCase,
+       snake_case and plain sentences all convert correctly. */
+    function words(t) {
+      return t
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .split(/[\s_\-]+/)
+        .filter(function (w) { return w.length; });
+    }
+
+    function cap(w) {
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }
+
+    var convert = {
+      upper: function (t) { return t.toUpperCase(); },
+
+      lower: function (t) { return t.toLowerCase(); },
+
+      title: function (t) {
+        return t.split(/(\s+)/).map(function (part, i, arr) {
+          if (!part.trim()) return part;
+          var lower = part.toLowerCase();
+          var isFirst = i === 0;
+          var isLast = i === arr.length - 1 ||
+                       !arr.slice(i + 1).some(function (p) { return p.trim(); });
+          if (!isFirst && !isLast && SMALL.indexOf(lower.replace(/[^a-z]/g, '')) !== -1) {
+            return lower;
+          }
+          return cap(part);
+        }).join('');
+      },
+
+      sentence: function (t) {
+        return t.toLowerCase().replace(/(^\s*\w|[.!?]\s+\w)/g, function (m) {
+          return m.toUpperCase();
+        });
+      },
+
+      camel: function (t) {
+        return words(t).map(function (w, i) {
+          return i === 0 ? w.toLowerCase() : cap(w);
+        }).join('');
+      },
+
+      pascal: function (t) {
+        return words(t).map(cap).join('');
+      },
+
+      snake: function (t) {
+        return words(t).map(function (w) { return w.toLowerCase(); }).join('_');
+      },
+
+      kebab: function (t) {
+        return words(t).map(function (w) { return w.toLowerCase(); }).join('-');
+      },
+
+      alternating: function (t) {
+        var n = 0;
+        return t.split('').map(function (ch) {
+          if (!/[a-z]/i.test(ch)) return ch;
+          n++;
+          return n % 2 ? ch.toLowerCase() : ch.toUpperCase();
+        }).join('');
+      }
+    };
+
+    function run() {
+      output.value = input.value ? convert[mode](input.value) : '';
+      document.querySelectorAll('#modes .btn').forEach(function (b) {
+        b.classList.toggle('primary', b.dataset.mode === mode);
+      });
+    }
+
+    document.getElementById('modes').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-mode]');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      run();
+    });
+
+    input.addEventListener('input', run);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('replace').addEventListener('click', function () {
+      if (!output.value) return;
+      input.value = output.value;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>
