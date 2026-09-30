@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Code Generator — Cja's Tools</title>
+<meta name="description" content="Make a QR code from a link, text, phone number or wifi login and download it as a PNG. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #qr-box {
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-height: 200px;
+  }
+  #qr-box canvas { max-width: 100%; height: auto; image-rendering: pixelated; }
+  #qr-msg { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body data-page="tool" data-slug="qr-code-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>QR Code Generator</h1>
+        <p>Made on your device. The code never touches the internet.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="kind">What is it?</label>
+          <select id="kind">
+            <option value="text">Link or plain text</option>
+            <option value="wifi">Wifi login</option>
+            <option value="phone">Phone number</option>
+            <option value="sms">Text message</option>
+          </select>
+        </div>
+
+        <div id="pane-text">
+          <div class="field">
+            <label for="text">Link or text</label>
+            <textarea id="text" style="min-height:90px" spellcheck="false">https://chami123jano.github.io/cjas-tools</textarea>
+          </div>
+        </div>
+
+        <div id="pane-wifi" hidden>
+          <div class="row">
+            <div class="field">
+              <label for="ssid">Network name</label>
+              <input type="text" id="ssid" placeholder="My Wifi">
+            </div>
+            <div class="field">
+              <label for="wifi-pass">Password</label>
+              <input type="text" id="wifi-pass" placeholder="Leave empty if open">
+            </div>
+          </div>
+          <div class="field">
+            <label for="enc">Security</label>
+            <select id="enc">
+              <option value="WPA">WPA / WPA2 / WPA3</option>
+              <option value="WEP">WEP</option>
+              <option value="nopass">Open (no password)</option>
+            </select>
+          </div>
+          <p class="hint">Scanning this joins the network without typing the password.</p>
+        </div>
+
+        <div id="pane-phone" hidden>
+          <div class="field">
+            <label for="phone">Phone number</label>
+            <input type="text" id="phone" placeholder="+94 77 123 4567">
+          </div>
+        </div>
+
+        <div id="pane-sms" hidden>
+          <div class="row">
+            <div class="field">
+              <label for="sms-num">Phone number</label>
+              <input type="text" id="sms-num" placeholder="+94 77 123 4567">
+            </div>
+            <div class="field">
+              <label for="sms-msg">Message</label>
+              <input type="text" id="sms-msg" placeholder="Hello">
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="size">Size: <span id="size-val">320</span> px</label>
+            <input type="range" id="size" min="120" max="1024" step="8" value="320" style="width:100%">
+          </div>
+          <div class="field">
+            <label for="ec">Error correction</label>
+            <select id="ec">
+              <option value="L">Low — smallest code</option>
+              <option value="M" selected>Medium — recommended</option>
+              <option value="Q">High</option>
+              <option value="H">Highest — survives damage</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="qr-box"><span id="qr-msg">Enter something above</span></div>
+        <div class="btns" style="margin-top:14px">
+          <button class="btn primary" id="dl-png">Download PNG</button>
+          <button class="btn" id="dl-svg">Download SVG</button>
+        </div>
+        <p class="hint">Higher error correction makes the code denser but still
+          readable if part of it is smudged or covered by a logo.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/vendor/qrcode.js"></script>
+  <script src="../assets/vendor/qrcode_UTF8.js"></script>
+  <script>
+  (function () {
+    var box = document.getElementById('qr-box');
+    var kind = document.getElementById('kind');
+    var sizeInput = document.getElementById('size');
+    var current = null;
+
+    var PANES = ['text', 'wifi', 'phone', 'sms'];
+
+    /* Wifi and SMS payloads use ; and : as separators, so those characters
+       inside a name or password have to be escaped or the scan breaks. */
+    function esc(s) {
+      return String(s).replace(/([\\;,:"])/g, '\\$1');
+    }
+
+    function payload() {
+      if (kind.value === 'wifi') {
+        var ssid = document.getElementById('ssid').value;
+        if (!ssid.trim()) return '';
+        var enc = document.getElementById('enc').value;
+        var pass = document.getElementById('wifi-pass').value;
+        return 'WIFI:T:' + enc + ';S:' + esc(ssid) + ';' +
+               (enc === 'nopass' ? '' : 'P:' + esc(pass) + ';') + ';';
+      }
+      if (kind.value === 'phone') {
+        var p = document.getElementById('phone').value.trim();
+        return p ? 'tel:' + p.replace(/\s+/g, '') : '';
+      }
+      if (kind.value === 'sms') {
+        var n = document.getElementById('sms-num').value.trim();
+        if (!n) return '';
+        var m = document.getElementById('sms-msg').value;
+        return 'SMSTO:' + n.replace(/\s+/g, '') + ':' + m;
+      }
+      return document.getElementById('text').value.trim();
+    }
+
+    function draw() {
+      var data = payload();
+      box.innerHTML = '';
+
+      if (!data) {
+        box.innerHTML = '<span id="qr-msg">Enter something above</span>';
+        current = null;
+        return;
+      }
+
+      var qr;
+      try {
+        /* Type 0 lets the library pick the smallest version that fits. */
+        qr = qrcode(0, document.getElementById('ec').value);
+        qr.addData(data);
+        qr.make();
+      } catch (e) {
+        box.innerHTML = '<span id="qr-msg">That is too much text for one QR code. ' +
+                        'Try shortening it.</span>';
+        current = null;
+        return;
+      }
+
+      var count = qr.getModuleCount();
+      var target = parseInt(sizeInput.value, 10);
+      var quiet = 4;                                  /* required blank border */
+      var cell = Math.max(1, Math.floor(target / (count + quiet * 2)));
+      var px = cell * (count + quiet * 2);
+
+      var canvas = document.createElement('canvas');
+      canvas.width = px;
+      canvas.height = px;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, px, px);
+      ctx.fillStyle = '#000000';
+      for (var r = 0; r < count; r++) {
+        for (var c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+          }
+        }
+      }
+
+      box.appendChild(canvas);
+      current = { canvas: canvas, qr: qr, count: count, cell: cell, quiet: quiet };
+    }
+
+    function download(href, name) {
+      var a = document.createElement('a');
+      a.href = href;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    document.getElementById('dl-png').addEventListener('click', function () {
+      if (!current) { CT.toast('Nothing to download yet'); return; }
+      download(current.canvas.toDataURL('image/png'), 'qr-code.png');
+    });
+
+    document.getElementById('dl-svg').addEventListener('click', function () {
+      if (!current) { CT.toast('Nothing to download yet'); return; }
+      var n = current.count, q = current.quiet, side = n + q * 2;
+      var path = '';
+      for (var r = 0; r < n; r++) {
+        for (var c = 0; c < n; c++) {
+          if (current.qr.isDark(r, c)) {
+            path += 'M' + (c + q) + ' ' + (r + q) + 'h1v1h-1z';
+          }
+        }
+      }
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' +
+        side + ' ' + side + '" shape-rendering="crispEdges">' +
+        '<rect width="' + side + '" height="' + side + '" fill="#fff"/>' +
+        '<path d="' + path + '" fill="#000"/></svg>';
+      download('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), 'qr-code.svg');
+    });
+
+    kind.addEventListener('change', function () {
+      PANES.forEach(function (p) {
+        document.getElementById('pane-' + p).hidden = (p !== kind.value);
+      });
+      draw();
+    });
+
+    sizeInput.addEventListener('input', function () {
+      document.getElementById('size-val').textContent = sizeInput.value;
+      draw();
+    });
+
+    document.querySelectorAll('input, textarea, select').forEach(function (el) {
+      if (el.id === 'search') return;
+      el.addEventListener('input', draw);
+      el.addEventListener('change', draw);
+    });
+
+    draw();
+  })();
+  </script>
+</body>
+</html>

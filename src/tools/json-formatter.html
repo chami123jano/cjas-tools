@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSON Formatter — Cja's Tools</title>
+<meta name="description" content="Tidy up, shrink and check JSON. Shows the exact line and column of any error. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 13.5px; }
+  .bad { border-color: var(--danger) !important; background: var(--bg); }
+  .err {
+    padding: 12px 15px;
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+    color: var(--danger);
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .err b { display: block; margin-bottom: 3px; }
+  .err code {
+    display: block;
+    margin-top: 7px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 12.5px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="json-formatter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>JSON Formatter</h1>
+        <p>Tidy it, shrink it, or find out exactly where it is broken.</p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your JSON</label>
+          <textarea id="in" spellcheck="false" placeholder='{"name":"Chamindu","tools":[1,2,3]}'></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="format">Tidy up</button>
+          <button class="btn" id="minify">Shrink</button>
+          <button class="btn" id="sort">Sort keys</button>
+          <button class="btn" id="paste">Paste</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label for="indent">Indent</label>
+          <select id="indent">
+            <option value="2" selected>2 spaces</option>
+            <option value="4">4 spaces</option>
+            <option value="tab">Tab</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel" id="stats-panel" hidden>
+        <div class="stats">
+          <div class="stat"><b id="s-keys">0</b><span>Keys</span></div>
+          <div class="stat"><b id="s-depth">0</b><span>Levels deep</span></div>
+          <div class="stat"><b id="s-size">0</b><span>Size</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+    var errSlot = document.getElementById('err-slot');
+    var statsPanel = document.getElementById('stats-panel');
+
+    function indentValue() {
+      var v = document.getElementById('indent').value;
+      return v === 'tab' ? '\t' : parseInt(v, 10);
+    }
+
+    /* Browsers report a character offset, which is useless in a big file.
+       Turning it into line and column, with the offending line shown, is
+       the difference between a usable error and a frustrating one. */
+    function locate(text, message) {
+      var m = message.match(/position (\d+)/);
+      if (!m) return null;
+      var pos = parseInt(m[1], 10);
+      var before = text.slice(0, pos);
+      var line = before.split('\n').length;
+      var col = pos - before.lastIndexOf('\n');
+      var lineText = text.split('\n')[line - 1] || '';
+      return { line: line, col: col, lineText: lineText };
+    }
+
+    function showError(message, where) {
+      input.classList.add('bad');
+      var html = '<div class="err"><b>That is not valid JSON</b>' + message;
+      if (where) {
+        html += '<code>Line ' + where.line + ', character ' + where.col + '\n' +
+                where.lineText.replace(/[<>&]/g, function (c) {
+                  return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+                }) + '\n' +
+                new Array(where.col).join(' ') + '^</code>';
+      }
+      errSlot.innerHTML = html + '</div>';
+      statsPanel.hidden = true;
+    }
+
+    function clearError() {
+      input.classList.remove('bad');
+      errSlot.innerHTML = '';
+    }
+
+    function countKeys(v) {
+      if (Array.isArray(v)) return v.reduce(function (n, x) { return n + countKeys(x); }, 0);
+      if (v && typeof v === 'object') {
+        return Object.keys(v).length +
+          Object.keys(v).reduce(function (n, k) { return n + countKeys(v[k]); }, 0);
+      }
+      return 0;
+    }
+
+    function depth(v) {
+      if (Array.isArray(v)) {
+        return 1 + v.reduce(function (d, x) { return Math.max(d, depth(x)); }, 0);
+      }
+      if (v && typeof v === 'object') {
+        return 1 + Object.keys(v).reduce(function (d, k) {
+          return Math.max(d, depth(v[k]));
+        }, 0);
+      }
+      return 0;
+    }
+
+    function readableSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
+    function showStats(value, text) {
+      document.getElementById('s-keys').textContent = countKeys(value).toLocaleString();
+      document.getElementById('s-depth').textContent = depth(value);
+      document.getElementById('s-size').textContent =
+        readableSize(new Blob([text]).size);
+      statsPanel.hidden = false;
+    }
+
+    function sortKeys(v) {
+      if (Array.isArray(v)) return v.map(sortKeys);
+      if (v && typeof v === 'object') {
+        var out = {};
+        Object.keys(v).sort().forEach(function (k) { out[k] = sortKeys(v[k]); });
+        return out;
+      }
+      return v;
+    }
+
+    function run(mode) {
+      var text = input.value.trim();
+      if (!text) {
+        clearError();
+        output.value = '';
+        statsPanel.hidden = true;
+        return;
+      }
+
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        showError(e.message, locate(text, e.message));
+        output.value = '';
+        return;
+      }
+
+      clearError();
+      var value = mode === 'sort' ? sortKeys(parsed) : parsed;
+      var result = mode === 'minify'
+        ? JSON.stringify(value)
+        : JSON.stringify(value, null, indentValue());
+
+      output.value = result;
+      showStats(parsed, result);
+    }
+
+    document.getElementById('format').addEventListener('click', function () { run('format'); });
+    document.getElementById('minify').addEventListener('click', function () { run('minify'); });
+    document.getElementById('sort').addEventListener('click', function () { run('sort'); });
+    document.getElementById('indent').addEventListener('change', function () { run('format'); });
+
+    input.addEventListener('input', function () {
+      if (input.value.trim()) run('format');
+      else { clearError(); output.value = ''; statsPanel.hidden = true; }
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      output.value = '';
+      clearError();
+      statsPanel.hidden = true;
+      input.focus();
+    });
+
+    document.getElementById('paste').addEventListener('click', function () {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        CT.toast('Use Ctrl+V instead');
+        input.focus();
+        return;
+      }
+      navigator.clipboard.readText().then(function (t) {
+        input.value = t;
+        run('format');
+      }, function () {
+        CT.toast('Use Ctrl+V instead');
+        input.focus();
+      });
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+  })();
+  </script>
+</body>
+</html>

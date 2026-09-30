@@ -1,0 +1,38 @@
+name: Publish website
+
+# Every push to main puts the latest tools on the website.
+# Free and unlimited because this repository is public.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# If two pushes land close together, let the newer one win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # src/ is the whole website - no build step, the files ship as they are.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: src
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

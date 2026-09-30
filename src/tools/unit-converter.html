@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unit Converter — Cja's Tools</title>
+<meta name="description" content="Convert length, weight, temperature, area, volume and speed between metric and imperial units. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="unit-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=converters">Converters</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Unit Converter</h1>
+        <p>Pick what you are measuring, then type a number.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="kind">Measuring</label>
+          <select id="kind"></select>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="from-u">From</label>
+            <select id="from-u"></select>
+          </div>
+          <div class="field">
+            <label for="to-u">To</label>
+            <select id="to-u"></select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="amount">Amount</label>
+          <input type="number" id="amount" value="1" step="any">
+        </div>
+
+        <div class="btns">
+          <button class="btn" id="swap">Swap around</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Every unit is stored as how many base units it equals, so any pair
+       converts by going through the base. Temperature is not a simple
+       multiple, so it gets its own pair of functions further down. */
+    var KINDS = {
+      Length: {
+        base: 'Metre',
+        units: {
+          'Millimetre': 0.001, 'Centimetre': 0.01, 'Metre': 1, 'Kilometre': 1000,
+          'Inch': 0.0254, 'Foot': 0.3048, 'Yard': 0.9144, 'Mile': 1609.344,
+          'Nautical mile': 1852
+        }
+      },
+      Weight: {
+        base: 'Kilogram',
+        units: {
+          'Milligram': 0.000001, 'Gram': 0.001, 'Kilogram': 1, 'Tonne': 1000,
+          'Ounce': 0.028349523125, 'Pound': 0.45359237, 'Stone': 6.35029318
+        }
+      },
+      Temperature: { special: true },
+      Area: {
+        base: 'Square metre',
+        units: {
+          'Square centimetre': 0.0001, 'Square metre': 1, 'Hectare': 10000,
+          'Square kilometre': 1000000, 'Square foot': 0.09290304,
+          'Square yard': 0.83612736, 'Acre': 4046.8564224, 'Perch': 25.29285264
+        }
+      },
+      Volume: {
+        base: 'Litre',
+        units: {
+          'Millilitre': 0.001, 'Litre': 1, 'Cubic metre': 1000,
+          'Teaspoon (US)': 0.00492892159375, 'Tablespoon (US)': 0.01478676478125,
+          'Cup (US)': 0.2365882365, 'Pint (US)': 0.473176473,
+          'Gallon (US)': 3.785411784, 'Gallon (UK)': 4.54609
+        }
+      },
+      Speed: {
+        base: 'Metre per second',
+        units: {
+          'Metre per second': 1, 'Kilometre per hour': 0.277777777777778,
+          'Mile per hour': 0.44704, 'Knot': 0.514444444444444,
+          'Foot per second': 0.3048
+        }
+      }
+    };
+
+    var TEMPS = ['Celsius', 'Fahrenheit', 'Kelvin'];
+
+    function toCelsius(v, unit) {
+      if (unit === 'Fahrenheit') return (v - 32) * 5 / 9;
+      if (unit === 'Kelvin') return v - 273.15;
+      return v;
+    }
+
+    function fromCelsius(c, unit) {
+      if (unit === 'Fahrenheit') return c * 9 / 5 + 32;
+      if (unit === 'Kelvin') return c + 273.15;
+      return c;
+    }
+
+    var kindSel = document.getElementById('kind');
+    var fromSel = document.getElementById('from-u');
+    var toSel = document.getElementById('to-u');
+    var amount = document.getElementById('amount');
+    var out = document.getElementById('out');
+
+    Object.keys(KINDS).forEach(function (k) {
+      kindSel.innerHTML += '<option>' + k + '</option>';
+    });
+
+    function unitNames(kind) {
+      return kind === 'Temperature' ? TEMPS : Object.keys(KINDS[kind].units);
+    }
+
+    function fillUnits() {
+      var names = unitNames(kindSel.value);
+      var opts = names.map(function (n) { return '<option>' + n + '</option>'; }).join('');
+      fromSel.innerHTML = opts;
+      toSel.innerHTML = opts;
+      /* Default to two different units so the first result is meaningful. */
+      toSel.selectedIndex = Math.min(1, names.length - 1);
+      convert();
+    }
+
+    function convert() {
+      var raw = amount.value.trim();
+      if (raw === '' || !isFinite(parseFloat(raw))) {
+        out.innerHTML = '&mdash;<small>Enter a number</small>';
+        return;
+      }
+      var v = parseFloat(raw);
+      var kind = kindSel.value;
+      var f = fromSel.value, t = toSel.value;
+      var result;
+
+      if (kind === 'Temperature') {
+        result = fromCelsius(toCelsius(v, f), t);
+      } else {
+        var units = KINDS[kind].units;
+        result = v * units[f] / units[t];
+      }
+
+      /* Very small or very large answers need more decimal places to
+         mean anything, so the precision follows the size of the number. */
+      var places = Math.abs(result) !== 0 && Math.abs(result) < 0.01 ? 8
+                 : Math.abs(result) < 1 ? 6 : 4;
+
+      out.innerHTML = CT.num(result, places) + ' ' + t.toLowerCase() +
+        '<small>' + CT.num(v, 6) + ' ' + f.toLowerCase() + '</small>';
+    }
+
+    kindSel.addEventListener('change', fillUnits);
+    fromSel.addEventListener('change', convert);
+    toSel.addEventListener('change', convert);
+    amount.addEventListener('input', convert);
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var a = fromSel.value;
+      fromSel.value = toSel.value;
+      toSel.value = a;
+      convert();
+    });
+
+    fillUnits();
+  })();
+  </script>
+</body>
+</html>

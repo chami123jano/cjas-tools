@@ -17,7 +17,7 @@ Work one day, skip the next. Every batch ends with both published.
 |-----|------|------|:----:|
 | 1 | Sat 26 Sep | Install Rust, create project, window opens | [x] |
 | 2 | Mon 28 Sep | Sidebar, search box, page switching + 3 tools | [x] |
-| 3 | Wed 30 Sep | 5 more tools, build .exe, switch on website, **publish v0.1** | [ ] |
+| 3 | Wed 30 Sep | 5 more tools, build .exe, switch on website, **publish v0.1** | [x] |
 
 Starter 8: percentage calculator, word counter, case converter, unit converter,
 password generator, QR code generator, JSON formatter, PAYE tax calculator.
