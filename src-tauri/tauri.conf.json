@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Cja's Tools",
+  "productName": "Cjas Tools",
   "version": "0.1.0",
   "identifier": "com.cjastools.app",
   "build": {
