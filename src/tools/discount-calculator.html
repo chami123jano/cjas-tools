@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discount Calculator — Cja's Tools</title>
+<meta name="description" content="Work out a sale price and what you save, stack two discounts, or find the original price from a sale price. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="discount-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Discount Calculator</h1>
+        <p>What you pay, what you save, and what it really cost before the sale.</p>
+      </div>
+
+      <div class="panel">
+        <label>Price after a discount</label>
+        <div class="row">
+          <div class="field">
+            <label for="a-price">Original price</label>
+            <input type="number" id="a-price" value="4500" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="a-pct">Discount (%)</label>
+            <input type="number" id="a-pct" value="20" step="any">
+          </div>
+        </div>
+        <div class="field">
+          <label for="a-pct2">A second discount on top (%) &mdash; optional</label>
+          <input type="number" id="a-pct2" value="" step="any" placeholder="e.g. an extra 10% at the till">
+        </div>
+        <div class="result" id="a-out">&mdash;</div>
+        <p class="hint" id="a-note"></p>
+      </div>
+
+      <div class="panel">
+        <label>Work backwards to the original price</label>
+        <div class="row">
+          <div class="field">
+            <label for="b-sale">Price you paid</label>
+            <input type="number" id="b-sale" value="3600" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="b-pct">Discount that was applied (%)</label>
+            <input type="number" id="b-pct" value="20" step="any">
+          </div>
+        </div>
+        <div class="result" id="b-out">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <label>How big was the discount?</label>
+        <div class="row">
+          <div class="field">
+            <label for="c-was">Was</label>
+            <input type="number" id="c-was" value="4500" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="c-now">Now</label>
+            <input type="number" id="c-now" value="3150" step="any" min="0">
+          </div>
+        </div>
+        <div class="result" id="c-out">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function raw(id) { return document.getElementById(id).value.trim(); }
+
+    function n(id) {
+      var s = raw(id);
+      if (s === '') return null;
+      var v = parseFloat(s);
+      return isFinite(v) ? v : null;
+    }
+
+    function set(id, main, sub) {
+      document.getElementById(id).innerHTML =
+        main + (sub ? '<small>' + sub + '</small>' : '');
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      });
+    }
+
+    function calc() {
+      /* Sale price, optionally with a second discount stacked on it. */
+      var price = n('a-price'), pct = n('a-pct'), pct2 = n('a-pct2');
+      var note = document.getElementById('a-note');
+      note.textContent = '';
+
+      if (price === null || pct === null) {
+        set('a-out', '&mdash;', 'Enter a price and a discount');
+      } else {
+        var after1 = price * (1 - pct / 100);
+        var final = pct2 === null ? after1 : after1 * (1 - pct2 / 100);
+        var saved = price - final;
+        set('a-out', money(final),
+            'you save ' + money(saved) + ' off ' + money(price));
+
+        /* Two stacked discounts are not the same as adding them together,
+           and shops rely on people assuming they are. */
+        if (pct2 !== null && price > 0) {
+          var effective = saved / price * 100;
+          note.textContent = 'Together that is ' + CT.num(effective, 2) +
+            '% off, not ' + CT.num(pct + pct2, 2) +
+            '% — the second discount only applies to the already reduced price.';
+        }
+      }
+
+      /* Original price from what was paid. */
+      var sale = n('b-sale'), bpct = n('b-pct');
+      if (sale === null || bpct === null) {
+        set('b-out', '&mdash;', 'Enter a price and a discount');
+      } else if (bpct >= 100) {
+        set('b-out', '&mdash;', 'A discount of 100% or more has no original price');
+      } else {
+        var original = sale / (1 - bpct / 100);
+        set('b-out', money(original),
+            'you saved ' + money(original - sale));
+      }
+
+      /* Discount percentage between two prices. */
+      var was = n('c-was'), now = n('c-now');
+      if (was === null || now === null) {
+        set('c-out', '&mdash;', 'Enter both prices');
+      } else if (was === 0) {
+        set('c-out', '&mdash;', 'The original price cannot be zero');
+      } else {
+        var off = (was - now) / was * 100;
+        set('c-out', CT.num(off, 2) + '% off',
+            off < 0 ? 'that is ' + money(now - was) + ' more expensive, not cheaper'
+                    : 'saving ' + money(was - now));
+      }
+    }
+
+    document.querySelectorAll('input[type="number"]').forEach(function (i) {
+      i.addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

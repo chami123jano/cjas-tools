@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BMI Calculator — Cja's Tools</title>
+<meta name="description" content="Work out your body mass index from height and weight, in metric or imperial. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .scale { display: flex; height: 10px; border-radius: 999px; overflow: hidden; margin: 16px 0 7px; }
+  .scale i { flex: 1; }
+  .scale .u { background: #5aa9e6; flex: 1.85; }
+  .scale .n { background: #27b86a; flex: 0.65; }
+  .scale .o { background: #e8a33d; flex: 0.5; }
+  .scale .b { background: #d4483b; flex: 1.5; }
+  .scale-labels { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+</style>
+</head>
+<body data-page="tool" data-slug="bmi-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>BMI Calculator</h1>
+        <p>Body mass index, worked out on your device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="system">Units</label>
+          <select id="system">
+            <option value="metric">Metric — centimetres and kilograms</option>
+            <option value="imperial">Imperial — feet, inches and pounds</option>
+          </select>
+        </div>
+
+        <div id="metric-pane">
+          <div class="row">
+            <div class="field">
+              <label for="cm">Height (cm)</label>
+              <input type="number" id="cm" value="170" step="any" min="0">
+            </div>
+            <div class="field">
+              <label for="kg">Weight (kg)</label>
+              <input type="number" id="kg" value="68" step="any" min="0">
+            </div>
+          </div>
+        </div>
+
+        <div id="imperial-pane" hidden>
+          <div class="row">
+            <div class="field">
+              <label for="ft">Height (feet)</label>
+              <input type="number" id="ft" value="5" step="1" min="0">
+            </div>
+            <div class="field">
+              <label for="inch">and inches</label>
+              <input type="number" id="inch" value="7" step="any" min="0">
+            </div>
+            <div class="field">
+              <label for="lb">Weight (pounds)</label>
+              <input type="number" id="lb" value="150" step="any" min="0">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="scale"><i class="u"></i><i class="n"></i><i class="o"></i><i class="b"></i></div>
+        <div class="scale-labels">
+          <span>Under 18.5</span><span>18.5</span><span>25</span><span>30</span><span>40+</span>
+        </div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-healthy">&mdash;</b><span>Healthy weight range</span></div>
+          <div class="stat"><b id="s-diff">&mdash;</b><span>To reach that range</span></div>
+        </div>
+        <p class="hint">BMI is a rough guide only. It does not tell muscle from fat,
+          so athletes often read as overweight. It is also less reliable for
+          children, pregnancy and older adults. Speak to a doctor about
+          anything that matters.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var system = document.getElementById('system');
+
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function band(bmi) {
+      if (bmi < 18.5) return { name: 'Underweight', note: 'Below the healthy range' };
+      if (bmi < 25)   return { name: 'Healthy weight', note: 'Within the healthy range' };
+      if (bmi < 30)   return { name: 'Overweight', note: 'Above the healthy range' };
+      if (bmi < 35)   return { name: 'Obese (class 1)', note: 'Well above the healthy range' };
+      if (bmi < 40)   return { name: 'Obese (class 2)', note: 'Well above the healthy range' };
+      return { name: 'Obese (class 3)', note: 'Far above the healthy range' };
+    }
+
+    function calc() {
+      var metric = system.value === 'metric';
+      var kg, metres;
+
+      if (metric) {
+        kg = n('kg');
+        metres = n('cm') / 100;
+      } else {
+        kg = n('lb') * 0.45359237;
+        var inches = n('ft') * 12 + (isFinite(n('inch')) ? n('inch') : 0);
+        metres = inches * 0.0254;
+      }
+
+      if (!isFinite(kg) || !isFinite(metres) || kg <= 0 || metres <= 0) {
+        document.getElementById('out').innerHTML =
+          '&mdash;<small>Enter your height and weight</small>';
+        document.getElementById('s-healthy').textContent = '—';
+        document.getElementById('s-diff').textContent = '—';
+        return;
+      }
+
+      var bmi = kg / (metres * metres);
+      var b = band(bmi);
+
+      document.getElementById('out').innerHTML =
+        CT.num(bmi, 1) + ' — ' + b.name + '<small>' + b.note + '</small>';
+
+      /* The healthy range in the user's own units is far more useful
+         than being told a number they then have to convert themselves. */
+      var lowKg = 18.5 * metres * metres;
+      var highKg = 24.9 * metres * metres;
+
+      if (metric) {
+        document.getElementById('s-healthy').textContent =
+          CT.num(lowKg, 1) + '–' + CT.num(highKg, 1) + ' kg';
+      } else {
+        document.getElementById('s-healthy').textContent =
+          CT.num(lowKg / 0.45359237, 1) + '–' + CT.num(highKg / 0.45359237, 1) + ' lb';
+      }
+
+      var diffEl = document.getElementById('s-diff');
+      if (kg < lowKg) {
+        var gain = lowKg - kg;
+        diffEl.textContent = '+' + CT.num(metric ? gain : gain / 0.45359237, 1) +
+          (metric ? ' kg' : ' lb');
+      } else if (kg > highKg) {
+        var lose = kg - highKg;
+        diffEl.textContent = '−' + CT.num(metric ? lose : lose / 0.45359237, 1) +
+          (metric ? ' kg' : ' lb');
+      } else {
+        diffEl.textContent = 'Already there';
+      }
+    }
+
+    system.addEventListener('change', function () {
+      document.getElementById('metric-pane').hidden = system.value !== 'metric';
+      document.getElementById('imperial-pane').hidden = system.value === 'metric';
+      calc();
+    });
+
+    document.querySelectorAll('input[type="number"]').forEach(function (i) {
+      i.addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

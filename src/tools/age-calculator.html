@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Age Calculator — Cja's Tools</title>
+<meta name="description" content="Work out your exact age in years, months and days, and how long until your next birthday. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="age-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Age Calculator</h1>
+        <p>Exact age between any two dates.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="dob">Date of birth</label>
+            <input type="date" id="dob">
+          </div>
+          <div class="field">
+            <label for="on">Age on this date</label>
+            <input type="date" id="on">
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn" id="today">Use today</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+      </div>
+
+      <div class="panel" id="detail-panel" hidden>
+        <label style="margin-bottom:10px">The same age in other units</label>
+        <div class="stats">
+          <div class="stat"><b id="s-months">0</b><span>Months</span></div>
+          <div class="stat"><b id="s-weeks">0</b><span>Weeks</span></div>
+          <div class="stat"><b id="s-days">0</b><span>Days</span></div>
+          <div class="stat"><b id="s-hours">0</b><span>Hours</span></div>
+        </div>
+        <div class="result" id="next-bd" style="margin-top:16px">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var dobEl = document.getElementById('dob');
+    var onEl = document.getElementById('on');
+
+    function todayISO() {
+      var d = new Date();
+      return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }
+
+    /* Dates are read as local midday rather than midnight, so that a
+       daylight-saving shift can never push a date onto the day before. */
+    function parse(s) {
+      if (!s) return null;
+      var p = s.split('-');
+      if (p.length !== 3) return null;
+      var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function daysInMonth(year, month) {
+      return new Date(year, month + 1, 0).getDate();
+    }
+
+    /* Counts whole years, then whole months, then the days left over.
+       When the day of the month has not come round yet, it measures from
+       the monthly anniversary in the previous month, clamped to that
+       month's length: one month after 31 January is 29 February in a leap
+       year, so 31 Jan to 1 Mar is one month and one day. Simply adding the
+       previous month's length gets this wrong and can even go negative. */
+    function difference(from, to) {
+      var years = to.getFullYear() - from.getFullYear();
+      var months = to.getMonth() - from.getMonth();
+      var days = to.getDate() - from.getDate();
+
+      if (days < 0) {
+        months--;
+        var prevMonth = to.getMonth() - 1;
+        var prevYear = to.getFullYear();
+        if (prevMonth < 0) { prevMonth = 11; prevYear--; }
+        var anchorDay = Math.min(from.getDate(), daysInMonth(prevYear, prevMonth));
+        var anchor = new Date(prevYear, prevMonth, anchorDay, 12, 0, 0);
+        days = Math.round((to - anchor) / 86400000);
+      }
+      if (months < 0) {
+        years--;
+        months += 12;
+      }
+      return { years: years, months: months, days: days };
+    }
+
+    function plural(n, word) {
+      return n + ' ' + word + (n === 1 ? '' : 's');
+    }
+
+    function nextBirthday(dob, from) {
+      var year = from.getFullYear();
+      var month = dob.getMonth();
+      var day = dob.getDate();
+
+      /* Someone born on 29 February has no birthday most years; the
+         common convention is to mark it on 1 March. */
+      function make(y) {
+        if (month === 1 && day === 29 && daysInMonth(y, 1) < 29) {
+          return new Date(y, 2, 1, 12, 0, 0);
+        }
+        return new Date(y, month, day, 12, 0, 0);
+      }
+
+      var next = make(year);
+      if (next < from) next = make(year + 1);
+      return next;
+    }
+
+    function calc() {
+      var dob = parse(dobEl.value);
+      var on = parse(onEl.value);
+      var out = document.getElementById('out');
+      var panel = document.getElementById('detail-panel');
+
+      if (!dob || !on) {
+        out.innerHTML = '&mdash;<small>Pick both dates</small>';
+        panel.hidden = true;
+        return;
+      }
+
+      if (dob > on) {
+        out.innerHTML = '&mdash;<small>The date of birth is after the second date</small>';
+        panel.hidden = true;
+        return;
+      }
+
+      var d = difference(dob, on);
+      var parts = [];
+      if (d.years) parts.push(plural(d.years, 'year'));
+      if (d.months) parts.push(plural(d.months, 'month'));
+      parts.push(plural(d.days, 'day'));
+
+      out.innerHTML = parts.join(', ') +
+        '<small>on ' + on.toLocaleDateString('en-GB',
+          { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + '</small>';
+
+      var msPerDay = 86400000;
+      var totalDays = Math.round((on - dob) / msPerDay);
+
+      document.getElementById('s-months').textContent =
+        (d.years * 12 + d.months).toLocaleString();
+      document.getElementById('s-weeks').textContent =
+        Math.floor(totalDays / 7).toLocaleString();
+      document.getElementById('s-days').textContent = totalDays.toLocaleString();
+      document.getElementById('s-hours').textContent =
+        (totalDays * 24).toLocaleString();
+
+      var nb = nextBirthday(dob, on);
+      var daysTo = Math.round((nb - on) / msPerDay);
+      var turning = nb.getFullYear() - dob.getFullYear();
+
+      document.getElementById('next-bd').innerHTML =
+        (daysTo === 0 ? 'Happy birthday' : plural(daysTo, 'day') + ' to go') +
+        '<small>turning ' + turning + ' on ' +
+        nb.toLocaleDateString('en-GB',
+          { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+        '</small>';
+
+      panel.hidden = false;
+    }
+
+    document.getElementById('today').addEventListener('click', function () {
+      onEl.value = todayISO();
+      calc();
+    });
+
+    dobEl.addEventListener('input', calc);
+    onEl.addEventListener('input', calc);
+
+    onEl.value = todayISO();
+    dobEl.value = '2000-01-01';
+    calc();
+  })();
+  </script>
+</body>
+</html>

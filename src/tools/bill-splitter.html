@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bill Splitter — Cja's Tools</title>
+<meta name="description" content="Split a restaurant bill between people with a tip and service charge, evenly or by uneven shares. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .shares { display: flex; flex-direction: column; gap: 9px; }
+  .share-row { display: grid; grid-template-columns: 1fr 120px auto; gap: 9px; align-items: center; }
+  .share-row .who { font-size: 14px; }
+  .share-row .drop {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 17px; padding: 0 6px; line-height: 1;
+  }
+  .share-row .drop:hover { color: var(--danger); }
+  @media (max-width: 480px) { .share-row { grid-template-columns: 1fr 96px auto; } }
+</style>
+</head>
+<body data-page="tool" data-slug="bill-splitter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Bill Splitter</h1>
+        <p>Split it evenly, or by what each person actually had.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="total">Bill total</label>
+          <input type="number" id="total" value="8500" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="service">Service charge (%)</label>
+            <input type="number" id="service" value="10" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="tip">Tip (%)</label>
+            <input type="number" id="tip" value="0" step="any" min="0">
+          </div>
+        </div>
+        <p class="hint">In Sri Lanka most restaurants already add 10% service
+          charge to the printed total. If yours did, set it to 0 here so you
+          do not add it twice.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="mode">How are you splitting it?</label>
+          <select id="mode">
+            <option value="even">Evenly between everyone</option>
+            <option value="shares">By what each person had</option>
+          </select>
+        </div>
+
+        <div id="even-pane">
+          <div class="field">
+            <label for="people">How many people</label>
+            <input type="number" id="people" value="4" step="1" min="1">
+          </div>
+        </div>
+
+        <div id="shares-pane" hidden>
+          <div class="shares" id="shares"></div>
+          <div class="btns" style="margin-top:11px">
+            <button class="btn" id="add">Add a person</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-total">&mdash;</b><span>Total to pay</span></div>
+          <div class="stat"><b id="s-extra">&mdash;</b><span>Service and tip</span></div>
+        </div>
+        <div id="per-person" style="margin-top:16px"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var people = [
+      { name: 'Person 1', amount: 2500 },
+      { name: 'Person 2', amount: 3000 },
+      { name: 'Person 3', amount: 3000 }
+    ];
+
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      });
+    }
+
+    function drawShares() {
+      var html = '';
+      people.forEach(function (p, i) {
+        html += '<div class="share-row">' +
+          '<input type="text" class="who" data-i="' + i + '" data-f="name" value="' +
+            p.name.replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-i="' + i + '" data-f="amount" value="' +
+            p.amount + '" step="any" min="0">' +
+          '<button class="drop" data-drop="' + i + '" title="Remove">&times;</button>' +
+        '</div>';
+      });
+      document.getElementById('shares').innerHTML = html;
+    }
+
+    function calc() {
+      var total = n('total');
+      var service = n('service');
+      var tip = n('tip');
+      var out = document.getElementById('out');
+      var list = document.getElementById('per-person');
+
+      if (!isFinite(total) || total < 0) {
+        out.innerHTML = '&mdash;<small>Enter the bill total</small>';
+        document.getElementById('s-total').textContent = '—';
+        document.getElementById('s-extra').textContent = '—';
+        list.innerHTML = '';
+        return;
+      }
+
+      var extraRate = ((isFinite(service) ? service : 0) +
+                       (isFinite(tip) ? tip : 0)) / 100;
+      var extra = total * extraRate;
+      var grand = total + extra;
+
+      document.getElementById('s-total').textContent = money(grand);
+      document.getElementById('s-extra').textContent = money(extra);
+
+      if (document.getElementById('mode').value === 'even') {
+        var count = Math.floor(n('people'));
+        if (!isFinite(count) || count < 1) {
+          out.innerHTML = '&mdash;<small>How many people?</small>';
+          list.innerHTML = '';
+          return;
+        }
+        var each = grand / count;
+        out.innerHTML = money(each) +
+          '<small>each, between ' + count + ' people</small>';
+
+        /* Dividing rarely lands on whole cents, so say who covers the
+           odd remainder rather than leaving the table a rupee short. */
+        var rounded = Math.floor(each * 100) / 100;
+        var shortfall = grand - rounded * count;
+        list.innerHTML = shortfall > 0.005
+          ? '<p class="hint">If everyone pays ' + money(rounded) +
+            ', one person needs to add ' + money(shortfall) + ' to cover the rounding.</p>'
+          : '';
+        return;
+      }
+
+      /* Uneven split: service and tip are shared in proportion to what
+         each person's own food cost, which is the fair way to do it. */
+      var sum = people.reduce(function (a, p) {
+        return a + (isFinite(p.amount) ? p.amount : 0);
+      }, 0);
+
+      if (!people.length) {
+        out.innerHTML = '&mdash;<small>Add at least one person</small>';
+        list.innerHTML = '';
+        return;
+      }
+      if (sum <= 0) {
+        out.innerHTML = '&mdash;<small>Enter what each person had</small>';
+        list.innerHTML = '';
+        return;
+      }
+
+      var rows = '';
+      people.forEach(function (p) {
+        var share = (p.amount || 0) / sum;
+        rows += '<div class="share-row" style="grid-template-columns:1fr auto">' +
+          '<span class="who">' + p.name + '</span>' +
+          '<b>' + money(grand * share) + '</b></div>';
+      });
+      list.innerHTML = rows;
+
+      var diff = Math.abs(sum - total);
+      out.innerHTML = money(grand) +
+        '<small>' + (diff > 0.005
+          ? 'note: the individual amounts add up to ' + money(sum) +
+            ', which is ' + money(diff) + ' ' + (sum > total ? 'more' : 'less') +
+            ' than the bill total'
+          : 'split by what each person had, with service and tip shared in proportion') +
+        '</small>';
+    }
+
+    document.getElementById('mode').addEventListener('change', function () {
+      var shares = this.value === 'shares';
+      document.getElementById('even-pane').hidden = shares;
+      document.getElementById('shares-pane').hidden = !shares;
+      calc();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      people.push({ name: 'Person ' + (people.length + 1), amount: 0 });
+      drawShares();
+      calc();
+    });
+
+    document.getElementById('shares').addEventListener('input', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      var p = people[+el.dataset.i];
+      if (el.dataset.f === 'name') p.name = el.value;
+      else p.amount = parseFloat(el.value);
+      calc();
+    });
+
+    document.getElementById('shares').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-drop]');
+      if (!btn) return;
+      if (people.length <= 1) { CT.toast('Keep at least one person'); return; }
+      people.splice(+btn.dataset.drop, 1);
+      drawShares();
+      calc();
+    });
+
+    ['total', 'service', 'tip', 'people'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    drawShares();
+    calc();
+  })();
+  </script>
+</body>
+</html>

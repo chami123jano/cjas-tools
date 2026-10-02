@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loan / EMI Calculator — Cja's Tools</title>
+<meta name="description" content="Work out your monthly loan instalment, total interest and a year-by-year repayment breakdown. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .sched { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .sched th, .sched td { padding: 8px 4px; text-align: right; }
+  .sched th:first-child, .sched td:first-child { text-align: left; }
+  .sched thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .sched tbody tr { border-bottom: 1px solid var(--border); }
+  .wrap { overflow-x: auto; }
+</style>
+</head>
+<body data-page="tool" data-slug="loan-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Loan / EMI Calculator</h1>
+        <p>What you pay each month, and what the loan really costs.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="amount">Loan amount</label>
+          <input type="number" id="amount" value="2000000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Interest rate (% a year)</label>
+            <input type="number" id="rate" value="12" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="years">Length (years)</label>
+            <input type="number" id="years" value="5" step="any" min="0">
+          </div>
+        </div>
+        <p class="hint">This is a reducing-balance loan, which is how banks
+          normally quote housing, vehicle and personal loans.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="emi">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-total">&mdash;</b><span>Total you repay</span></div>
+          <div class="stat"><b id="s-interest">&mdash;</b><span>Interest paid</span></div>
+          <div class="stat"><b id="s-pct">&mdash;</b><span>Interest as % of loan</span></div>
+        </div>
+      </div>
+
+      <div class="panel" id="sched-panel" hidden>
+        <label style="margin-bottom:10px">Year by year</label>
+        <div class="wrap">
+          <table class="sched">
+            <thead>
+              <tr><th>Year</th><th>Paid off</th><th>Interest</th><th>Still owing</th></tr>
+            </thead>
+            <tbody id="sched"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
+      });
+    }
+
+    function calc() {
+      var principal = n('amount');
+      var annualRate = n('rate');
+      var years = n('years');
+
+      var emiEl = document.getElementById('emi');
+      var panel = document.getElementById('sched-panel');
+
+      if (!isFinite(principal) || !isFinite(annualRate) || !isFinite(years) ||
+          principal <= 0 || years <= 0 || annualRate < 0) {
+        emiEl.innerHTML = '&mdash;<small>Fill in all three boxes</small>';
+        ['s-total', 's-interest', 's-pct'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        panel.hidden = true;
+        return;
+      }
+
+      var months = Math.round(years * 12);
+      var r = annualRate / 100 / 12;
+
+      /* An interest-free loan divides by zero in the standard formula,
+         so it is handled on its own. */
+      var emi = r === 0
+        ? principal / months
+        : principal * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+
+      var totalPaid = emi * months;
+      var totalInterest = totalPaid - principal;
+
+      emiEl.innerHTML = money(emi) +
+        '<small>a month for ' + months + ' months</small>';
+      document.getElementById('s-total').textContent = money(totalPaid);
+      document.getElementById('s-interest').textContent = money(totalInterest);
+      document.getElementById('s-pct').textContent =
+        CT.num(totalInterest / principal * 100, 1) + '%';
+
+      /* Walk the balance month by month, then report it a year at a time
+         so the table stays short even for a 25-year mortgage. */
+      var balance = principal;
+      var rows = '';
+      var yearPrincipal = 0, yearInterest = 0;
+
+      for (var m = 1; m <= months; m++) {
+        var interestPart = balance * r;
+        var principalPart = emi - interestPart;
+        if (principalPart > balance) principalPart = balance;
+        balance -= principalPart;
+        yearPrincipal += principalPart;
+        yearInterest += interestPart;
+
+        if (m % 12 === 0 || m === months) {
+          rows += '<tr><td>' + Math.ceil(m / 12) + '</td><td>' +
+            money(yearPrincipal) + '</td><td>' + money(yearInterest) + '</td><td>' +
+            money(Math.max(0, balance)) + '</td></tr>';
+          yearPrincipal = 0;
+          yearInterest = 0;
+        }
+      }
+
+      document.getElementById('sched').innerHTML = rows;
+      panel.hidden = false;
+    }
+
+    ['amount', 'rate', 'years'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

@@ -78,6 +78,41 @@ const TOOLS = [
     category: 'srilanka',
     desc: 'Sri Lankan APIT on your monthly salary, with EPF and ETF worked out too.',
     keywords: ['paye', 'apit', 'tax', 'salary', 'sri lanka', 'epf', 'etf', 'income']
+  },
+  {
+    slug: 'bmi-calculator',
+    name: 'BMI Calculator',
+    category: 'calculators',
+    desc: 'Body mass index from your height and weight, in metric or imperial.',
+    keywords: ['bmi', 'body mass', 'weight', 'height', 'healthy', 'obese', 'index']
+  },
+  {
+    slug: 'age-calculator',
+    name: 'Age Calculator',
+    category: 'calculators',
+    desc: 'Your exact age in years, months and days, and how long until your birthday.',
+    keywords: ['age', 'birthday', 'born', 'date of birth', 'how old', 'dob']
+  },
+  {
+    slug: 'loan-calculator',
+    name: 'Loan / EMI Calculator',
+    category: 'calculators',
+    desc: 'Monthly instalment, total interest and a full repayment breakdown.',
+    keywords: ['loan', 'emi', 'instalment', 'interest', 'mortgage', 'repayment', 'borrow']
+  },
+  {
+    slug: 'discount-calculator',
+    name: 'Discount Calculator',
+    category: 'calculators',
+    desc: 'Sale price and what you save, or work backwards to the original price.',
+    keywords: ['discount', 'sale', 'off', 'percent', 'price', 'saving', 'reduction']
+  },
+  {
+    slug: 'bill-splitter',
+    name: 'Bill Splitter',
+    category: 'calculators',
+    desc: 'Split a bill between people, with a tip and uneven shares if you need.',
+    keywords: ['bill', 'split', 'share', 'tip', 'restaurant', 'per person', 'divide']
   }
 ];
 
