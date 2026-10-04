@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Date Difference — Cja's Tools</title>
+<meta name="description" content="Work out how long there is between two dates, or what the date will be after adding or subtracting days. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="date-difference">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Date Difference</h1>
+        <p>How long between two dates, and dates a given distance away.</p>
+      </div>
+
+      <div class="panel">
+        <label>Between two dates</label>
+        <div class="row">
+          <div class="field">
+            <label for="from">From</label>
+            <input type="date" id="from">
+          </div>
+          <div class="field">
+            <label for="to">To</label>
+            <input type="date" id="to">
+          </div>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" id="inclusive" style="width:auto;margin-right:7px">
+            Count both the first and last day
+          </label>
+        </div>
+        <div class="result" id="diff-out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-days">0</b><span>Days</span></div>
+          <div class="stat"><b id="s-weeks">0</b><span>Weeks</span></div>
+          <div class="stat"><b id="s-months">0</b><span>Whole months</span></div>
+          <div class="stat"><b id="s-hours">0</b><span>Hours</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>Add or take away days</label>
+        <div class="row">
+          <div class="field">
+            <label for="start">Starting from</label>
+            <input type="date" id="start">
+          </div>
+          <div class="field">
+            <label for="offset">Days (use a minus for earlier)</label>
+            <input type="number" id="offset" value="90" step="1">
+          </div>
+        </div>
+        <div class="result" id="add-out">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var MS_DAY = 86400000;
+
+    function todayISO() {
+      var d = new Date();
+      return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }
+
+    /* Midday, so a daylight-saving jump can never shift the calendar date. */
+    function parse(s) {
+      if (!s) return null;
+      var p = s.split('-');
+      if (p.length !== 3) return null;
+      var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function fmt(d) {
+      return d.toLocaleDateString('en-GB',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    function plural(n, w) { return n + ' ' + w + (Math.abs(n) === 1 ? '' : 's'); }
+
+    function wholeMonths(a, b) {
+      var months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+      if (b.getDate() < a.getDate()) months--;
+      return months;
+    }
+
+    function calcDiff() {
+      var a = parse(document.getElementById('from').value);
+      var b = parse(document.getElementById('to').value);
+      var out = document.getElementById('diff-out');
+
+      if (!a || !b) {
+        out.innerHTML = '&mdash;<small>Pick both dates</small>';
+        ['s-days', 's-weeks', 's-months', 's-hours'].forEach(function (id) {
+          document.getElementById(id).textContent = '0';
+        });
+        return;
+      }
+
+      var early = a <= b ? a : b;
+      var late = a <= b ? b : a;
+      var days = Math.round((late - early) / MS_DAY);
+      if (document.getElementById('inclusive').checked) days += 1;
+
+      out.innerHTML = plural(days, 'day') +
+        '<small>' + (a <= b ? '' : 'the second date is earlier, so this is counted backwards — ') +
+        fmt(early) + ' to ' + fmt(late) + '</small>';
+
+      document.getElementById('s-days').textContent = days.toLocaleString();
+      document.getElementById('s-weeks').textContent =
+        (Math.floor(days / 7) + (days % 7 ? ' + ' + (days % 7) + 'd' : '')).toString();
+      document.getElementById('s-months').textContent = wholeMonths(early, late);
+      document.getElementById('s-hours').textContent = (days * 24).toLocaleString();
+    }
+
+    function calcAdd() {
+      var start = parse(document.getElementById('start').value);
+      var raw = document.getElementById('offset').value.trim();
+      var out = document.getElementById('add-out');
+
+      if (!start || raw === '' || !isFinite(parseInt(raw, 10))) {
+        out.innerHTML = '&mdash;<small>Pick a date and a number of days</small>';
+        return;
+      }
+
+      var offset = parseInt(raw, 10);
+      /* Adding to the day-of-month lets the Date object roll months and
+         years over correctly, including across leap years. */
+      var result = new Date(start.getFullYear(), start.getMonth(),
+                            start.getDate() + offset, 12, 0, 0);
+
+      out.innerHTML = fmt(result) +
+        '<small>' + Math.abs(offset) + ' days ' +
+        (offset < 0 ? 'before ' : 'after ') + fmt(start) + '</small>';
+    }
+
+    function calc() { calcDiff(); calcAdd(); }
+
+    document.querySelectorAll('input').forEach(function (i) {
+      if (i.id === 'search') return;
+      i.addEventListener('input', calc);
+      i.addEventListener('change', calc);
+    });
+
+    var t = todayISO();
+    document.getElementById('from').value = t;
+    document.getElementById('start').value = t;
+    var future = new Date();
+    future.setDate(future.getDate() + 30);
+    document.getElementById('to').value = future.getFullYear() + '-' +
+      String(future.getMonth() + 1).padStart(2, '0') + '-' +
+      String(future.getDate()).padStart(2, '0');
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

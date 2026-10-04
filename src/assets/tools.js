@@ -113,6 +113,41 @@ const TOOLS = [
     category: 'calculators',
     desc: 'Split a bill between people, with a tip and uneven shares if you need.',
     keywords: ['bill', 'split', 'share', 'tip', 'restaurant', 'per person', 'divide']
+  },
+  {
+    slug: 'date-difference',
+    name: 'Date Difference',
+    category: 'calculators',
+    desc: 'How long between two dates, or what the date will be after so many days.',
+    keywords: ['date', 'difference', 'between', 'days', 'add', 'subtract', 'duration']
+  },
+  {
+    slug: 'business-days',
+    name: 'Business Days Calculator',
+    category: 'calculators',
+    desc: 'Working days between two dates, skipping weekends and any holidays you add.',
+    keywords: ['business', 'working', 'days', 'weekday', 'holiday', 'deadline', 'office']
+  },
+  {
+    slug: 'gpa-calculator',
+    name: 'GPA Calculator',
+    category: 'calculators',
+    desc: 'Grade point average from your courses and credits, on a 4.0 or 4.3 scale.',
+    keywords: ['gpa', 'grade point', 'average', 'university', 'credits', 'degree', 'cgpa']
+  },
+  {
+    slug: 'grade-calculator',
+    name: 'Grade Calculator',
+    category: 'calculators',
+    desc: 'Your weighted course grade, and what you still need in the final exam.',
+    keywords: ['grade', 'mark', 'weighted', 'exam', 'assignment', 'percentage', 'final']
+  },
+  {
+    slug: 'countdown-timer',
+    name: 'Countdown & Stopwatch',
+    category: 'calculators',
+    desc: 'A countdown timer and a stopwatch with laps, accurate even in a background tab.',
+    keywords: ['countdown', 'timer', 'stopwatch', 'lap', 'alarm', 'minutes', 'clock']
   }
 ];
 

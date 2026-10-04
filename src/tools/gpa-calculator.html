@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPA Calculator — Cja's Tools</title>
+<meta name="description" content="Work out your grade point average from your courses and credits, on a 4.0 or 4.3 scale. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .course {
+    display: grid;
+    grid-template-columns: 1fr 88px 104px auto;
+    gap: 9px;
+    align-items: center;
+    margin-bottom: 9px;
+  }
+  .course input, .course select { font-size: 14px; }
+  .course .drop {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 17px; padding: 0 5px; line-height: 1;
+  }
+  .course .drop:hover { color: var(--danger); }
+  .head-row {
+    display: grid; grid-template-columns: 1fr 88px 104px auto; gap: 9px;
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  @media (max-width: 560px) {
+    .course, .head-row { grid-template-columns: 1fr 66px 84px auto; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="gpa-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>GPA Calculator</h1>
+        <p>Your grade point average, weighted by credits.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="scale">Grading scale</label>
+          <select id="scale">
+            <option value="4.0">4.0 scale — A = 4.00 (most Sri Lankan universities)</option>
+            <option value="4.3">4.3 scale — A+ = 4.30</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head-row">
+          <span>Course</span><span>Credits</span><span>Grade</span><span></span>
+        </div>
+        <div id="courses"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="add">Add a course</button>
+          <button class="btn" id="clear">Clear all</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-credits">0</b><span>Total credits</span></div>
+          <div class="stat"><b id="s-points">0</b><span>Grade points</span></div>
+          <div class="stat"><b id="s-class">&mdash;</b><span>Class</span></div>
+        </div>
+        <p class="hint">Courses graded pass/fail, or with no credit value, should be
+          left out &mdash; they do not count towards a GPA. Degree classes vary between
+          universities, so check your own handbook.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SCALES = {
+      '4.0': {
+        'A+': 4.00, 'A': 4.00, 'A-': 3.70,
+        'B+': 3.30, 'B': 3.00, 'B-': 2.70,
+        'C+': 2.30, 'C': 2.00, 'C-': 1.70,
+        'D+': 1.30, 'D': 1.00, 'E': 0.00, 'F': 0.00
+      },
+      '4.3': {
+        'A+': 4.30, 'A': 4.00, 'A-': 3.70,
+        'B+': 3.30, 'B': 3.00, 'B-': 2.70,
+        'C+': 2.30, 'C': 2.00, 'C-': 1.70,
+        'D+': 1.30, 'D': 1.00, 'E': 0.00, 'F': 0.00
+      }
+    };
+
+    var courses = [
+      { name: 'Course 1', credits: 3, grade: 'A' },
+      { name: 'Course 2', credits: 3, grade: 'B+' },
+      { name: 'Course 3', credits: 2, grade: 'A-' }
+    ];
+
+    function scale() { return SCALES[document.getElementById('scale').value]; }
+
+    function draw() {
+      var grades = Object.keys(scale());
+      document.getElementById('courses').innerHTML = courses.map(function (c, i) {
+        var opts = grades.map(function (g) {
+          return '<option' + (g === c.grade ? ' selected' : '') + '>' + g + '</option>';
+        }).join('');
+        return '<div class="course">' +
+          '<input type="text" data-i="' + i + '" data-f="name" value="' +
+            c.name.replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-i="' + i + '" data-f="credits" value="' +
+            c.credits + '" step="any" min="0">' +
+          '<select data-i="' + i + '" data-f="grade">' + opts + '</select>' +
+          '<button class="drop" data-drop="' + i + '" title="Remove">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function classOf(gpa) {
+      if (gpa >= 3.70) return 'First class';
+      if (gpa >= 3.30) return 'Second upper';
+      if (gpa >= 3.00) return 'Second lower';
+      if (gpa >= 2.00) return 'General pass';
+      return 'Below pass';
+    }
+
+    function calc() {
+      var pts = scale();
+      var credits = 0, points = 0;
+
+      courses.forEach(function (c) {
+        var cr = parseFloat(c.credits);
+        if (!isFinite(cr) || cr <= 0) return;
+        credits += cr;
+        points += cr * (pts[c.grade] || 0);
+      });
+
+      var out = document.getElementById('out');
+
+      if (credits === 0) {
+        out.innerHTML = '&mdash;<small>Add a course with credits</small>';
+        document.getElementById('s-credits').textContent = '0';
+        document.getElementById('s-points').textContent = '0';
+        document.getElementById('s-class').textContent = '—';
+        return;
+      }
+
+      var gpa = points / credits;
+      out.innerHTML = gpa.toFixed(2) +
+        '<small>across ' + CT.num(credits, 1) + ' credits</small>';
+
+      document.getElementById('s-credits').textContent = CT.num(credits, 1);
+      document.getElementById('s-points').textContent = CT.num(points, 2);
+      document.getElementById('s-class').textContent = classOf(gpa);
+    }
+
+    document.getElementById('courses').addEventListener('input', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      courses[+el.dataset.i][el.dataset.f] = el.value;
+      calc();
+    });
+
+    document.getElementById('courses').addEventListener('change', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      courses[+el.dataset.i][el.dataset.f] = el.value;
+      calc();
+    });
+
+    document.getElementById('courses').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-drop]');
+      if (!btn) return;
+      if (courses.length <= 1) { CT.toast('Keep at least one course'); return; }
+      courses.splice(+btn.dataset.drop, 1);
+      draw();
+      calc();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      courses.push({ name: 'Course ' + (courses.length + 1), credits: 3, grade: 'A' });
+      draw();
+      calc();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      courses = [{ name: 'Course 1', credits: 3, grade: 'A' }];
+      draw();
+      calc();
+    });
+
+    document.getElementById('scale').addEventListener('change', function () {
+      draw();
+      calc();
+    });
+
+    draw();
+    calc();
+  })();
+  </script>
+</body>
+</html>

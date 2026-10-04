@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business Days Calculator — Cja's Tools</title>
+<meta name="description" content="Count working days between two dates, skipping weekends and any holidays you add. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 9px 5px 11px; border: 1px solid var(--border);
+    border-radius: 999px; background: var(--bg); font-size: 13px;
+  }
+  .chip button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 15px; line-height: 1; padding: 0;
+  }
+  .chip button:hover { color: var(--danger); }
+  .day-toggle { display: flex; flex-wrap: wrap; gap: 6px; }
+  .day-toggle .btn { padding: 7px 12px; min-width: 52px; }
+</style>
+</head>
+<body data-page="tool" data-slug="business-days">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Business Days Calculator</h1>
+        <p>Working days between two dates, for deadlines and delivery dates.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="from">From</label>
+            <input type="date" id="from">
+          </div>
+          <div class="field">
+            <label for="to">To</label>
+            <input type="date" id="to">
+          </div>
+        </div>
+        <div class="field">
+          <label>Which days do you work?</label>
+          <div class="day-toggle" id="days"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="hol">Holidays to skip</label>
+          <div class="row">
+            <input type="date" id="hol">
+            <button class="btn" id="add-hol">Add holiday</button>
+          </div>
+        </div>
+        <div class="chips" id="hol-list"></div>
+        <p class="hint" id="hol-empty">No holidays added. Poya days and public
+          holidays will get their own tool later &mdash; for now, add the dates
+          that matter to you.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-total">0</b><span>Calendar days</span></div>
+          <div class="stat"><b id="s-weekend">0</b><span>Non-working days</span></div>
+          <div class="stat"><b id="s-hols">0</b><span>Holidays skipped</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var MS_DAY = 86400000;
+    var NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    /* Monday to Friday by default, which is the usual office week here. */
+    var working = [false, true, true, true, true, true, false];
+    var holidays = [];
+
+    function todayISO(d) {
+      d = d || new Date();
+      return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }
+
+    function parse(s) {
+      if (!s) return null;
+      var p = s.split('-');
+      if (p.length !== 3) return null;
+      var d = new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function fmt(d) {
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function drawDays() {
+      document.getElementById('days').innerHTML = NAMES.map(function (n, i) {
+        return '<button class="btn' + (working[i] ? ' primary' : '') +
+               '" data-day="' + i + '">' + n + '</button>';
+      }).join('');
+    }
+
+    function drawHolidays() {
+      var list = document.getElementById('hol-list');
+      list.innerHTML = holidays.slice().sort().map(function (h) {
+        return '<span class="chip">' + fmt(parse(h)) +
+               '<button data-del="' + h + '" title="Remove">&times;</button></span>';
+      }).join('');
+      document.getElementById('hol-empty').hidden = holidays.length > 0;
+    }
+
+    function calc() {
+      var a = parse(document.getElementById('from').value);
+      var b = parse(document.getElementById('to').value);
+      var out = document.getElementById('out');
+
+      if (!a || !b) {
+        out.innerHTML = '&mdash;<small>Pick both dates</small>';
+        return;
+      }
+
+      var early = a <= b ? a : b;
+      var late = a <= b ? b : a;
+
+      /* Both ends are counted, which is what people mean by "between
+         Monday and Friday" when they are counting working days. */
+      var total = 0, work = 0, offDays = 0, holHit = 0;
+      var holSet = {};
+      holidays.forEach(function (h) { holSet[h] = true; });
+
+      var cursor = new Date(early.getTime());
+      while (cursor <= late) {
+        total++;
+        var iso = todayISO(cursor);
+        if (!working[cursor.getDay()]) offDays++;
+        else if (holSet[iso]) holHit++;
+        else work++;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      out.innerHTML = work.toLocaleString() + ' working day' + (work === 1 ? '' : 's') +
+        '<small>' + fmt(early) + ' to ' + fmt(late) + ', counting both ends' +
+        (a > b ? ' (your dates were the other way round)' : '') + '</small>';
+
+      document.getElementById('s-total').textContent = total.toLocaleString();
+      document.getElementById('s-weekend').textContent = offDays.toLocaleString();
+      document.getElementById('s-hols').textContent = holHit.toLocaleString();
+    }
+
+    document.getElementById('days').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-day]');
+      if (!btn) return;
+      var i = +btn.dataset.day;
+      if (working[i] && working.filter(Boolean).length === 1) {
+        CT.toast('Keep at least one working day');
+        return;
+      }
+      working[i] = !working[i];
+      btn.classList.toggle('primary', working[i]);
+      calc();
+    });
+
+    document.getElementById('add-hol').addEventListener('click', function () {
+      var v = document.getElementById('hol').value;
+      if (!v) { CT.toast('Pick a date first'); return; }
+      if (holidays.indexOf(v) !== -1) { CT.toast('Already added'); return; }
+      holidays.push(v);
+      drawHolidays();
+      calc();
+    });
+
+    document.getElementById('hol-list').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-del]');
+      if (!btn) return;
+      holidays = holidays.filter(function (h) { return h !== btn.dataset.del; });
+      drawHolidays();
+      calc();
+    });
+
+    ['from', 'to'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    var now = new Date();
+    document.getElementById('from').value = todayISO(now);
+    var later = new Date();
+    later.setDate(later.getDate() + 30);
+    document.getElementById('to').value = todayISO(later);
+
+    drawDays();
+    drawHolidays();
+    calc();
+  })();
+  </script>
+</body>
+</html>

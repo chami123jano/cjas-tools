@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grade Calculator — Cja's Tools</title>
+<meta name="description" content="Work out your weighted course grade and find out what you need in the final exam to reach the grade you want. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .item {
+    display: grid;
+    grid-template-columns: 1fr 92px 92px auto;
+    gap: 9px;
+    align-items: center;
+    margin-bottom: 9px;
+  }
+  .head-row {
+    display: grid; grid-template-columns: 1fr 92px 92px auto; gap: 9px;
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  .item .drop {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 17px; padding: 0 5px; line-height: 1;
+  }
+  .item .drop:hover { color: var(--danger); }
+  @media (max-width: 560px) {
+    .item, .head-row { grid-template-columns: 1fr 70px 70px auto; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="grade-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Grade Calculator</h1>
+        <p>Your weighted grade so far, and what the final exam needs to be.</p>
+      </div>
+
+      <div class="panel">
+        <div class="head-row">
+          <span>Assessment</span><span>Weight %</span><span>Your mark %</span><span></span>
+        </div>
+        <div id="items"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="add">Add an assessment</button>
+        </div>
+        <p class="hint" id="weight-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-done">0%</b><span>Weight completed</span></div>
+          <div class="stat"><b id="s-left">0%</b><span>Weight remaining</span></div>
+          <div class="stat"><b id="s-max">&mdash;</b><span>Best still possible</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label>What do I need in what is left?</label>
+        <div class="field">
+          <label for="target">Grade I want overall (%)</label>
+          <input type="number" id="target" value="75" step="any" min="0" max="100">
+        </div>
+        <div class="result" id="need-out">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var items = [
+      { name: 'Assignment 1', weight: 15, mark: 82 },
+      { name: 'Mid-term',     weight: 25, mark: 68 },
+      { name: 'Final exam',   weight: 60, mark: '' }
+    ];
+
+    function draw() {
+      document.getElementById('items').innerHTML = items.map(function (it, i) {
+        return '<div class="item">' +
+          '<input type="text" data-i="' + i + '" data-f="name" value="' +
+            it.name.replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-i="' + i + '" data-f="weight" value="' +
+            it.weight + '" step="any" min="0">' +
+          '<input type="number" data-i="' + i + '" data-f="mark" value="' +
+            it.mark + '" step="any" min="0" placeholder="not yet">' +
+          '<button class="drop" data-drop="' + i + '" title="Remove">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function num(v) {
+      if (v === '' || v === null || v === undefined) return null;
+      var n = parseFloat(v);
+      return isFinite(n) ? n : null;
+    }
+
+    function calc() {
+      var doneWeight = 0, earned = 0, totalWeight = 0;
+
+      items.forEach(function (it) {
+        var w = num(it.weight);
+        if (w === null || w < 0) return;
+        totalWeight += w;
+        var m = num(it.mark);
+        /* An empty mark means "not sat yet", which is different from zero. */
+        if (m !== null) {
+          doneWeight += w;
+          earned += w * m / 100;
+        }
+      });
+
+      var note = document.getElementById('weight-note');
+      if (totalWeight === 0) {
+        note.textContent = '';
+      } else if (Math.abs(totalWeight - 100) > 0.01) {
+        note.textContent = 'Your weights add up to ' + CT.num(totalWeight, 2) +
+          '%, not 100%. Results below are worked out against ' +
+          CT.num(totalWeight, 2) + '%.';
+      } else {
+        note.textContent = 'Weights add up to 100%.';
+      }
+
+      var out = document.getElementById('out');
+      var remaining = totalWeight - doneWeight;
+
+      if (doneWeight === 0) {
+        out.innerHTML = '&mdash;<small>Enter a mark for at least one assessment</small>';
+      } else {
+        var soFar = earned / doneWeight * 100;
+        out.innerHTML = CT.num(soFar, 2) + '%' +
+          '<small>average across the ' + CT.num(doneWeight, 2) +
+          '% of the course you have completed</small>';
+      }
+
+      document.getElementById('s-done').textContent = CT.num(doneWeight, 2) + '%';
+      document.getElementById('s-left').textContent = CT.num(remaining, 2) + '%';
+
+      /* Best possible assumes full marks on everything still outstanding. */
+      var best = totalWeight > 0 ? (earned + remaining) / totalWeight * 100 : 0;
+      document.getElementById('s-max').textContent =
+        totalWeight > 0 ? CT.num(best, 2) + '%' : '—';
+
+      var target = num(document.getElementById('target').value);
+      var needEl = document.getElementById('need-out');
+
+      if (target === null) {
+        needEl.innerHTML = '&mdash;<small>Enter the grade you are aiming for</small>';
+        return;
+      }
+      if (remaining <= 0.0001) {
+        var finalPct = totalWeight > 0 ? earned / totalWeight * 100 : 0;
+        needEl.innerHTML = CT.num(finalPct, 2) + '%' +
+          '<small>everything is marked, so this is your final grade' +
+          (finalPct >= target ? ' — you reached your target' :
+           ' — that is ' + CT.num(target - finalPct, 2) + '% short of your target') +
+          '</small>';
+        return;
+      }
+
+      var needTotal = target / 100 * totalWeight;
+      var needed = (needTotal - earned) / remaining * 100;
+
+      if (needed <= 0) {
+        needEl.innerHTML = 'Already there' +
+          '<small>even zero in the remaining ' + CT.num(remaining, 2) +
+          '% still leaves you at or above ' + CT.num(target, 2) + '%</small>';
+      } else if (needed > 100) {
+        needEl.innerHTML = 'Not reachable' +
+          '<small>you would need ' + CT.num(needed, 2) +
+          '% in the remaining ' + CT.num(remaining, 2) +
+          '%, and the most you can now finish on is ' + CT.num(best, 2) + '%</small>';
+      } else {
+        needEl.innerHTML = CT.num(needed, 2) + '%' +
+          '<small>needed across the remaining ' + CT.num(remaining, 2) +
+          '% to finish on ' + CT.num(target, 2) + '%</small>';
+      }
+    }
+
+    document.getElementById('items').addEventListener('input', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      items[+el.dataset.i][el.dataset.f] = el.value;
+      calc();
+    });
+
+    document.getElementById('items').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-drop]');
+      if (!btn) return;
+      if (items.length <= 1) { CT.toast('Keep at least one assessment'); return; }
+      items.splice(+btn.dataset.drop, 1);
+      draw();
+      calc();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      items.push({ name: 'Assessment ' + (items.length + 1), weight: 10, mark: '' });
+      draw();
+      calc();
+    });
+
+    document.getElementById('target').addEventListener('input', calc);
+
+    draw();
+    calc();
+  })();
+  </script>
+</body>
+</html>

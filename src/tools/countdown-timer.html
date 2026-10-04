@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Countdown & Stopwatch — Cja's Tools</title>
+<meta name="description" content="A countdown timer and a stopwatch with laps. Stays accurate even when the tab is in the background. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .clock {
+    font-size: 54px;
+    font-weight: 600;
+    letter-spacing: -1.5px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    padding: 18px 0 6px;
+    line-height: 1.1;
+  }
+  .clock.done { color: var(--danger); }
+  .clock small {
+    display: block; font-size: 13px; font-weight: 500;
+    letter-spacing: 0; color: var(--muted); margin-top: 4px;
+  }
+  .tabs { display: flex; gap: 7px; margin-bottom: 16px; }
+  .laps { list-style: none; margin: 14px 0 0; padding: 0; font-variant-numeric: tabular-nums; }
+  .laps li {
+    display: flex; justify-content: space-between;
+    padding: 8px 2px; border-bottom: 1px solid var(--border); font-size: 14px;
+  }
+  .laps li:last-child { border-bottom: none; }
+  .laps span { color: var(--muted); }
+  @media (max-width: 480px) { .clock { font-size: 40px; } }
+</style>
+</head>
+<body data-page="tool" data-slug="countdown-timer">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=calculators">Calculators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Countdown &amp; Stopwatch</h1>
+        <p>Both read the real clock, so they stay right even in a background tab.</p>
+      </div>
+
+      <div class="tabs">
+        <button class="btn primary" id="tab-timer">Countdown</button>
+        <button class="btn" id="tab-watch">Stopwatch</button>
+      </div>
+
+      <div id="pane-timer">
+        <div class="panel">
+          <div class="row">
+            <div class="field">
+              <label for="h">Hours</label>
+              <input type="number" id="h" value="0" min="0" step="1">
+            </div>
+            <div class="field">
+              <label for="m">Minutes</label>
+              <input type="number" id="m" value="5" min="0" step="1">
+            </div>
+            <div class="field">
+              <label for="s">Seconds</label>
+              <input type="number" id="s" value="0" min="0" step="1">
+            </div>
+          </div>
+          <div class="btns">
+            <button class="btn" data-preset="60">1 min</button>
+            <button class="btn" data-preset="300">5 min</button>
+            <button class="btn" data-preset="600">10 min</button>
+            <button class="btn" data-preset="1500">25 min</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="clock" id="timer-clock">00:05:00</div>
+          <div class="btns" style="justify-content:center">
+            <button class="btn primary" id="t-start">Start</button>
+            <button class="btn" id="t-reset">Reset</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="pane-watch" hidden>
+        <div class="panel">
+          <div class="clock" id="watch-clock">00:00.00</div>
+          <div class="btns" style="justify-content:center">
+            <button class="btn primary" id="w-start">Start</button>
+            <button class="btn" id="w-lap">Lap</button>
+            <button class="btn" id="w-reset">Reset</button>
+          </div>
+          <ul class="laps" id="laps"></ul>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Both clocks store a target or start timestamp and compare against
+       Date.now() on each tick. Counting down a variable inside setInterval
+       drifts badly, and browsers throttle background tabs to once a second
+       or slower, which would make a stopwatch simply wrong. */
+
+    function pad(n, w) { return String(Math.floor(n)).padStart(w || 2, '0'); }
+
+    /* ---------- countdown ---------- */
+
+    var timerEnd = null;      /* timestamp the countdown finishes */
+    var timerLeft = 300000;   /* milliseconds left while paused */
+    var timerRunning = false;
+    var beeped = false;
+
+    function setFromInputs() {
+      var h = parseInt(document.getElementById('h').value, 10) || 0;
+      var m = parseInt(document.getElementById('m').value, 10) || 0;
+      var s = parseInt(document.getElementById('s').value, 10) || 0;
+      timerLeft = Math.max(0, (h * 3600 + m * 60 + s) * 1000);
+      beeped = false;
+      drawTimer();
+    }
+
+    function timerRemaining() {
+      return timerRunning ? Math.max(0, timerEnd - Date.now()) : timerLeft;
+    }
+
+    function drawTimer() {
+      var ms = timerRemaining();
+      var total = Math.ceil(ms / 1000);
+      var el = document.getElementById('timer-clock');
+      el.textContent = pad(total / 3600) + ':' + pad((total % 3600) / 60) + ':' + pad(total % 60);
+      el.classList.toggle('done', ms === 0 && !timerRunning && beeped);
+    }
+
+    function beep() {
+      /* A short tone generated on the spot - no sound file to ship. */
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        var ctx = new Ctx();
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 1.2);
+      } catch (e) { /* no audio available - the text still turns red */ }
+    }
+
+    document.getElementById('t-start').addEventListener('click', function () {
+      if (timerRunning) {
+        timerLeft = timerRemaining();
+        timerRunning = false;
+        this.textContent = 'Start';
+        this.classList.add('primary');
+      } else {
+        if (timerLeft <= 0) setFromInputs();
+        if (timerLeft <= 0) { CT.toast('Set a time first'); return; }
+        timerEnd = Date.now() + timerLeft;
+        timerRunning = true;
+        beeped = false;
+        this.textContent = 'Pause';
+        this.classList.remove('primary');
+      }
+      drawTimer();
+    });
+
+    document.getElementById('t-reset').addEventListener('click', function () {
+      timerRunning = false;
+      document.getElementById('t-start').textContent = 'Start';
+      document.getElementById('t-start').classList.add('primary');
+      setFromInputs();
+    });
+
+    document.querySelectorAll('[data-preset]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var secs = +b.dataset.preset;
+        document.getElementById('h').value = Math.floor(secs / 3600);
+        document.getElementById('m').value = Math.floor((secs % 3600) / 60);
+        document.getElementById('s').value = secs % 60;
+        timerRunning = false;
+        document.getElementById('t-start').textContent = 'Start';
+        document.getElementById('t-start').classList.add('primary');
+        setFromInputs();
+      });
+    });
+
+    ['h', 'm', 's'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', function () {
+        if (!timerRunning) setFromInputs();
+      });
+    });
+
+    /* ---------- stopwatch ---------- */
+
+    var watchStart = null;
+    var watchAccum = 0;
+    var watchRunning = false;
+    var laps = [];
+
+    function watchElapsed() {
+      return watchAccum + (watchRunning ? Date.now() - watchStart : 0);
+    }
+
+    function fmtWatch(ms) {
+      var cs = Math.floor(ms / 10) % 100;
+      var total = Math.floor(ms / 1000);
+      var h = Math.floor(total / 3600);
+      return (h ? pad(h) + ':' : '') +
+             pad((total % 3600) / 60) + ':' + pad(total % 60) + '.' + pad(cs);
+    }
+
+    function drawWatch() {
+      document.getElementById('watch-clock').textContent = fmtWatch(watchElapsed());
+    }
+
+    document.getElementById('w-start').addEventListener('click', function () {
+      if (watchRunning) {
+        watchAccum = watchElapsed();
+        watchRunning = false;
+        this.textContent = 'Start';
+        this.classList.add('primary');
+      } else {
+        watchStart = Date.now();
+        watchRunning = true;
+        this.textContent = 'Stop';
+        this.classList.remove('primary');
+      }
+    });
+
+    document.getElementById('w-lap').addEventListener('click', function () {
+      if (!watchRunning && !watchAccum) { CT.toast('Start the stopwatch first'); return; }
+      var now = watchElapsed();
+      var prev = laps.length ? laps[laps.length - 1].at : 0;
+      laps.push({ at: now, split: now - prev });
+      document.getElementById('laps').innerHTML = laps.map(function (l, i) {
+        return '<li><span>Lap ' + (i + 1) + '</span><b>' + fmtWatch(l.split) +
+               '</b><span>' + fmtWatch(l.at) + '</span></li>';
+      }).reverse().join('');
+    });
+
+    document.getElementById('w-reset').addEventListener('click', function () {
+      watchRunning = false;
+      watchAccum = 0;
+      laps = [];
+      document.getElementById('laps').innerHTML = '';
+      document.getElementById('w-start').textContent = 'Start';
+      document.getElementById('w-start').classList.add('primary');
+      drawWatch();
+    });
+
+    /* ---------- tabs and the shared tick ---------- */
+
+    document.getElementById('tab-timer').addEventListener('click', function () {
+      document.getElementById('pane-timer').hidden = false;
+      document.getElementById('pane-watch').hidden = true;
+      this.classList.add('primary');
+      document.getElementById('tab-watch').classList.remove('primary');
+    });
+
+    document.getElementById('tab-watch').addEventListener('click', function () {
+      document.getElementById('pane-timer').hidden = true;
+      document.getElementById('pane-watch').hidden = false;
+      this.classList.add('primary');
+      document.getElementById('tab-timer').classList.remove('primary');
+    });
+
+    setInterval(function () {
+      if (timerRunning) {
+        drawTimer();
+        if (timerRemaining() === 0) {
+          timerRunning = false;
+          timerLeft = 0;
+          beeped = true;
+          document.getElementById('t-start').textContent = 'Start';
+          document.getElementById('t-start').classList.add('primary');
+          drawTimer();
+          beep();
+          CT.toast('Time is up');
+        }
+      }
+      if (watchRunning) drawWatch();
+    }, 50);
+
+    setFromInputs();
+    drawWatch();
+  })();
+  </script>
+</body>
+</html>

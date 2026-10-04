@@ -103,13 +103,125 @@
       return v === 'tab' ? '\t' : parseInt(v, 10);
     }
 
-    /* Browsers report a character offset, which is useless in a big file.
-       Turning it into line and column, with the offending line shown, is
-       the difference between a usable error and a frustrating one. */
-    function locate(text, message) {
-      var m = message.match(/position (\d+)/);
-      if (!m) return null;
-      var pos = parseInt(m[1], 10);
+    /* The browser only gives a position for some errors. For the rest it
+       just names the offending token, and the snippet it quotes is the
+       whole input rather than a pointer, so there is nothing to work from.
+       Scanning the text here instead means the exact spot is always known,
+       and the wording can say what to actually do about it. */
+    function findFault(text) {
+      var i = 0, n = text.length;
+
+      function skipWs() {
+        while (i < n && (text[i] === ' ' || text[i] === '\t' ||
+                         text[i] === '\n' || text[i] === '\r')) i++;
+      }
+      function fault(msg, at) {
+        return { pos: at === undefined ? i : at, msg: msg };
+      }
+
+      function readString() {
+        var start = i;
+        i++;
+        while (i < n) {
+          var c = text[i];
+          if (c === '\\') {
+            i++;
+            if (i >= n) return fault('The text ends in the middle of an escape', i);
+            if ('"\\/bfnrt'.indexOf(text[i]) !== -1) { i++; continue; }
+            if (text[i] === 'u') {
+              if (!/^[0-9a-fA-F]{4}$/.test(text.substr(i + 1, 4))) {
+                return fault('\\u must be followed by four hex digits', i);
+              }
+              i += 5;
+              continue;
+            }
+            return fault('Unknown escape \\' + text[i], i);
+          }
+          if (c === '"') { i++; return null; }
+          if (c === '\n') return fault('A piece of text cannot run over a line break', i);
+          i++;
+        }
+        return fault('This text is never closed with a quote mark', start);
+      }
+
+      function readNumber() {
+        var m = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(text.slice(i));
+        if (!m || !m[0].length) return fault('That is not a valid number');
+        i += m[0].length;
+        return null;
+      }
+
+      function readValue() {
+        skipWs();
+        if (i >= n) return fault('A value is missing here');
+        var c = text[i];
+        if (c === '{') return readObject();
+        if (c === '[') return readArray();
+        if (c === '"') return readString();
+        if (c === '-' || (c >= '0' && c <= '9')) return readNumber();
+        if (text.startsWith('true', i)) { i += 4; return null; }
+        if (text.startsWith('false', i)) { i += 5; return null; }
+        if (text.startsWith('null', i)) { i += 4; return null; }
+        return fault('Unexpected ' + JSON.stringify(c) + ' where a value should be');
+      }
+
+      function readObject() {
+        i++;
+        skipWs();
+        if (text[i] === '}') { i++; return null; }
+        for (;;) {
+          skipWs();
+          if (i >= n) return fault('This { is never closed with a }');
+          if (text[i] !== '"') return fault('A property name has to be in double quotes');
+          var e = readString();
+          if (e) return e;
+          skipWs();
+          if (text[i] !== ':') return fault('Expected a colon after the property name');
+          i++;
+          e = readValue();
+          if (e) return e;
+          skipWs();
+          if (text[i] === ',') {
+            i++;
+            skipWs();
+            if (text[i] === '}') return fault('Remove the comma before this }');
+            continue;
+          }
+          if (text[i] === '}') { i++; return null; }
+          if (i >= n) return fault('This { is never closed with a }');
+          return fault('Expected a comma or a } here');
+        }
+      }
+
+      function readArray() {
+        i++;
+        skipWs();
+        if (text[i] === ']') { i++; return null; }
+        for (;;) {
+          var e = readValue();
+          if (e) return e;
+          skipWs();
+          if (text[i] === ',') {
+            i++;
+            skipWs();
+            if (text[i] === ']') return fault('Remove the comma before this ]');
+            continue;
+          }
+          if (text[i] === ']') { i++; return null; }
+          if (i >= n) return fault('This [ is never closed with a ]');
+          return fault('Expected a comma or a ] here');
+        }
+      }
+
+      var e = readValue();
+      if (e) return e;
+      skipWs();
+      if (i < n) return fault('There is extra text after the end of the JSON');
+      return null;
+    }
+
+    /* Turns a character offset into something a person can navigate to. */
+    function locate(text, pos) {
       var before = text.slice(0, pos);
       var line = before.split('\n').length;
       var col = pos - before.lastIndexOf('\n');
@@ -194,7 +306,9 @@
       try {
         parsed = JSON.parse(text);
       } catch (e) {
-        showError(e.message, locate(text, e.message));
+        var fault = findFault(text);
+        showError(fault ? fault.msg : e.message,
+                  fault ? locate(text, Math.min(fault.pos, text.length - 1)) : null);
         output.value = '';
         return;
       }
