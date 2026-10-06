@@ -111,11 +111,15 @@
       document.body.removeChild(ta);
     },
 
-    /* Rounds sensibly for display: no trailing .00, but keeps real decimals. */
+    /* Rounds sensibly for display: no trailing .00, but keeps real decimals.
+       maximumFractionDigits has to be passed through - toLocaleString caps
+       at three decimals by default, which would quietly throw away the
+       precision the caller just asked for. */
     num: function (n, places) {
       if (!isFinite(n)) return '—';
       var p = places === undefined ? 2 : places;
-      return parseFloat(n.toFixed(p)).toLocaleString('en-US');
+      return parseFloat(n.toFixed(p))
+        .toLocaleString('en-US', { maximumFractionDigits: p });
     }
   };
 

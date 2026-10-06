@@ -8,7 +8,7 @@ const { JSDOM } = require('jsdom');
 
 const SRC = path.join(__dirname, '..', 'src');
 
-function loadTool(slug) {
+function loadTool(slug, opts = {}) {
   const file = path.join(SRC, 'tools', slug + '.html');
   const html = fs.readFileSync(file, 'utf8');
 
@@ -33,6 +33,14 @@ function loadTool(slug) {
         writeText: () => Promise.resolve(),
         readText: () => Promise.resolve('')
       };
+      // jsdom has no fetch. Tests that need the network pass their own;
+      // everything else behaves as if the machine were offline, which is
+      // the state these tools have to cope with anyway.
+      window.fetch = opts.fetch || (() => Promise.reject(new Error('offline')));
+      if (opts.onLine !== undefined) {
+        Object.defineProperty(window.navigator, 'onLine',
+          { value: opts.onLine, configurable: true });
+      }
     }
   });
 

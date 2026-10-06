@@ -148,6 +148,41 @@ const TOOLS = [
     category: 'calculators',
     desc: 'A countdown timer and a stopwatch with laps, accurate even in a background tab.',
     keywords: ['countdown', 'timer', 'stopwatch', 'lap', 'alarm', 'minutes', 'clock']
+  },
+  {
+    slug: 'base-converter',
+    name: 'Number Base Converter',
+    category: 'converters',
+    desc: 'Convert between binary, octal, decimal, hex and any base up to 36.',
+    keywords: ['base', 'binary', 'hex', 'hexadecimal', 'octal', 'decimal', 'radix']
+  },
+  {
+    slug: 'csv-json',
+    name: 'CSV to JSON',
+    category: 'converters',
+    desc: 'Turn a spreadsheet export into JSON, or JSON back into CSV.',
+    keywords: ['csv', 'json', 'convert', 'spreadsheet', 'excel', 'table', 'data']
+  },
+  {
+    slug: 'currency-converter',
+    name: 'Currency Converter',
+    category: 'converters',
+    desc: 'Live exchange rates for 160+ currencies, remembered for when you are offline.',
+    keywords: ['currency', 'exchange', 'rate', 'dollar', 'rupee', 'lkr', 'usd', 'money']
+  },
+  {
+    slug: 'metric-us-converter',
+    name: 'Metric to US Converter',
+    category: 'converters',
+    desc: 'Quick everyday conversions for cooking, distance, weight and temperature.',
+    keywords: ['metric', 'imperial', 'us', 'cooking', 'cup', 'ounce', 'fahrenheit', 'recipe']
+  },
+  {
+    slug: 'timezone-converter',
+    name: 'Time Zone Converter',
+    category: 'converters',
+    desc: 'What time it is somewhere else, and a good hour for a call.',
+    keywords: ['timezone', 'time zone', 'utc', 'gmt', 'meeting', 'world clock', 'colombo']
   }
 ];
 

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Currency Converter — Cja's Tools</title>
+<meta name="description" content="Convert between 160+ currencies with live exchange rates, including the Sri Lankan rupee. Rates are remembered so it still works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .status {
+    display: flex; align-items: center; gap: 9px;
+    font-size: 12.5px; color: var(--muted);
+  }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.live { background: #27b86a; }
+  .dot.cached { background: #e8a33d; }
+  .dot.none { background: var(--danger); }
+  .quick { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+</style>
+</head>
+<body data-page="tool" data-slug="currency-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=converters">Converters</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Currency Converter</h1>
+        <p>This is one of the few tools that needs the internet &mdash; but it
+          remembers the last rates it fetched, so it still works without it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="amount">Amount</label>
+          <input type="number" id="amount" value="100" step="any">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="from">From</label>
+            <select id="from"></select>
+          </div>
+          <div class="field">
+            <label for="to">To</label>
+            <select id="to"></select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn" id="swap">Swap</button>
+          <button class="btn" id="refresh">Refresh rates</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="status" style="margin-top:14px">
+          <span class="dot none" id="dot"></span>
+          <span id="status-text">Loading rates&hellip;</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Common pairs</label>
+        <div class="quick" id="quick"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var API = 'https://open.er-api.com/v6/latest/USD';
+    var STORE = 'cja-rates';
+
+    /* Kept short so the list is useful rather than exhaustive; every
+       currency the feed returns is still added below. */
+    var NAMES = {
+      LKR: 'Sri Lankan rupee', USD: 'US dollar', EUR: 'Euro',
+      GBP: 'British pound', INR: 'Indian rupee', AUD: 'Australian dollar',
+      CAD: 'Canadian dollar', JPY: 'Japanese yen', CNY: 'Chinese yuan',
+      AED: 'UAE dirham', SAR: 'Saudi riyal', QAR: 'Qatari riyal',
+      KWD: 'Kuwaiti dinar', SGD: 'Singapore dollar', MYR: 'Malaysian ringgit',
+      THB: 'Thai baht', CHF: 'Swiss franc', NZD: 'New Zealand dollar',
+      PKR: 'Pakistani rupee', BDT: 'Bangladeshi taka', NPR: 'Nepalese rupee',
+      MVR: 'Maldivian rufiyaa', ZAR: 'South African rand', KRW: 'South Korean won'
+    };
+
+    var QUICK = [['USD', 'LKR'], ['EUR', 'LKR'], ['GBP', 'LKR'],
+                 ['AUD', 'LKR'], ['INR', 'LKR'], ['LKR', 'USD']];
+
+    var rates = null;
+    var fetchedAt = null;
+    var source = 'none';
+
+    var amountEl = document.getElementById('amount');
+    var fromEl = document.getElementById('from');
+    var toEl = document.getElementById('to');
+
+    function readCache() {
+      try {
+        var raw = localStorage.getItem(STORE);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) { return null; }
+    }
+
+    function writeCache(data) {
+      try {
+        localStorage.setItem(STORE, JSON.stringify(data));
+      } catch (e) { /* private window, or storage is full */ }
+    }
+
+    function fillSelects() {
+      var codes = Object.keys(rates).sort(function (a, b) {
+        /* The currencies people here actually use come first. */
+        var pri = ['LKR', 'USD', 'EUR', 'GBP', 'INR', 'AUD', 'AED'];
+        var ia = pri.indexOf(a), ib = pri.indexOf(b);
+        if (ia !== -1 || ib !== -1) {
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        }
+        return a.localeCompare(b);
+      });
+
+      var opts = codes.map(function (c) {
+        return '<option value="' + c + '">' + c +
+               (NAMES[c] ? ' — ' + NAMES[c] : '') + '</option>';
+      }).join('');
+
+      fromEl.innerHTML = opts;
+      toEl.innerHTML = opts;
+      fromEl.value = 'USD';
+      toEl.value = 'LKR';
+    }
+
+    function setStatus(kind, text) {
+      var dot = document.getElementById('dot');
+      dot.className = 'dot ' + kind;
+      document.getElementById('status-text').textContent = text;
+    }
+
+    function ago(iso) {
+      var then = new Date(iso);
+      if (isNaN(then.getTime())) return 'at an unknown time';
+      var mins = Math.round((Date.now() - then.getTime()) / 60000);
+      if (mins < 2) return 'just now';
+      if (mins < 60) return mins + ' minutes ago';
+      var hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + ' hour' + (hrs === 1 ? '' : 's') + ' ago';
+      var days = Math.round(hrs / 24);
+      return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+    }
+
+    function describeSource() {
+      if (source === 'live') setStatus('live', 'Live rates, fetched ' + ago(fetchedAt) + '.');
+      else if (source === 'cached') {
+        setStatus('cached', 'Offline — using the rates saved ' + ago(fetchedAt) +
+          '. They may have moved since.');
+      } else setStatus('none', 'No rates yet. Connect to the internet and press Refresh.');
+    }
+
+    function convert() {
+      var out = document.getElementById('out');
+      if (!rates) { out.innerHTML = '&mdash;<small>No rates available yet</small>'; return; }
+
+      var amount = parseFloat(amountEl.value);
+      if (!isFinite(amount)) {
+        out.innerHTML = '&mdash;<small>Enter an amount</small>';
+        return;
+      }
+
+      var f = fromEl.value, t = toEl.value;
+      if (!rates[f] || !rates[t]) {
+        out.innerHTML = '&mdash;<small>That currency is not in the list</small>';
+        return;
+      }
+
+      /* Everything is quoted against the dollar, so a cross rate goes
+         through USD rather than needing a separate request per pair. */
+      var inUsd = amount / rates[f];
+      var result = inUsd * rates[t];
+      var one = rates[t] / rates[f];
+
+      out.innerHTML =
+        result.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        ' ' + t +
+        '<small>1 ' + f + ' = ' +
+        one.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 }) +
+        ' ' + t + '</small>';
+    }
+
+    function apply(data, kind) {
+      rates = data.rates;
+      fetchedAt = data.fetchedAt;
+      source = kind;
+      if (!fromEl.options.length) fillSelects();
+      describeSource();
+      convert();
+    }
+
+    function load(force) {
+      var cached = readCache();
+      if (cached && cached.rates && !force) apply(cached, 'cached');
+
+      if (!navigator.onLine && !force) {
+        if (!cached) describeSource();
+        return;
+      }
+
+      setStatus(cached ? 'cached' : 'none', 'Fetching the latest rates…');
+
+      fetch(API, { cache: 'no-store' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j || !j.rates) throw new Error('unexpected reply');
+          var data = { rates: j.rates, fetchedAt: new Date().toISOString() };
+          writeCache(data);
+          apply(data, 'live');
+        })
+        .catch(function () {
+          if (cached && cached.rates) {
+            apply(cached, 'cached');
+            CT.toast('Could not reach the rate service');
+          } else {
+            setStatus('none', 'Could not fetch rates, and none are saved. ' +
+              'Check your connection and press Refresh.');
+          }
+        });
+    }
+
+    document.getElementById('quick').innerHTML = QUICK.map(function (p) {
+      return '<button class="btn" data-pair="' + p[0] + ',' + p[1] + '">' +
+             p[0] + ' → ' + p[1] + '</button>';
+    }).join('');
+
+    document.getElementById('quick').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-pair]');
+      if (!btn || !rates) return;
+      var p = btn.dataset.pair.split(',');
+      fromEl.value = p[0];
+      toEl.value = p[1];
+      convert();
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var a = fromEl.value;
+      fromEl.value = toEl.value;
+      toEl.value = a;
+      convert();
+    });
+
+    document.getElementById('refresh').addEventListener('click', function () { load(true); });
+
+    amountEl.addEventListener('input', convert);
+    fromEl.addEventListener('change', convert);
+    toEl.addEventListener('change', convert);
+    window.addEventListener('online', function () { load(true); });
+
+    load(false);
+  })();
+  </script>
+</body>
+</html>

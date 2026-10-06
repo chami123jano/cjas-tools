@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Number Base Converter — Cja's Tools</title>
+<meta name="description" content="Convert numbers between binary, octal, decimal, hexadecimal and any base up to 36. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .mono { font-family: ui-monospace, Consolas, "Courier New", monospace; }
+  .out-row {
+    display: grid; grid-template-columns: 92px 1fr auto; gap: 10px;
+    align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .out-row:last-child { border-bottom: none; }
+  .out-row .label { font-size: 13px; color: var(--muted); }
+  .out-row .val {
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 15px; word-break: break-all;
+  }
+  .out-row .copy {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 13px; padding: 2px 6px;
+  }
+  .out-row .copy:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="base-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=converters">Converters</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Number Base Converter</h1>
+        <p>Binary, octal, decimal, hex, and anything up to base 36.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="from-base">Input is in base</label>
+            <select id="from-base"></select>
+          </div>
+          <div class="field">
+            <label for="value">Number</label>
+            <input type="text" id="value" class="mono" value="255" spellcheck="false" autocomplete="off">
+          </div>
+        </div>
+        <p class="hint" id="warn"></p>
+      </div>
+
+      <div class="panel" id="results"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="any-base">Any other base (2 to 36)</label>
+          <input type="number" id="any-base" value="7" min="2" max="36" step="1">
+        </div>
+        <div class="result" id="any-out">&mdash;</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var COMMON = [
+      { base: 2,  name: 'Binary' },
+      { base: 8,  name: 'Octal' },
+      { base: 10, name: 'Decimal' },
+      { base: 16, name: 'Hex' }
+    ];
+
+    var fromSel = document.getElementById('from-base');
+    var input = document.getElementById('value');
+    var warn = document.getElementById('warn');
+
+    for (var b = 2; b <= 36; b++) {
+      var label = b === 2 ? ' (binary)' : b === 8 ? ' (octal)' :
+                  b === 10 ? ' (decimal)' : b === 16 ? ' (hex)' : '';
+      fromSel.innerHTML += '<option value="' + b + '"' +
+        (b === 10 ? ' selected' : '') + '>Base ' + b + label + '</option>';
+    }
+
+    var DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
+
+    /* parseInt stops at the first character it does not recognise and
+       returns whatever it managed to read, which quietly gives a wrong
+       answer. Every digit is checked here before anything is converted. */
+    function parseInBase(text, base) {
+      var s = text.trim().toLowerCase().replace(/^[+]/, '');
+      var negative = s.charAt(0) === '-';
+      if (negative) s = s.slice(1);
+      s = s.replace(/[\s_,]/g, '');
+      if (!s.length) return { error: 'empty' };
+
+      var allowed = DIGITS.slice(0, base);
+      for (var i = 0; i < s.length; i++) {
+        if (allowed.indexOf(s.charAt(i)) === -1) {
+          return { error: 'bad', char: s.charAt(i) };
+        }
+      }
+
+      /* BigInt keeps long binary strings exact - a 64-bit value loses
+         precision as an ordinary JavaScript number. */
+      var value = 0n;
+      var big = BigInt(base);
+      for (var j = 0; j < s.length; j++) {
+        value = value * big + BigInt(allowed.indexOf(s.charAt(j)));
+      }
+      return { value: negative ? -value : value };
+    }
+
+    function toBase(value, base) {
+      var negative = value < 0n;
+      var v = negative ? -value : value;
+      if (v === 0n) return '0';
+      var big = BigInt(base);
+      var out = '';
+      while (v > 0n) {
+        out = DIGITS.charAt(Number(v % big)) + out;
+        v = v / big;
+      }
+      return (negative ? '-' : '') + out;
+    }
+
+    function group(s, base) {
+      /* Binary and hex are far easier to read in blocks. */
+      if (base === 2) return s.replace(/\B(?=(.{4})+$)/g, ' ');
+      if (base === 16) return s.replace(/\B(?=(.{2})+$)/g, ' ');
+      if (base === 10) return s.replace(/\B(?=(\d{3})+$)/g, ',');
+      return s;
+    }
+
+    function calc() {
+      var base = parseInt(fromSel.value, 10);
+      var parsed = parseInBase(input.value, base);
+      var results = document.getElementById('results');
+
+      if (parsed.error === 'empty') {
+        warn.textContent = '';
+        results.innerHTML = '<p class="hint" style="margin:0">Enter a number above.</p>';
+        document.getElementById('any-out').innerHTML = '&mdash;';
+        return;
+      }
+      if (parsed.error === 'bad') {
+        warn.textContent = '"' + parsed.char + '" is not a digit in base ' + base +
+          '. Base ' + base + ' uses ' + DIGITS.slice(0, base).split('').join(' ') + '.';
+        results.innerHTML = '';
+        document.getElementById('any-out').innerHTML = '&mdash;';
+        return;
+      }
+
+      warn.textContent = '';
+      var v = parsed.value;
+
+      results.innerHTML = COMMON.map(function (c) {
+        var s = toBase(v, c.base);
+        var shown = group(s, c.base);
+        var prefix = c.base === 2 ? '0b' : c.base === 8 ? '0o' : c.base === 16 ? '0x' : '';
+        return '<div class="out-row">' +
+          '<span class="label">' + c.name + '</span>' +
+          '<span class="val">' + (prefix && s !== '0' ? prefix + ' ' : '') + shown + '</span>' +
+          '<button class="copy" data-copy="' + s + '">copy</button>' +
+        '</div>';
+      }).join('');
+
+      var any = parseInt(document.getElementById('any-base').value, 10);
+      var anyOut = document.getElementById('any-out');
+      if (!isFinite(any) || any < 2 || any > 36) {
+        anyOut.innerHTML = '&mdash;<small>Pick a base between 2 and 36</small>';
+      } else {
+        anyOut.innerHTML = '<span class="mono">' + toBase(v, any) + '</span>' +
+          '<small>in base ' + any + '</small>';
+      }
+    }
+
+    document.getElementById('results').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-copy]');
+      if (btn) CT.copy(btn.dataset.copy);
+    });
+
+    fromSel.addEventListener('change', calc);
+    input.addEventListener('input', calc);
+    document.getElementById('any-base').addEventListener('input', calc);
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

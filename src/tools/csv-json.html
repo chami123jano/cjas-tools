@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSV to JSON — Cja's Tools</title>
+<meta name="description" content="Convert a CSV or spreadsheet export into JSON, or JSON back into CSV. Handles quoted fields and commas inside values. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 13px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger);
+    font-size: 14px; margin-bottom: 14px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="csv-json">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=converters">Converters</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>CSV to JSON</h1>
+        <p>Both directions. Quoted fields and commas inside values are handled.</p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="dir">Direction</label>
+            <select id="dir">
+              <option value="c2j">CSV &rarr; JSON</option>
+              <option value="j2c">JSON &rarr; CSV</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="delim">Separator</label>
+            <select id="delim">
+              <option value=",">Comma</option>
+              <option value=";">Semicolon</option>
+              <option value="\t">Tab</option>
+              <option value="|">Pipe</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" id="header-field">
+          <label>
+            <input type="checkbox" id="header" checked style="width:auto;margin-right:7px">
+            First row is the column names
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in" id="in-label">CSV</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="convert">Convert</button>
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out" id="out-label">JSON</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="download">Download</button>
+        </div>
+        <p class="hint" id="summary"></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+    var errSlot = document.getElementById('err-slot');
+
+    var SAMPLE_CSV =
+      'name,city,orders,active\n' +
+      'Chamindu,Colombo,12,true\n' +
+      '"Perera, A.",Kandy,7,false\n' +
+      'Nimali,Galle,23,true';
+
+    function delim() {
+      var v = document.getElementById('delim').value;
+      return v === '\\t' ? '\t' : v;
+    }
+
+    function showError(msg) {
+      errSlot.innerHTML = msg ? '<div class="err">' + msg + '</div>' : '';
+    }
+
+    /* A hand-written reader rather than splitting on commas, because a
+       field in quotes may itself contain commas, line breaks, and ""
+       to mean a literal quote. Splitting breaks on all three. */
+    function parseCSV(text, sep) {
+      var rows = [];
+      var row = [];
+      var field = '';
+      var inQuotes = false;
+      var i = 0;
+
+      /* A file saved by Excel often starts with a byte-order mark, which
+         would otherwise become part of the first column name. */
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+      while (i < text.length) {
+        var c = text[i];
+
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+            inQuotes = false;
+            i++;
+            continue;
+          }
+          field += c;
+          i++;
+          continue;
+        }
+
+        if (c === '"' && field === '') { inQuotes = true; i++; continue; }
+        if (c === sep) { row.push(field); field = ''; i++; continue; }
+        if (c === '\r') { i++; continue; }
+        if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
+        field += c;
+        i++;
+      }
+
+      if (inQuotes) throw new Error('A quoted field is never closed - check your quote marks.');
+      if (field !== '' || row.length) { row.push(field); rows.push(row); }
+
+      return rows.filter(function (r) {
+        return r.length > 1 || (r[0] !== undefined && r[0] !== '');
+      });
+    }
+
+    /* Numbers and true/false come back as real types rather than text,
+       which is almost always what you want from a spreadsheet export. */
+    function coerce(s) {
+      var t = s.trim();
+      if (t === '') return '';
+      if (t === 'true') return true;
+      if (t === 'false') return false;
+      if (t === 'null') return null;
+      if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(t)) {
+        var n = Number(t);
+        /* Leave anything that would lose precision, like a long ID or a
+           phone number with a leading zero, exactly as it was typed. */
+        if (String(n) === t) return n;
+      }
+      return s;
+    }
+
+    function csvCell(v) {
+      if (v === null || v === undefined) return '';
+      var s = String(v);
+      var sep = delim();
+      if (s.indexOf(sep) !== -1 || s.indexOf('"') !== -1 ||
+          s.indexOf('\n') !== -1 || s.indexOf('\r') !== -1) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    function toJSON() {
+      var rows = parseCSV(input.value, delim());
+      if (!rows.length) throw new Error('There is nothing to convert.');
+
+      var useHeader = document.getElementById('header').checked;
+      var result;
+
+      if (useHeader) {
+        var headers = rows[0].map(function (h, i) {
+          return h.trim() || 'column' + (i + 1);
+        });
+        result = rows.slice(1).map(function (r) {
+          var o = {};
+          headers.forEach(function (h, i) { o[h] = coerce(r[i] === undefined ? '' : r[i]); });
+          return o;
+        });
+      } else {
+        result = rows.map(function (r) { return r.map(coerce); });
+      }
+
+      document.getElementById('summary').textContent =
+        result.length + ' row' + (result.length === 1 ? '' : 's') +
+        (useHeader ? ', ' + rows[0].length + ' columns' : '');
+      return JSON.stringify(result, null, 2);
+    }
+
+    function toCSV() {
+      var data;
+      try {
+        data = JSON.parse(input.value);
+      } catch (e) {
+        throw new Error('That is not valid JSON. ' + e.message);
+      }
+      if (!Array.isArray(data)) {
+        throw new Error('The JSON needs to be a list of rows, starting with [ and ending with ].');
+      }
+      if (!data.length) throw new Error('The list is empty.');
+
+      var sep = delim();
+      var lines = [];
+
+      if (Array.isArray(data[0])) {
+        data.forEach(function (r) { lines.push(r.map(csvCell).join(sep)); });
+        document.getElementById('summary').textContent = data.length + ' rows';
+      } else {
+        /* Different rows can carry different keys, so every key seen
+           anywhere becomes a column and missing ones are left blank. */
+        var keys = [];
+        data.forEach(function (o) {
+          if (o && typeof o === 'object') {
+            Object.keys(o).forEach(function (k) {
+              if (keys.indexOf(k) === -1) keys.push(k);
+            });
+          }
+        });
+        if (!keys.length) throw new Error('No columns could be found in that JSON.');
+        lines.push(keys.map(csvCell).join(sep));
+        data.forEach(function (o) {
+          lines.push(keys.map(function (k) {
+            var v = o ? o[k] : '';
+            if (v && typeof v === 'object') v = JSON.stringify(v);
+            return csvCell(v);
+          }).join(sep));
+        });
+        document.getElementById('summary').textContent =
+          data.length + ' rows, ' + keys.length + ' columns';
+      }
+
+      return lines.join('\n');
+    }
+
+    function convert() {
+      showError('');
+      document.getElementById('summary').textContent = '';
+      if (!input.value.trim()) { output.value = ''; return; }
+      try {
+        output.value = document.getElementById('dir').value === 'c2j' ? toJSON() : toCSV();
+      } catch (e) {
+        showError(e.message);
+        output.value = '';
+      }
+    }
+
+    function syncLabels() {
+      var c2j = document.getElementById('dir').value === 'c2j';
+      document.getElementById('in-label').textContent = c2j ? 'CSV' : 'JSON';
+      document.getElementById('out-label').textContent = c2j ? 'JSON' : 'CSV';
+      document.getElementById('header-field').hidden = !c2j;
+    }
+
+    document.getElementById('dir').addEventListener('change', function () {
+      /* Swapping direction should carry the result across, so you can
+         round-trip without copying and pasting by hand. */
+      if (output.value) { input.value = output.value; output.value = ''; }
+      syncLabels();
+      convert();
+    });
+
+    document.getElementById('delim').addEventListener('change', convert);
+    document.getElementById('header').addEventListener('change', convert);
+    document.getElementById('convert').addEventListener('click', convert);
+    input.addEventListener('input', convert);
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('dir').value = 'c2j';
+      syncLabels();
+      input.value = SAMPLE_CSV;
+      convert();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      output.value = '';
+      showError('');
+      document.getElementById('summary').textContent = '';
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to download'); return; }
+      var c2j = document.getElementById('dir').value === 'c2j';
+      var blob = new Blob([output.value],
+        { type: c2j ? 'application/json' : 'text/csv' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = c2j ? 'data.json' : 'data.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    syncLabels();
+    input.value = SAMPLE_CSV;
+    convert();
+  })();
+  </script>
+</body>
+</html>

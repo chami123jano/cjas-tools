@@ -6,6 +6,7 @@ const { loadTool, SRC } = require('./harness');
 
 let pass = 0, fail = 0;
 const failures = [];
+const pending = [];   // tests that resolve asynchronously
 
 function ok(cond, label, detail) {
   if (cond) { pass++; return; }
@@ -234,9 +235,124 @@ function has(actual, expected, label) {
   t.close();
 })();
 
+// ---------------------------------------------------------------- converters
+
+(function unitConverter() {
+  const t = loadTool('unit-converter');
+  t.set('kind', 'Length').set('from-u', 'Kilometre').set('to-u', 'Mile').set('amount', 10);
+  has(t.text('out'), '6.2137', '10 km is 6.2137 miles');
+  t.set('kind', 'Temperature').set('from-u', 'Celsius').set('to-u', 'Fahrenheit').set('amount', 100);
+  has(t.text('out'), '212', '100 C is 212 F');
+  t.set('from-u', 'Celsius').set('to-u', 'Kelvin').set('amount', 0);
+  has(t.text('out'), '273.15', '0 C is 273.15 K');
+  t.close();
+})();
+
+(function baseConverter() {
+  const t = loadTool('base-converter');
+  t.set('from-base', '10').set('value', '255');
+  has(t.text('results'), '1111 1111', '255 in binary');
+  has(t.text('results'), 'ff', '255 in hex');
+  has(t.text('results'), '377', '255 in octal');
+
+  t.set('from-base', '16').set('value', 'ff');
+  has(t.text('results'), '255', 'hex ff back to 255');
+
+  // parseInt would silently accept this and return 1
+  t.set('from-base', '2').set('value', '12');
+  has(t.text('warn'), 'not a digit in base 2', 'an invalid digit is rejected, not ignored');
+
+  // a value too large for an ordinary JS number must stay exact - as a
+  // float this would come back ...992, losing the last digit
+  t.set('from-base', '10').set('value', '9007199254740993');
+  has(t.text('results'), '9,007,199,254,740,993', 'a big integer keeps every digit');
+  t.close();
+})();
+
+(function csvJson() {
+  const t = loadTool('csv-json');
+  t.set('dir', 'c2j');
+  t.set('in', 'name,city\n"Perera, A.",Kandy\nNimali,Galle');
+  const parsed = JSON.parse(t.byId('out').value);
+  ok(parsed.length === 2, 'two rows parsed', 'got ' + parsed.length);
+  ok(parsed[0].name === 'Perera, A.',
+     'a comma inside quotes stays in the field', 'got ' + parsed[0].name);
+  ok(parsed[1].city === 'Galle', 'second row reads correctly');
+
+  t.set('in', 'a,b\n1,true\n2,false');
+  const typed = JSON.parse(t.byId('out').value);
+  ok(typed[0].a === 1 && typed[0].b === true,
+     'numbers and booleans come back as real types');
+
+  // a long id must not be turned into a lossy number
+  t.set('in', 'id\n9007199254740993');
+  ok(JSON.parse(t.byId('out').value)[0].id === '9007199254740993',
+     'an id too big for a JS number is left as text');
+
+  // doubled quotes mean one literal quote
+  t.set('in', 'q\n"she said ""hi"""');
+  ok(JSON.parse(t.byId('out').value)[0].q === 'she said "hi"',
+     'doubled quote marks are unescaped');
+
+  t.set('dir', 'j2c');
+  t.set('in', '[{"a":1,"b":"x, y"},{"a":2}]');
+  const csv = t.byId('out').value.split('\n');
+  ok(csv[0] === 'a,b', 'header row from the keys', 'got ' + csv[0]);
+  ok(csv[1] === '1,"x, y"', 'a comma in a value gets quoted', 'got ' + csv[1]);
+  ok(csv[2] === '2,', 'a missing key becomes an empty cell', 'got ' + csv[2]);
+  t.close();
+})();
+
+(function currencyOffline() {
+  const t = loadTool('currency-converter', { onLine: false });
+  has(t.text('status-text'), 'Refresh', 'with no rates and no network it says what to do');
+  has(t.text('out'), '—', 'and shows no made-up number');
+  t.close();
+})();
+
+pending.push(function currencyLive() {
+  const rates = { USD: 1, LKR: 330, EUR: 0.88, GBP: 0.75 };
+  const t = loadTool('currency-converter', {
+    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ rates }) })
+  });
+  // the fetch resolves on a microtask, so let it settle
+  return new Promise((resolve) => setImmediate(() => {
+    t.set('amount', 100).set('from', 'USD').set('to', 'LKR');
+    has(t.text('out'), '33,000', '100 USD at 330 is 33,000 LKR');
+    t.set('from', 'EUR').set('to', 'GBP');
+    has(t.text('out'), '85.23', 'a cross rate goes through the dollar');
+    t.close();
+    resolve();
+  }));
+});
+
+(function timezone() {
+  const t = loadTool('timezone-converter');
+  t.set('base-zone', 'Asia/Colombo').set('when', '2026-10-06T09:00');
+  has(t.text('zones'), 'Colombo', 'Colombo is listed');
+  // Colombo is UTC+5:30 all year; London in early October is still BST (+1)
+  has(t.text('zones'), 'UTC+05:30', 'Colombo offset is right');
+  has(t.text('zones'), '04:30', '09:00 in Colombo is 04:30 in London');
+  t.close();
+})();
+
+(function metricUs() {
+  const t = loadTool('metric-us-converter');
+  t.set('topic', 'oven');
+  t.set('c', 180);
+  ok(t.byId('f').value === '356', '180 C is 356 F', 'got ' + t.byId('f').value);
+  t.set('f', 350);
+  ok(Math.abs(parseFloat(t.byId('c').value) - 176.67) < 0.01,
+     '350 F is about 176.67 C', 'got ' + t.byId('c').value);
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
-console.log('');
-failures.forEach(f => console.log('FAIL  ' + f));
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+(async function report() {
+  for (const t of pending) await t();
+  console.log('');
+  failures.forEach(f => console.log('FAIL  ' + f));
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+})();
