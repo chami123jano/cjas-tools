@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Cjas Tools",
   "version": "0.2.0",
-  "identifier": "com.cjastools.app",
+  "identifier": "com.cjastools.desktop",
   "build": {
     "frontendDist": "../src"
   },
