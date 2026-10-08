@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find and Replace — Cja's Tools</title>
+<meta name="description" content="Replace text across a whole document, with whole-word matching, case sensitivity and optional patterns. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-size: 14px; }
+  .preview {
+    max-height: 240px; overflow: auto; padding: 12px 14px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg); font-size: 13.5px; line-height: 1.7;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .preview mark {
+    background: #ffe08a; color: #4a3200; border-radius: 3px; padding: 0 2px;
+  }
+  :root[data-theme="dark"] .preview mark,
+  html:not([data-theme="light"]) .preview mark { background: #6b5518; color: #ffe9b0; }
+  .err {
+    padding: 11px 14px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="find-replace">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Find and Replace</h1>
+        <p>See what will change before you change it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your text</label>
+          <textarea id="in" spellcheck="false" placeholder="Paste your text here&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="find">Find</label>
+            <input type="text" id="find" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="repl">Replace with</label>
+            <input type="text" id="repl" spellcheck="false" autocomplete="off"
+                   placeholder="leave empty to delete">
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="caseSensitive">Match case</button>
+          <button class="btn" data-opt="wholeWord">Whole words only</button>
+          <button class="btn" data-opt="regex">Use a pattern</button>
+        </div>
+        <p class="hint" id="opt-note"></p>
+      </div>
+
+      <div class="panel" id="err-panel" hidden>
+        <div class="err" id="err"></div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="count">&mdash;</div>
+        <div class="field" style="margin-top:14px">
+          <label>What will change</label>
+          <div class="preview" id="preview"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="apply">Use as input</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { caseSensitive: false, wholeWord: false, regex: false };
+
+    var input = document.getElementById('in');
+    var findEl = document.getElementById('find');
+    var replEl = document.getElementById('repl');
+
+    function escapeRe(s) {
+      return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function buildPattern() {
+      var find = findEl.value;
+      if (!find) return null;
+
+      var body = opts.regex ? find : escapeRe(find);
+
+      if (opts.wholeWord) {
+        /* \b only works next to word characters. Wrapping a term that
+           starts or ends with punctuation in \b would match nothing at
+           all, so the boundary is only added where it can apply. */
+        if (/^\w/.test(opts.regex ? find : find)) body = '\\b' + body;
+        if (/\w$/.test(opts.regex ? find : find)) body = body + '\\b';
+      }
+
+      return new RegExp(body, opts.caseSensitive ? 'g' : 'gi');
+    }
+
+    function run() {
+      var text = input.value;
+      var errPanel = document.getElementById('err-panel');
+      var countEl = document.getElementById('count');
+      var preview = document.getElementById('preview');
+      var output = document.getElementById('out');
+
+      errPanel.hidden = true;
+
+      if (!findEl.value) {
+        countEl.innerHTML = '&mdash;<small>Type something to find</small>';
+        preview.innerHTML = escapeHtml(text);
+        output.value = text;
+        return;
+      }
+
+      var re;
+      try {
+        re = buildPattern();
+      } catch (e) {
+        document.getElementById('err').textContent =
+          'That pattern is not valid: ' + e.message;
+        errPanel.hidden = false;
+        countEl.innerHTML = '&mdash;';
+        preview.innerHTML = escapeHtml(text);
+        output.value = text;
+        return;
+      }
+
+      var matches = text.match(re);
+      var n = matches ? matches.length : 0;
+
+      countEl.innerHTML = n === 0
+        ? 'No matches' + '<small>nothing will change</small>'
+        : n + ' match' + (n === 1 ? '' : 'es') +
+          '<small>' + (replEl.value
+            ? 'each one becomes "' + escapeHtml(replEl.value) + '"'
+            : 'each one will be deleted') + '</small>';
+
+      /* The preview highlights the original text so you can see exactly
+         what is about to be touched, rather than only the outcome. */
+      re.lastIndex = 0;
+      preview.innerHTML = escapeHtml(text).replace(
+        new RegExp(re.source, re.flags),
+        function (m) { return '<mark>' + m + '</mark>'; }
+      ) || '<span style="color:var(--muted)">Nothing here yet</span>';
+
+      re.lastIndex = 0;
+      /* A plain replacement must not treat $1 and friends as backreferences,
+         so those are escaped unless pattern mode is deliberately on. */
+      var replacement = opts.regex
+        ? replEl.value
+        : replEl.value.replace(/\$/g, '$$$$');
+
+      output.value = text.replace(re, replacement);
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-opt]');
+      if (!btn) return;
+      var k = btn.dataset.opt;
+      opts[k] = !opts[k];
+      btn.classList.toggle('primary', opts[k]);
+
+      document.getElementById('opt-note').textContent = opts.regex
+        ? 'Pattern mode is on, so characters like . * + ( ) have special meaning ' +
+          'and $1 in the replacement refers to a captured group.'
+        : '';
+      run();
+    });
+
+    [input, findEl, replEl].forEach(function (el) {
+      el.addEventListener('input', run);
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('apply').addEventListener('click', function () {
+      input.value = document.getElementById('out').value;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

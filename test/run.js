@@ -347,6 +347,120 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- sri lanka
+
+(function poya() {
+  const t = loadTool('poya-calendar');
+  t.set('year', '2026');
+  const list = t.text('list');
+  has(list, 'Duruthu', 'the year starts with Duruthu');
+  has(list, 'Unduvap', 'and ends with Unduvap');
+  // the 2026 correction: 1 May is Adhi Vesak, 30 May is Vesak
+  has(list, 'Adhi Vesak', '1 May 2026 is Adhi Vesak after the change');
+  has(t.text('source-note'), '30 May', 'the note explains the Vesak move');
+  const rows = () => t.document.querySelectorAll('.poya-row').length;
+  ok(rows() === 13, '2026 has 13 Poya days', 'got ' + rows());
+
+  t.set('year', '2027');
+  ok(rows() === 12, '2027 has 12', 'got ' + rows());
+  ok(t.text('list').indexOf('Adhi') === -1, '2027 has no Adhi month');
+
+  // only years we actually have gazetted data for should be offered
+  const years = [...t.document.querySelectorAll('#year option')].map(o => o.value);
+  ok(years.length === 2 && years.includes('2026') && years.includes('2027'),
+     'only published years are offered', 'got ' + years.join(','));
+  t.close();
+})();
+
+(function singlish() {
+  const t = loadTool('singlish-converter');
+  const conv = (s) => { t.set('in', s); return t.byId('out-text').value; };
+
+  ok(conv('mata') === 'මට', 'mata gives මට', 'got ' + conv('mata'));
+  ok(conv('sinhala') === 'සිංහල',
+     'n before h becomes the anusvara in sinhala', 'got ' + conv('sinhala'));
+  ok(conv('lankaawa') === 'ලංකාව',
+     'n before k becomes the anusvara in lankaawa', 'got ' + conv('lankaawa'));
+  // the documented scheme: d is retroflex, dh is dental
+  ok(conv('kohomadha') === 'කොහොමද',
+     'dh gives the dental ද', 'got ' + conv('kohomadha'));
+  ok(conv('ammaa') === 'අම්මා',
+     'a doubled consonant takes hal then the next letter');
+  ok(conv('2026 avurudda').startsWith('2026 '),
+     'digits and spaces pass through untouched', 'got ' + conv('2026 avurudda'));
+  ok(conv('') === '', 'empty input gives empty output');
+  t.close();
+})();
+
+(function postalCodes() {
+  const t = loadTool('postal-codes');
+  t.set('q', 'Nugegoda');
+  has(t.text('results'), '10250', 'Nugegoda is 10250');
+  t.set('q', 'Wellawatte');
+  has(t.text('results'), '00600', 'a suburb name in the notes is searchable');
+  t.set('q', '10250');
+  has(t.text('results'), 'Nugegoda', 'searching by code finds the town');
+  // a bare 300 should be understood as 00300
+  t.set('q', '300');
+  has(t.text('results'), 'Colombo 03', 'a code typed without leading zeros still works');
+  has(t.text('count'), 'leading zeros', 'and it explains why');
+  t.set('q', 'Jaffna');
+  has(t.text('results'), 'Colombo District only', 'a town outside the data says so plainly');
+  t.close();
+})();
+
+(function exchangeRates() {
+  const rates = { USD: 1, LKR: 330, GBP: 0.75, JPY: 150 };
+  const t = loadTool('exchange-rates', {
+    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ rates }) })
+  });
+  pending.push(() => new Promise((resolve) => setImmediate(() => {
+    has(t.text('rates'), '330.00', 'the dollar is 330 rupees');
+    has(t.text('rates'), '440.00', 'the pound works out at 440');
+    // yen is shown per 100 because one yen is a couple of rupees
+    has(t.text('rates'), 'per 100 JPY', 'the yen is quoted per hundred');
+    t.set('amount', 50).set('cur', 'USD');
+    has(t.text('out'), '16,500', '50 dollars is 16,500 rupees');
+    t.close();
+    resolve();
+  })));
+})();
+
+// ---------------------------------------------------------------- text, part 2
+
+(function findReplace() {
+  const t = loadTool('find-replace');
+  t.set('in', 'cat cats concatenate Cat');
+  t.set('find', 'cat').set('repl', 'dog');
+  has(t.text('count'), '4 matches', 'case-insensitive by default');
+  ok(t.byId('out').value === 'dog dogs condogenate dog',
+     'every match replaced', 'got ' + t.byId('out').value);
+
+  t.click('opts');  // no-op click, should not throw
+  const btn = (name) => [...t.document.querySelectorAll('#opts .btn')]
+    .find(b => b.dataset.opt === name);
+
+  btn('caseSensitive').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.text('count'), '3 matches', 'match case drops the capitalised one');
+
+  btn('wholeWord').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.text('count'), '1 match', 'whole words only leaves one');
+
+  // a $ in the replacement must be literal unless pattern mode is on
+  btn('wholeWord').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  btn('caseSensitive').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  t.set('in', 'price').set('find', 'price').set('repl', '$1000');
+  ok(t.byId('out').value === '$1000',
+     'a dollar sign in the replacement stays literal', 'got ' + t.byId('out').value);
+
+  // a broken pattern must be reported, not thrown
+  btn('regex').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  t.set('find', '[unclosed');
+  ok(!t.byId('err-panel').hidden, 'a bad pattern shows an error');
+  has(t.text('err'), 'not valid', 'and says so in plain words');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

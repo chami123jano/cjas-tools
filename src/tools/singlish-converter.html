@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Singlish to Sinhala — Cja's Tools</title>
+<meta name="description" content="Type Sinhala using ordinary English letters and get proper Sinhala Unicode you can paste anywhere. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out-text {
+    min-height: 160px;
+    font-size: 19px;
+    line-height: 1.9;
+    font-family: "Iskoola Pota", "Nirmala UI", "Noto Sans Sinhala", sans-serif;
+  }
+  .key { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .key td, .key th { padding: 6px 4px; }
+  .key thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .key tbody tr { border-bottom: 1px solid var(--border); }
+  .key tbody tr:last-child { border-bottom: none; }
+  .key .si {
+    font-size: 17px;
+    font-family: "Iskoola Pota", "Nirmala UI", "Noto Sans Sinhala", sans-serif;
+  }
+  .key code {
+    background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12.5px;
+  }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 22px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 7px; }
+</style>
+</head>
+<body data-page="tool" data-slug="singlish-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=srilanka">Sri Lanka</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Singlish to Sinhala</h1>
+        <p>Type with English letters, get Sinhala Unicode you can paste anywhere.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Type in Singlish</label>
+          <textarea id="in" spellcheck="false" placeholder="ayubowan">ayubowan. mata sinhala liyanna puluwan.</textarea>
+        </div>
+        <div class="examples">
+          <button class="btn" data-eg="ayubowan">ayubowan</button>
+          <button class="btn" data-eg="sthuthi">sthuthi</button>
+          <button class="btn" data-eg="sri lankaawa">sri lankaawa</button>
+          <button class="btn" data-eg="oyaata kohomada">oyaata kohomada</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out-text">Sinhala</label>
+          <textarea id="out-text" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy Sinhala</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint">If the Sinhala shows as boxes, your device has no Sinhala
+          font. Windows has one built in &mdash; Settings, then Time &amp; language,
+          then Language, and add Sinhala.</p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:12px">The letters this uses</label>
+        <div class="cols">
+          <div>
+            <table class="key">
+              <thead><tr><th>Type</th><th>Get</th><th>Type</th><th>Get</th></tr></thead>
+              <tbody id="key-vowels"></tbody>
+            </table>
+          </div>
+          <div>
+            <table class="key">
+              <thead><tr><th>Type</th><th>Get</th><th>Type</th><th>Get</th></tr></thead>
+              <tbody id="key-cons"></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="hint">
+          Capital letters matter for a few sounds: <code>t</code> gives ට but
+          <code>th</code> gives ත, <code>d</code> gives ඩ but <code>dh</code>
+          gives ද, <code>n</code> gives න but <code>N</code> gives ණ, and
+          <code>l</code> gives ල but <code>L</code> gives ළ.
+          An <code>n</code> before k, g or h becomes ං, so
+          <code>lankaawa</code> gives ලංකාව.
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var HAL = '්';        /* hal kirima - a consonant with no vowel */
+    var ANUSVARA = 'ං';   /* the ං sound */
+
+    /* Each vowel has two forms: the standalone letter used at the start of
+       a word, and the mark hung on the preceding consonant. The inherent
+       vowel 'a' has no mark at all, which is why its sign is empty. */
+    var VOWELS = [
+      ['aa', 'ආ', 'ා'],
+      ['ae', 'ඇ', 'ැ'],
+      ['Ae', 'ඈ', 'ෑ'],
+      ['ai', 'ඓ', 'ෛ'],
+      ['au', 'ඖ', 'ෞ'],
+      ['ee', 'ඊ', 'ී'],
+      ['ii', 'ඊ', 'ී'],
+      ['oo', 'ඕ', 'ෝ'],
+      ['uu', 'ඌ', 'ූ'],
+      ['A',  'ආ', 'ා'],
+      ['E',  'ඒ', 'ේ'],
+      ['I',  'ඊ', 'ී'],
+      ['O',  'ඕ', 'ෝ'],
+      ['U',  'ඌ', 'ූ'],
+      ['a',  'අ', ''],
+      ['e',  'එ', 'ෙ'],
+      ['i',  'ඉ', 'ි'],
+      ['o',  'ඔ', 'ො'],
+      ['u',  'උ', 'ු']
+    ];
+
+    var CONSONANTS = [
+      ['kh', 'ඛ'], ['gh', 'ඝ'], ['ng', ANUSVARA],
+      ['chh', 'ඡ'], ['ch', 'ච'], ['jh', 'ඣ'],
+      ['ny', 'ඤ'], ['gn', 'ඥ'],
+      ['Th', 'ඨ'], ['th', 'ත'], ['Dh', 'ඪ'], ['dh', 'ද'],
+      ['ph', 'ඵ'], ['bh', 'භ'],
+      ['Sh', 'ෂ'], ['sh', 'ශ'],
+      ['N', 'ණ'], ['L', 'ළ'], ['T', 'ඨ'], ['D', 'ඪ'],
+      ['k', 'ක'], ['g', 'ග'], ['j', 'ජ'],
+      ['t', 'ට'], ['d', 'ඩ'], ['n', 'න'],
+      ['p', 'ප'], ['b', 'බ'], ['m', 'ම'],
+      ['y', 'ය'], ['r', 'ර'], ['l', 'ල'],
+      ['w', 'ව'], ['v', 'ව'], ['s', 'ස'], ['h', 'හ'],
+      ['f', 'ෆ'], ['c', 'ච'], ['x', 'ක' + HAL + 'ස'],
+      ['q', 'ක'], ['z', 'ස']
+    ];
+
+    function matchAt(table, text, i) {
+      for (var k = 0; k < table.length; k++) {
+        if (text.startsWith(table[k][0], i)) return table[k];
+      }
+      return null;
+    }
+
+    function isConsonantStart(text, i) {
+      return matchAt(CONSONANTS, text, i) !== null;
+    }
+
+    function convertWord(word) {
+      var out = '';
+      var i = 0;
+
+      while (i < word.length) {
+        var cons = matchAt(CONSONANTS, word, i);
+
+        if (cons) {
+          var letter = cons[1];
+          var len = cons[0].length;
+
+          /* An n before k, g or h is the ං sound, not a full න. That is
+             what makes lankaawa come out as ලංකාව rather than ලන්කාව. */
+          if (cons[0] === 'n' && /[kgh]/.test(word.charAt(i + 1) || '')) {
+            out += ANUSVARA;
+            i += 1;
+            continue;
+          }
+
+          i += len;
+          var vowel = matchAt(VOWELS, word, i);
+          if (vowel) {
+            i += vowel[0].length;
+            out += letter + vowel[2];
+          } else {
+            /* No vowel following, so the consonant is silenced with hal.
+               The anusvara never takes one. */
+            out += letter + (letter === ANUSVARA ? '' : HAL);
+          }
+          continue;
+        }
+
+        var v = matchAt(VOWELS, word, i);
+        if (v) {
+          i += v[0].length;
+          out += v[1];
+          continue;
+        }
+
+        out += word.charAt(i);
+        i += 1;
+      }
+
+      return out;
+    }
+
+    function convert(text) {
+      /* Only runs of Latin letters are transliterated. Numbers, spaces and
+         punctuation pass straight through untouched. */
+      return text.replace(/[A-Za-z]+/g, convertWord);
+    }
+
+    var input = document.getElementById('in');
+    var output = document.getElementById('out-text');
+
+    function run() {
+      output.value = convert(input.value);
+    }
+
+    input.addEventListener('input', run);
+
+    document.querySelectorAll('[data-eg]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        input.value = b.dataset.eg;
+        run();
+        input.focus();
+      });
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    /* Build the reference tables from the same data the converter uses, so
+       they can never drift apart. */
+    function pairRows(list, cell) {
+      var html = '';
+      for (var i = 0; i < list.length; i += 2) {
+        html += '<tr>';
+        html += cell(list[i]);
+        html += list[i + 1] ? cell(list[i + 1]) : '<td></td><td></td>';
+        html += '</tr>';
+      }
+      return html;
+    }
+
+    var vowelShow = VOWELS.filter(function (v) {
+      return /^[a-z]/.test(v[0]) || v[0] === 'Ae';
+    });
+
+    document.getElementById('key-vowels').innerHTML =
+      pairRows(vowelShow, function (v) {
+        return '<td><code>' + v[0] + '</code></td><td class="si">' + v[1] + '</td>';
+      });
+
+    document.getElementById('key-cons').innerHTML =
+      pairRows(CONSONANTS.filter(function (c) {
+        return ['x', 'q', 'z', 'c'].indexOf(c[0]) === -1;
+      }), function (c) {
+        return '<td><code>' + c[0] + '</code></td><td class="si">' +
+               (c[1] === ANUSVARA ? c[1] : c[1] + '්') + '</td>';
+      });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

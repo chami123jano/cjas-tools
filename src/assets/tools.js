@@ -183,6 +183,41 @@ const TOOLS = [
     category: 'converters',
     desc: 'What time it is somewhere else, and a good hour for a call.',
     keywords: ['timezone', 'time zone', 'utc', 'gmt', 'meeting', 'world clock', 'colombo']
+  },
+  {
+    slug: 'poya-calendar',
+    name: 'Poya Calendar',
+    category: 'srilanka',
+    desc: 'Every Poya day of the year, with the next one counted down.',
+    keywords: ['poya', 'full moon', 'vesak', 'poson', 'esala', 'holiday', 'buddhist']
+  },
+  {
+    slug: 'singlish-converter',
+    name: 'Singlish to Sinhala',
+    category: 'srilanka',
+    desc: 'Type Sinhala using English letters and get proper Sinhala Unicode.',
+    keywords: ['singlish', 'sinhala', 'unicode', 'transliterate', 'type', 'keyboard']
+  },
+  {
+    slug: 'postal-codes',
+    name: 'Sri Lanka Postal Codes',
+    category: 'srilanka',
+    desc: 'Look up a postal code by town, or find out which town a code belongs to.',
+    keywords: ['postal', 'post', 'code', 'zip', 'postcode', 'address', 'colombo']
+  },
+  {
+    slug: 'exchange-rates',
+    name: 'Rupee Exchange Rates',
+    category: 'srilanka',
+    desc: 'What the rupee is worth against the currencies people here actually send.',
+    keywords: ['exchange', 'rate', 'rupee', 'lkr', 'dollar', 'remittance', 'forex']
+  },
+  {
+    slug: 'find-replace',
+    name: 'Find and Replace',
+    category: 'text',
+    desc: 'Replace text across a whole document, with whole-word and pattern matching.',
+    keywords: ['find', 'replace', 'search', 'substitute', 'regex', 'bulk', 'edit']
   }
 ];
 

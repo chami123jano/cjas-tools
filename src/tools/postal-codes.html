@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sri Lanka Postal Codes — Cja's Tools</title>
+<meta name="description" content="Look up a Sri Lankan postal code by town, or find which town a code belongs to. Covers Colombo District. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .pc-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 2px; border-bottom: 1px solid var(--border);
+  }
+  .pc-row:last-child { border-bottom: none; }
+  .pc-row .town { font-size: 14.5px; }
+  .pc-row .town small { display: block; color: var(--muted); font-size: 12px; }
+  .pc-row .code {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 16px; font-weight: 600; letter-spacing: 0.5px;
+  }
+  .pc-row button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .pc-row button:hover { color: var(--accent); }
+  .right { display: flex; align-items: center; gap: 4px; }
+  .warn {
+    font-size: 12.5px; line-height: 1.6;
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface); color: var(--muted);
+  }
+  .warn b { color: var(--text); }
+</style>
+</head>
+<body data-page="tool" data-slug="postal-codes">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=srilanka">Sri Lanka</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Sri Lanka Postal Codes</h1>
+        <p>Search by town name, or type a code to see which town it belongs to.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="q">Town or code</label>
+          <input type="text" id="q" placeholder="Nugegoda, or 10250" autocomplete="off" spellcheck="false">
+        </div>
+        <p class="hint" id="count"></p>
+      </div>
+
+      <div class="panel" id="results"></div>
+
+      <div class="panel">
+        <div class="warn">
+          <b>This covers Colombo District &mdash; 59 post offices.</b> Other
+          districts are being added. It was compiled from published directory
+          listings, not from a live feed out of Sri Lanka Post.
+          <br><br>
+          <b>Do not guess a code.</b> Sri Lanka Post gives the same advice: if
+          you are not certain which delivery office serves an address, check at
+          <a href="https://www.slpost.gov.lk" target="_blank" rel="noopener">slpost.gov.lk</a>
+          or ask your nearest post office before sending anything that matters.
+          <br><br>
+          For Colombo city, keep the leading zero &mdash; Colombo 3 is
+          <b>00300</b>, not 300.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Colombo District. Each entry is town, code, and an optional note. */
+    var CODES = [
+      ['Colombo 01', '00100', 'Fort'],
+      ['Colombo 02', '00200', 'Slave Island'],
+      ['Colombo 03', '00300', 'Kollupitiya'],
+      ['Colombo 04', '00400', 'Bambalapitiya'],
+      ['Colombo 05', '00500', 'Havelock Town'],
+      ['Colombo 06', '00600', 'Wellawatte'],
+      ['Colombo 07', '00700', 'Cinnamon Gardens'],
+      ['Colombo 08', '00800', 'Borella'],
+      ['Colombo 09', '00900', 'Dematagoda'],
+      ['Colombo 10', '01000', 'Maradana'],
+      ['Colombo 11', '01100', 'Pettah'],
+      ['Colombo 12', '01200', 'Hulftsdorp'],
+      ['Colombo 13', '01300', 'Kotahena'],
+      ['Colombo 14', '01400', 'Grandpass'],
+      ['Colombo 15', '01500', 'Mutwal'],
+      ['Sri Jayawardenepura', '10100', 'Kotte'],
+      ['Rajagiriya', '10107', ''],
+      ['Malabe', '10115', ''],
+      ['Talawatugoda', '10116', ''],
+      ['Hokandara', '10118', ''],
+      ['Battaramulla', '10120', ''],
+      ['Athurugiriya', '10150', ''],
+      ['Homagama', '10200', ''],
+      ['Mullegama', '10202', ''],
+      ['Habarakada', '10204', ''],
+      ['Pitipana Homagama', '10206', ''],
+      ['Kiriwattuduwa', '10208', ''],
+      ['Kottawa', '10220', ''],
+      ['Pannipitiya', '10230', ''],
+      ['Hiripitiya', '10232', ''],
+      ['Mattegoda', '10240', ''],
+      ['Nugegoda', '10250', ''],
+      ['Maharagama', '10280', ''],
+      ['Boralesgamuwa', '10290', ''],
+      ['Piliyandala', '10300', ''],
+      ['Suwarapola', '10301', ''],
+      ['Deltara', '10302', ''],
+      ['Siddamulla', '10304', ''],
+      ['Makandana', '10305', ''],
+      ['Madapatha', '10306', ''],
+      ['Polgasowita', '10320', ''],
+      ['Dehiwala', '10350', ''],
+      ['Mount Lavinia', '10370', ''],
+      ['Ratmalana', '10390', ''],
+      ['Moratuwa', '10400', ''],
+      ['Soysapura', '10412', ''],
+      ['Padukka', '10500', ''],
+      ['Horagala', '10502', ''],
+      ['Meegoda', '10504', ''],
+      ['Kahawala', '10508', ''],
+      ['Watareka', '10511', ''],
+      ['Batawala', '10513', ''],
+      ['Bope', '10522', ''],
+      ['Handapangoda', '10524', ''],
+      ['Batugampola', '10526', ''],
+      ['Kolonnawa', '10600', ''],
+      ['Mulleriyawa New Town', '10620', ''],
+      ['Kaduwela', '10640', ''],
+      ['Hanwella', '10650', ''],
+      ['Ranala', '10654', ''],
+      ['Waga', '10680', ''],
+      ['Tummodara', '10682', ''],
+      ['Seethawakapura', '10700', ''],
+      ['Napawala', '10704', ''],
+      ['Maniyangama', '10707', ''],
+      ['Puwakpitiya', '10712', ''],
+      ['Kalatuwawa', '10718', ''],
+      ['Kosgama', '10730', ''],
+      ['Akarawita', '10732', '']
+    ];
+
+    var q = document.getElementById('q');
+    var results = document.getElementById('results');
+    var count = document.getElementById('count');
+
+    function row(r) {
+      return '<div class="pc-row">' +
+        '<span class="town">' + r[0] +
+          (r[2] ? '<small>' + r[2] + '</small>' : '') + '</span>' +
+        '<span class="right"><span class="code">' + r[1] + '</span>' +
+        '<button data-copy="' + r[1] + '">copy</button></span>' +
+      '</div>';
+    }
+
+    function search() {
+      var term = q.value.trim().toLowerCase();
+      var list = CODES;
+
+      if (term) {
+        list = CODES.filter(function (r) {
+          return r[0].toLowerCase().indexOf(term) !== -1 ||
+                 r[1].indexOf(term) !== -1 ||
+                 (r[2] && r[2].toLowerCase().indexOf(term) !== -1);
+        });
+
+        /* Someone typing "300" almost certainly means Colombo 03, whose
+           real code is 00300. Pad it and make sure that entry is in the
+           results, and say why - dropping the leading zeros is the single
+           most common mistake people make with these. */
+        if (/^\d{1,4}$/.test(term)) {
+          var padded = term.padStart(5, '0');
+          var exact = CODES.filter(function (r) { return r[1] === padded; });
+          if (exact.length) {
+            exact.forEach(function (r) {
+              if (list.indexOf(r) === -1) list.unshift(r);
+            });
+            count.textContent = padded + ' is the full code — Sri Lankan ' +
+              'codes are five digits, so keep the leading zeros.';
+            results.innerHTML = list.map(row).join('');
+            return;
+          }
+        }
+      }
+
+      if (!list.length) {
+        count.textContent = '';
+        results.innerHTML = '<p class="hint" style="margin:0">Nothing matches "' +
+          q.value.trim() + '". This list covers Colombo District only so far — ' +
+          'check slpost.gov.lk for anywhere else.</p>';
+        return;
+      }
+
+      count.textContent = term
+        ? list.length + ' match' + (list.length === 1 ? '' : 'es')
+        : CODES.length + ' post offices in Colombo District';
+      results.innerHTML = list.map(row).join('');
+    }
+
+    results.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-copy]');
+      if (btn) CT.copy(btn.dataset.copy);
+    });
+
+    q.addEventListener('input', search);
+    search();
+  })();
+  </script>
+</body>
+</html>

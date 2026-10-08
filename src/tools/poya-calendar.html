@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Poya Calendar — Cja's Tools</title>
+<meta name="description" content="Every Sri Lankan Poya day with the next one counted down, using the dates approved by the Poya Committee. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .poya-row {
+    display: grid; grid-template-columns: 40px 1fr auto; gap: 14px;
+    align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  .poya-row:last-child { border-bottom: none; }
+  .poya-row.past { opacity: 0.45; }
+  .poya-row.next {
+    background: var(--accent-soft); margin: 0 -10px; padding: 11px 10px;
+    border-radius: 10px; border-bottom-color: transparent;
+  }
+  .moon { font-size: 20px; text-align: center; }
+  .pname { font-size: 15px; font-weight: 600; }
+  .pname small { display: block; font-weight: 400; color: var(--muted); font-size: 12.5px; }
+  .pdate { text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .pdate small { display: block; color: var(--muted); font-size: 12px; }
+  .note {
+    font-size: 12.5px; color: var(--muted); line-height: 1.6;
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface);
+  }
+  .note b { color: var(--text); }
+</style>
+</head>
+<body data-page="tool" data-slug="poya-calendar">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=srilanka">Sri Lanka</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Poya Calendar</h1>
+        <p>Every Poya day, and how long until the next one.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="next-poya">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="year">Year</label>
+          <select id="year"></select>
+        </div>
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="note" id="source-note"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* These are the dates approved by the Poya Committee and published in
+       the government holiday calendar. They are deliberately NOT worked out
+       from the moon here.
+
+       The obvious approach - calculate the full moon and take that calendar
+       day in Sri Lanka time - does not reproduce the official list. The
+       February 2026 full moon falls at 03:41 on the 2nd in Colombo, but the
+       gazetted Navam Poya is the 1st; March is the same story. Poya days
+       follow traditional lunar reckoning approved by a committee, not the
+       raw instant of the full moon, so a calculated calendar would hand out
+       wrong dates with total confidence. Years are added here as they are
+       published instead. */
+    var OFFICIAL = {
+      2026: [
+        ['2026-01-03', 'Duruthu'],
+        ['2026-02-01', 'Navam'],
+        ['2026-03-02', 'Medin'],
+        ['2026-04-01', 'Bak'],
+        ['2026-05-01', 'Adhi Vesak'],
+        ['2026-05-30', 'Vesak'],
+        ['2026-06-29', 'Poson'],
+        ['2026-07-29', 'Esala'],
+        ['2026-08-27', 'Nikini'],
+        ['2026-09-26', 'Binara'],
+        ['2026-10-25', 'Vap'],
+        ['2026-11-24', 'Il'],
+        ['2026-12-23', 'Unduvap']
+      ],
+      2027: [
+        ['2027-01-22', 'Duruthu'],
+        ['2027-02-20', 'Navam'],
+        ['2027-03-21', 'Medin'],
+        ['2027-04-20', 'Bak'],
+        ['2027-05-20', 'Vesak'],
+        ['2027-06-18', 'Poson'],
+        ['2027-07-18', 'Esala'],
+        ['2027-08-16', 'Nikini'],
+        ['2027-09-15', 'Binara'],
+        ['2027-10-15', 'Vap'],
+        ['2027-11-13', 'Il'],
+        ['2027-12-13', 'Unduvap']
+      ]
+    };
+
+    var MEANING = {
+      'Duruthu': 'The Buddha’s first visit to Sri Lanka',
+      'Navam': 'The first Buddhist council, and the naming of the chief disciples',
+      'Medin': 'The Buddha’s visit to his family after enlightenment',
+      'Bak': 'The Buddha’s second visit to Sri Lanka',
+      'Adhi Vesak': 'The extra Poya in a month that has two full moons',
+      'Vesak': 'The birth, enlightenment and passing of the Buddha',
+      'Poson': 'The arrival of Buddhism in Sri Lanka',
+      'Esala': 'The first sermon, and the Kandy Esala Perahera',
+      'Nikini': 'The council held after the Buddha’s passing',
+      'Binara': 'The founding of the order of nuns',
+      'Vap': 'The end of the rainy retreat and the start of the Kathina season',
+      'Il': 'The sending out of the first sixty disciples',
+      'Unduvap': 'Sanghamitta bringing the sacred Bo sapling to Sri Lanka'
+    };
+
+    var YEARS = Object.keys(OFFICIAL).map(Number).sort();
+
+    function parse(iso) {
+      var p = iso.split('-');
+      return new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0);
+    }
+
+    function fmt(d) {
+      return d.toLocaleDateString('en-GB',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    function todayMidday() {
+      var n = new Date();
+      return new Date(n.getFullYear(), n.getMonth(), n.getDate(), 12, 0, 0);
+    }
+
+    var yearSel = document.getElementById('year');
+    var thisYear = new Date().getFullYear();
+    YEARS.forEach(function (y) {
+      yearSel.innerHTML += '<option value="' + y + '"' +
+        (y === thisYear ? ' selected' : '') + '>' + y + '</option>';
+    });
+    if (YEARS.indexOf(thisYear) === -1) yearSel.value = String(YEARS[0]);
+
+    function nextPoya() {
+      var today = todayMidday();
+      for (var i = 0; i < YEARS.length; i++) {
+        var rows = OFFICIAL[YEARS[i]];
+        for (var j = 0; j < rows.length; j++) {
+          var d = parse(rows[j][0]);
+          if (d >= today) return { date: d, name: rows[j][1] };
+        }
+      }
+      return null;
+    }
+
+    function draw() {
+      var year = parseInt(yearSel.value, 10);
+      var rows = OFFICIAL[year] || [];
+      var today = todayMidday();
+      var next = nextPoya();
+
+      var nextEl = document.getElementById('next-poya');
+      if (next) {
+        var days = Math.round((next.date - today) / 86400000);
+        nextEl.innerHTML =
+          (days === 0 ? 'Today is ' + next.name + ' Poya'
+            : next.name + ' Poya in ' + days + ' day' + (days === 1 ? '' : 's')) +
+          '<small>' + fmt(next.date) + '</small>';
+      } else {
+        nextEl.innerHTML = 'No more Poya days on file' +
+          '<small>The dates for ' + (YEARS[YEARS.length - 1] + 1) +
+          ' have not been published yet</small>';
+      }
+
+      document.getElementById('list').innerHTML = rows.map(function (r) {
+        var d = parse(r[0]);
+        var isPast = d < today;
+        var isNext = next && d.getTime() === next.date.getTime();
+        return '<div class="poya-row' + (isPast ? ' past' : '') +
+                 (isNext ? ' next' : '') + '">' +
+          '<span class="moon">🌕</span>' +
+          '<span class="pname">' + r[1] + ' Poya' +
+            '<small>' + (MEANING[r[1]] || '') + '</small></span>' +
+          '<span class="pdate">' + d.toLocaleDateString('en-GB',
+            { day: 'numeric', month: 'short' }) +
+            '<small>' + d.toLocaleDateString('en-GB', { weekday: 'long' }) +
+            '</small></span>' +
+        '</div>';
+      }).join('');
+
+      var note =
+        '<b>Where these dates come from.</b> They are the Poya days approved by ' +
+        'the Poya Committee and published in the government holiday calendar, ' +
+        'not worked out from the moon. That distinction matters: the February ' +
+        '2026 full moon actually falls after 3am on the 2nd in Colombo, but the ' +
+        'gazetted Navam Poya is the 1st. Poya follows traditional reckoning, so ' +
+        'anything that simply calculates the full moon will be a day out ' +
+        'several times a year.';
+
+      if (year === 2026) {
+        note += '<br><br><b>Vesak 2026 moved.</b> Two full moons fell in May. ' +
+          'The calendar first published in December 2025 had 1 May as Vesak and ' +
+          '30 May as Adhi Poson. The Chief Prelates then wrote to the President, ' +
+          'and the government made <b>30 May</b> Vesak, renaming 1 May to Adhi ' +
+          'Vesak. Calendars printed before that change still show the old names.';
+      }
+
+      note += '<br><br>Poya days are public holidays. Check the official gazette ' +
+        'before booking anything that depends on the date. Dates are on file for ' +
+        YEARS.join(' and ') + '; later years are added once they are published.';
+
+      document.getElementById('source-note').innerHTML = note;
+    }
+
+    yearSel.addEventListener('change', draw);
+    draw();
+  })();
+  </script>
+</body>
+</html>

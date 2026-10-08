@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rupee Exchange Rates — Cja's Tools</title>
+<meta name="description" content="What the Sri Lankan rupee is worth against the currencies people here send and receive, with the last rates remembered for offline use.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .rate-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border);
+  }
+  .rate-row:last-child { border-bottom: none; }
+  .rate-row .cur { font-size: 14.5px; font-weight: 550; }
+  .rate-row .cur small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .rate-row .val {
+    text-align: right; font-size: 17px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .rate-row .val small { display: block; font-size: 11.5px; font-weight: 400; color: var(--muted); }
+  .status { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--muted); }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.live { background: #27b86a; }
+  .dot.cached { background: #e8a33d; }
+  .dot.none { background: var(--danger); }
+  .warn {
+    font-size: 12.5px; line-height: 1.6; color: var(--muted);
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface);
+  }
+  .warn b { color: var(--text); }
+</style>
+</head>
+<body data-page="tool" data-slug="exchange-rates">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=srilanka">Sri Lanka</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Rupee Exchange Rates</h1>
+        <p>What one unit of each currency is worth in rupees.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="amount">Convert an amount</label>
+          <div class="row">
+            <input type="number" id="amount" value="100" step="any">
+            <select id="cur"></select>
+          </div>
+        </div>
+        <div class="result" id="out" style="margin-top:6px">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:6px">Against the rupee</label>
+        <div id="rates"></div>
+        <div class="status" style="margin-top:14px">
+          <span class="dot none" id="dot"></span>
+          <span id="status-text">Loading&hellip;</span>
+          <button class="btn" id="refresh" style="margin-left:auto;padding:5px 11px;font-size:13px">Refresh</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="warn">
+          <b>These are mid-market rates, not bank rates.</b> They are the
+          reference rate between two currencies, which is the number you see
+          quoted in the news. A bank or exchange house will always give you
+          less when you sell and charge more when you buy &mdash; the gap is how
+          they make their money, and on remittances it is usually 1 to 3 rupees
+          per dollar.
+          <br><br>
+          Use this to sanity-check what you are being offered, not as the rate
+          you will actually get. For that, ask the bank.
+          <br><br>
+          This is one of the few tools here that needs the internet. The last
+          rates fetched are kept on your device, so it still shows you something
+          when you are offline &mdash; it just tells you how old it is.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var API = 'https://open.er-api.com/v6/latest/USD';
+    var STORE = 'cja-rates';   /* shared with the currency converter */
+
+    /* The currencies that actually matter here: the ones remittances come
+       from, and the ones imports are priced in. */
+    var WATCH = [
+      ['USD', 'US dollar'], ['EUR', 'Euro'], ['GBP', 'British pound'],
+      ['AUD', 'Australian dollar'], ['CAD', 'Canadian dollar'],
+      ['AED', 'UAE dirham'], ['SAR', 'Saudi riyal'], ['QAR', 'Qatari riyal'],
+      ['KWD', 'Kuwaiti dinar'], ['JPY', 'Japanese yen'],
+      ['INR', 'Indian rupee'], ['SGD', 'Singapore dollar'],
+      ['MYR', 'Malaysian ringgit'], ['CHF', 'Swiss franc'],
+      ['CNY', 'Chinese yuan'], ['KRW', 'South Korean won']
+    ];
+
+    var rates = null, fetchedAt = null, source = 'none';
+
+    function readCache() {
+      try {
+        var raw = localStorage.getItem(STORE);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) { return null; }
+    }
+
+    function writeCache(d) {
+      try { localStorage.setItem(STORE, JSON.stringify(d)); } catch (e) {}
+    }
+
+    function ago(iso) {
+      var then = new Date(iso);
+      if (isNaN(then.getTime())) return 'at an unknown time';
+      var mins = Math.round((Date.now() - then.getTime()) / 60000);
+      if (mins < 2) return 'just now';
+      if (mins < 60) return mins + ' minutes ago';
+      var hrs = Math.round(mins / 60);
+      if (hrs < 24) return hrs + ' hour' + (hrs === 1 ? '' : 's') + ' ago';
+      var days = Math.round(hrs / 24);
+      return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+    }
+
+    function setStatus(kind, text) {
+      document.getElementById('dot').className = 'dot ' + kind;
+      document.getElementById('status-text').textContent = text;
+    }
+
+    function rupeesPer(code) {
+      /* Everything is quoted per US dollar, so one unit of a currency is
+         worth rates.LKR / rates[code] rupees. */
+      if (!rates || !rates.LKR || !rates[code]) return null;
+      return rates.LKR / rates[code];
+    }
+
+    function draw() {
+      var host = document.getElementById('rates');
+
+      if (!rates) {
+        host.innerHTML = '<p class="hint" style="margin:0">No rates yet.</p>';
+        document.getElementById('out').innerHTML = '&mdash;';
+        return;
+      }
+
+      host.innerHTML = WATCH.map(function (w) {
+        var v = rupeesPer(w[0]);
+        if (v === null) return '';
+        /* The yen and won are worth a fraction of a rupee each, so they
+           are shown per hundred to stay readable. */
+        var per100 = (w[0] === 'JPY' || w[0] === 'KRW');
+        var shown = per100 ? v * 100 : v;
+        return '<div class="rate-row">' +
+          '<span class="cur">' + w[0] + '<small>' + w[1] + '</small></span>' +
+          '<span class="val">' +
+            shown.toLocaleString('en-LK',
+              { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+            '<small>rupees per ' + (per100 ? '100 ' : '') + w[0] + '</small>' +
+          '</span></div>';
+      }).join('');
+
+      convert();
+    }
+
+    function convert() {
+      var out = document.getElementById('out');
+      if (!rates) { out.innerHTML = '&mdash;'; return; }
+
+      var amount = parseFloat(document.getElementById('amount').value);
+      var code = document.getElementById('cur').value;
+      var per = rupeesPer(code);
+
+      if (!isFinite(amount) || per === null) {
+        out.innerHTML = '&mdash;<small>Enter an amount</small>';
+        return;
+      }
+
+      out.innerHTML = 'Rs. ' +
+        (amount * per).toLocaleString('en-LK',
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        '<small>' + amount.toLocaleString('en-US') + ' ' + code +
+        ' at mid-market</small>';
+    }
+
+    function apply(data, kind) {
+      rates = data.rates;
+      fetchedAt = data.fetchedAt;
+      source = kind;
+
+      var sel = document.getElementById('cur');
+      if (!sel.options.length) {
+        sel.innerHTML = WATCH.filter(function (w) { return rates[w[0]]; })
+          .map(function (w) { return '<option value="' + w[0] + '">' + w[0] + '</option>'; })
+          .join('');
+      }
+
+      if (kind === 'live') setStatus('live', 'Live mid-market rates, fetched ' + ago(fetchedAt) + '.');
+      else setStatus('cached', 'Offline — showing the rates saved ' + ago(fetchedAt) + '.');
+
+      draw();
+    }
+
+    function load(force) {
+      var cached = readCache();
+      if (cached && cached.rates && !force) apply(cached, 'cached');
+
+      if (!navigator.onLine && !force) {
+        if (!cached) setStatus('none', 'No rates saved yet. Connect and press Refresh.');
+        return;
+      }
+
+      setStatus(cached ? 'cached' : 'none', 'Fetching the latest rates…');
+
+      fetch(API, { cache: 'no-store' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j || !j.rates || !j.rates.LKR) throw new Error('no rupee rate');
+          var data = { rates: j.rates, fetchedAt: new Date().toISOString() };
+          writeCache(data);
+          apply(data, 'live');
+        })
+        .catch(function () {
+          if (cached && cached.rates) {
+            apply(cached, 'cached');
+            CT.toast('Could not reach the rate service');
+          } else {
+            setStatus('none', 'Could not fetch rates and none are saved. ' +
+              'Check your connection and press Refresh.');
+          }
+        });
+    }
+
+    document.getElementById('refresh').addEventListener('click', function () { load(true); });
+    document.getElementById('amount').addEventListener('input', convert);
+    document.getElementById('cur').addEventListener('change', convert);
+    window.addEventListener('online', function () { load(true); });
+
+    load(false);
+  })();
+  </script>
+</body>
+</html>
