@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remove Duplicate Lines — Cja's Tools</title>
+<meta name="description" content="Strip repeated lines from a list, or keep only the ones that appear more than once. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>#in, #out { font-size: 14px; }</style>
+</head>
+<body data-page="tool" data-slug="remove-duplicates">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Remove Duplicate Lines</h1>
+        <p>Useful for email lists, phone numbers and any list that has grown messy.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your list, one item per line</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="mode">What to keep</label>
+          <select id="mode">
+            <option value="unique">Each line once, in the original order</option>
+            <option value="onlyonce">Only lines that appear exactly once</option>
+            <option value="onlydupes">Only lines that appear more than once</option>
+          </select>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="trim">Ignore spaces at the ends</button>
+          <button class="btn" data-opt="ignoreCase">Ignore capitals</button>
+          <button class="btn primary" data-opt="dropBlank">Drop blank lines</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-in">0</b><span>Lines in</span></div>
+          <div class="stat"><b id="s-out">0</b><span>Lines out</span></div>
+          <div class="stat"><b id="s-removed">0</b><span>Removed</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="apply">Use as input</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { trim: true, ignoreCase: false, dropBlank: true };
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    function run() {
+      var raw = input.value;
+      var lines = raw === '' ? [] : raw.split('\n');
+
+      var kept = lines;
+      if (opts.dropBlank) {
+        kept = kept.filter(function (l) { return l.trim() !== ''; });
+      }
+
+      /* The comparison key can ignore case and surrounding spaces, but the
+         line that gets written out is always the original one. Otherwise
+         removing duplicates would quietly reformat everything else. */
+      function key(l) {
+        var k = opts.trim ? l.trim() : l;
+        return opts.ignoreCase ? k.toLowerCase() : k;
+      }
+
+      var counts = {};
+      kept.forEach(function (l) {
+        var k = key(l);
+        counts[k] = (counts[k] || 0) + 1;
+      });
+
+      var mode = document.getElementById('mode').value;
+      var seen = {};
+      var out = [];
+
+      kept.forEach(function (l) {
+        var k = key(l);
+        if (mode === 'unique') {
+          if (!seen[k]) { seen[k] = true; out.push(l); }
+        } else if (mode === 'onlyonce') {
+          if (counts[k] === 1) out.push(l);
+        } else {
+          if (counts[k] > 1 && !seen[k]) { seen[k] = true; out.push(l); }
+        }
+      });
+
+      output.value = out.join('\n');
+
+      document.getElementById('s-in').textContent = lines.length.toLocaleString();
+      document.getElementById('s-out').textContent = out.length.toLocaleString();
+      document.getElementById('s-removed').textContent =
+        Math.max(0, lines.length - out.length).toLocaleString();
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-opt]');
+      if (!btn) return;
+      opts[btn.dataset.opt] = !opts[btn.dataset.opt];
+      btn.classList.toggle('primary', opts[btn.dataset.opt]);
+      run();
+    });
+
+    input.addEventListener('input', run);
+    document.getElementById('mode').addEventListener('change', run);
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('apply').addEventListener('click', function () {
+      input.value = output.value;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

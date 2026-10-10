@@ -218,6 +218,41 @@ const TOOLS = [
     category: 'text',
     desc: 'Replace text across a whole document, with whole-word and pattern matching.',
     keywords: ['find', 'replace', 'search', 'substitute', 'regex', 'bulk', 'edit']
+  },
+  {
+    slug: 'remove-duplicates',
+    name: 'Remove Duplicate Lines',
+    category: 'text',
+    desc: 'Strip repeated lines from a list, or keep only the ones that repeat.',
+    keywords: ['duplicate', 'unique', 'repeated', 'lines', 'dedupe', 'list', 'clean']
+  },
+  {
+    slug: 'sort-lines',
+    name: 'Sort Lines',
+    category: 'text',
+    desc: 'Sort a list alphabetically, by number, by length, or shuffle it.',
+    keywords: ['sort', 'order', 'alphabetical', 'lines', 'list', 'reverse', 'shuffle']
+  },
+  {
+    slug: 'remove-spaces',
+    name: 'Remove Extra Spaces',
+    category: 'text',
+    desc: 'Tidy up double spaces, trailing spaces, blank lines and stray tabs.',
+    keywords: ['space', 'whitespace', 'trim', 'blank', 'tidy', 'clean', 'tabs']
+  },
+  {
+    slug: 'text-compare',
+    name: 'Text Compare',
+    category: 'text',
+    desc: 'See line by line what changed between two versions of some text.',
+    keywords: ['compare', 'diff', 'difference', 'changes', 'versions', 'merge']
+  },
+  {
+    slug: 'markdown-to-html',
+    name: 'Markdown to HTML',
+    category: 'text',
+    desc: 'Turn Markdown into clean HTML, with a live preview of how it looks.',
+    keywords: ['markdown', 'html', 'convert', 'readme', 'preview', 'md', 'format']
   }
 ];
 

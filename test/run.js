@@ -461,6 +461,117 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- text, part 3
+
+(function removeDuplicates() {
+  const t = loadTool('remove-duplicates');
+  t.set('in', 'apple\nbanana\napple\ncherry\nbanana\napple');
+  ok(t.byId('out').value === 'apple\nbanana\ncherry',
+     'each line kept once in original order', 'got ' + JSON.stringify(t.byId('out').value));
+  has(t.text('s-removed'), '3', 'three lines removed');
+
+  t.set('mode', 'onlyonce');
+  ok(t.byId('out').value === 'cherry', 'only lines appearing exactly once');
+
+  t.set('mode', 'onlydupes');
+  ok(t.byId('out').value === 'apple\nbanana', 'only lines that repeat');
+
+  // case folding is off by default, so these stay distinct
+  t.set('mode', 'unique').set('in', 'Apple\napple');
+  ok(t.byId('out').value === 'Apple\napple', 'capitals matter by default');
+  t.close();
+})();
+
+(function sortLines() {
+  const t = loadTool('sort-lines');
+  // the whole point of natural sort: item2 before item10
+  t.set('in', 'item10\nitem2\nitem1');
+  t.set('mode', 'alpha');
+  ok(t.byId('out').value === 'item1\nitem2\nitem10',
+     'numbers inside names sort naturally', 'got ' + JSON.stringify(t.byId('out').value));
+
+  t.set('mode', 'plain');
+  ok(t.byId('out').value === 'item1\nitem10\nitem2',
+     'strict character order puts item10 second');
+
+  t.set('mode', 'numeric').set('in', '5 apples\n100 pears\n20 figs\nno number');
+  ok(t.byId('out').value === '5 apples\n20 figs\n100 pears\nno number',
+     'numeric sort, lines without a number last',
+     'got ' + JSON.stringify(t.byId('out').value));
+
+  t.set('mode', 'length').set('in', 'ccc\na\nbb');
+  ok(t.byId('out').value === 'a\nbb\nccc', 'shortest first');
+
+  t.set('mode', 'reverse').set('in', 'one\ntwo\nthree');
+  ok(t.byId('out').value === 'three\ntwo\none', 'reverse flips the order');
+  t.close();
+})();
+
+(function removeSpaces() {
+  const t = loadTool('remove-spaces');
+  t.set('in', 'too   many    spaces');
+  ok(t.byId('out').value === 'too many spaces', 'runs of spaces collapse');
+
+  t.set('in', 'trailing   \nlines  ');
+  ok(t.byId('out').value === 'trailing\nlines', 'trailing spaces go');
+
+  // a non-breaking space should become a real space, not disappear
+  t.set('in', 'one two');
+  ok(t.byId('out').value === 'one two',
+     'a non-breaking space becomes an ordinary one, not nothing',
+     'got ' + JSON.stringify(t.byId('out').value));
+  has(t.text('found'), 'invisible character', 'and it says it found one');
+
+  // zero-width characters should vanish entirely
+  t.set('in', 'we​ird');
+  ok(t.byId('out').value === 'weird', 'a zero-width space is removed outright');
+  t.close();
+})();
+
+(function textCompare() {
+  const t = loadTool('text-compare');
+  t.set('a', 'one\ntwo\nthree').set('b', 'one\ntwo\nthree');
+  has(t.text('verdict'), 'identical', 'matching text is reported as identical');
+
+  t.set('b', 'one\ntwo changed\nthree');
+  has(t.text('s-add'), '1', 'one line added');
+  has(t.text('s-del'), '1', 'one line removed');
+  has(t.text('s-same'), '2', 'two unchanged');
+
+  t.set('a', 'a\nb\nc').set('b', 'a\nc');
+  has(t.text('s-del'), '1', 'a deleted middle line is spotted');
+  has(t.text('s-add'), '0', 'and nothing is counted as added');
+  t.close();
+})();
+
+(function markdown() {
+  const t = loadTool('markdown-to-html');
+  const html = (md) => { t.set('in', md); return t.byId('out').value; };
+
+  has(html('# Title'), '<h1>Title</h1>', 'a heading');
+  has(html('**bold**'), '<strong>bold</strong>', 'bold');
+  has(html('*italic*'), '<em>italic</em>', 'italic');
+  has(html('- one\n- two'), '<li>one</li>', 'a bullet list');
+  has(html('1. one\n2. two'), '<ol>', 'a numbered list');
+  has(html('> quoted'), '<blockquote>', 'a block quote');
+  has(html('| a | b |\n| --- | --- |\n| 1 | 2 |'), '<table>', 'a table');
+  has(html('```\ncode\n```'), '<pre><code>code</code></pre>', 'a fenced code block');
+  has(html('[text](https://example.com)'), 'href="https://example.com"', 'a link');
+
+  // bold inside backticks must stay literal
+  has(html('`**not bold**`'), '<code>**not bold**</code>',
+      'markup inside a code span is left alone');
+
+  // pasted HTML must be shown, not executed
+  has(html('<script>alert(1)</script>'), '&lt;script&gt;',
+      'raw HTML is escaped rather than run');
+  // and a javascript: link must not become a live link
+  ok(html('[click](javascript:alert(1))').indexOf('href="javascript:') === -1,
+     'a javascript URL is not turned into a link',
+     'got ' + html('[click](javascript:alert(1))'));
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

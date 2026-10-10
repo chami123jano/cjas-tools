@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markdown to HTML — Cja's Tools</title>
+<meta name="description" content="Turn Markdown into clean HTML with a live preview. Supports headings, lists, tables, links, images and code blocks. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 13px; }
+  .render {
+    padding: 18px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+    max-height: 480px; overflow: auto;
+  }
+  .render > :first-child { margin-top: 0; }
+  .render > :last-child { margin-bottom: 0; }
+  .render h1, .render h2, .render h3 { line-height: 1.3; margin: 1.3em 0 0.5em; }
+  .render h1 { font-size: 24px; }
+  .render h2 { font-size: 20px; }
+  .render h3 { font-size: 17px; }
+  .render p { margin: 0.8em 0; }
+  .render code {
+    background: var(--surface-2); padding: 1.5px 5px;
+    border-radius: 4px; font-size: 13px;
+  }
+  .render pre {
+    background: var(--surface-2); padding: 12px 14px;
+    border-radius: 9px; overflow-x: auto;
+  }
+  .render pre code { background: none; padding: 0; }
+  .render blockquote {
+    margin: 0.9em 0; padding: 2px 14px;
+    border-left: 3px solid var(--border); color: var(--muted);
+  }
+  .render table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 0.9em 0; }
+  .render th, .render td { border: 1px solid var(--border); padding: 7px 10px; text-align: left; }
+  .render th { background: var(--surface); }
+  .render img { max-width: 100%; height: auto; border-radius: 8px; }
+  .render hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
+  .tabs { display: flex; gap: 7px; margin-bottom: 12px; }
+</style>
+</head>
+<body data-page="tool" data-slug="markdown-to-html">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Markdown to HTML</h1>
+        <p>See how it will look, then take the HTML.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Markdown</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="btn primary" id="tab-preview">Preview</button>
+        <button class="btn" id="tab-html">HTML</button>
+      </div>
+
+      <div class="panel" id="pane-preview">
+        <div class="render" id="render"></div>
+      </div>
+
+      <div class="panel" id="pane-html" hidden>
+        <div class="field">
+          <label for="out">HTML</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy HTML</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint">Raw HTML written inside the Markdown is shown as text
+          rather than being run. That keeps the preview safe when you paste
+          something you did not write yourself.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = [
+      '# Cja’s Tools',
+      '',
+      'Every little tool, **on your computer**.',
+      '',
+      '## Why',
+      '',
+      '- Free, with no account',
+      '- Works with *no internet*',
+      '- Your files never leave the device',
+      '',
+      '> Nothing is uploaded. Ever.',
+      '',
+      '### A table',
+      '',
+      '| Category | Built |',
+      '| --- | --- |',
+      '| Calculators | 11 |',
+      '| Converters | 6 |',
+      '',
+      'Use `npm test` to run the checks, or read the [plan](PLAN.md).',
+      '',
+      '```',
+      'npm test',
+      '```',
+      '',
+      '---',
+      '',
+      '1. First',
+      '2. Second'
+    ].join('\n');
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /* Only http, https and mailto links are allowed through. A javascript:
+       URL in a pasted document would otherwise become a live link in the
+       preview. Anything else is emitted as plain text. */
+    function safeUrl(url) {
+      var trimmed = url.trim();
+      if (/^(https?:|mailto:|#|\/|\.\/|\.\.\/)/i.test(trimmed)) return trimmed;
+      if (/^[\w./-]+$/.test(trimmed)) return trimmed;
+      return null;
+    }
+
+    function inline(text) {
+      var s = escapeHtml(text);
+
+      /* Code spans are pulled out first and put back at the end, so that
+         **bold** written inside backticks stays literal. */
+      var spans = [];
+      s = s.replace(/`([^`]+)`/g, function (m, code) {
+        spans.push('<code>' + code + '</code>');
+        return '\u0000' + (spans.length - 1) + '\u0000';
+      });
+
+      s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (m, alt, url) {
+        var u = safeUrl(url);
+        return u ? '<img src="' + u + '" alt="' + alt + '">' : m;
+      });
+
+      s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, label, url) {
+        var u = safeUrl(url);
+        return u ? '<a href="' + u + '" rel="noopener">' + label + '</a>' : label;
+      });
+
+      s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+      s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+      s = s.replace(/\u0000(\d+)\u0000/g, function (m, i) { return spans[+i]; });
+      return s;
+    }
+
+    function convert(md) {
+      var lines = md.replace(/\r\n?/g, '\n').split('\n');
+      var out = [];
+      var i = 0;
+
+      function listBlock(ordered) {
+        var items = [];
+        var re = ordered ? /^\s*\d+[.)]\s+(.*)$/ : /^\s*[-*+]\s+(.*)$/;
+        while (i < lines.length && re.test(lines[i])) {
+          items.push('<li>' + inline(lines[i].match(re)[1]) + '</li>');
+          i++;
+        }
+        out.push('<' + (ordered ? 'ol' : 'ul') + '>\n' + items.join('\n') +
+                 '\n</' + (ordered ? 'ol' : 'ul') + '>');
+      }
+
+      while (i < lines.length) {
+        var line = lines[i];
+
+        if (!line.trim()) { i++; continue; }
+
+        var fence = line.match(/^```(\w*)\s*$/);
+        if (fence) {
+          i++;
+          var code = [];
+          while (i < lines.length && !/^```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+          i++;
+          out.push('<pre><code>' + escapeHtml(code.join('\n')) + '</code></pre>');
+          continue;
+        }
+
+        var heading = line.match(/^(#{1,6})\s+(.*)$/);
+        if (heading) {
+          var level = heading[1].length;
+          out.push('<h' + level + '>' + inline(heading[2].replace(/\s*#+\s*$/, '')) +
+                   '</h' + level + '>');
+          i++;
+          continue;
+        }
+
+        if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
+          out.push('<hr>');
+          i++;
+          continue;
+        }
+
+        /* A table needs its separator row to be present, otherwise a line
+           that merely contains pipes would be swallowed as one. */
+        if (line.indexOf('|') !== -1 && i + 1 < lines.length &&
+            /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1])) {
+          var cells = function (row) {
+            return row.replace(/^\s*\|/, '').replace(/\|\s*$/, '')
+                      .split('|').map(function (c) { return c.trim(); });
+          };
+          var head = cells(line);
+          i += 2;
+          var body = [];
+          while (i < lines.length && lines[i].indexOf('|') !== -1 && lines[i].trim()) {
+            body.push(cells(lines[i]));
+            i++;
+          }
+          out.push('<table>\n<thead><tr>' +
+            head.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') +
+            '</tr></thead>\n<tbody>' +
+            body.map(function (r) {
+              return '<tr>' + r.map(function (c) {
+                return '<td>' + inline(c) + '</td>';
+              }).join('') + '</tr>';
+            }).join('\n') +
+            '</tbody>\n</table>');
+          continue;
+        }
+
+        if (/^\s*>\s?/.test(line)) {
+          var quote = [];
+          while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+            quote.push(lines[i].replace(/^\s*>\s?/, ''));
+            i++;
+          }
+          out.push('<blockquote>\n' + convert(quote.join('\n')) + '\n</blockquote>');
+          continue;
+        }
+
+        if (/^\s*[-*+]\s+/.test(line)) { listBlock(false); continue; }
+        if (/^\s*\d+[.)]\s+/.test(line)) { listBlock(true); continue; }
+
+        var para = [];
+        while (i < lines.length && lines[i].trim() &&
+               !/^(#{1,6}\s|```|\s*>|\s*[-*+]\s|\s*\d+[.)]\s)/.test(lines[i])) {
+          para.push(lines[i]);
+          i++;
+        }
+        /* Two spaces at the end of a line is Markdown for a line break. */
+        out.push('<p>' + inline(para.join('\n')).replace(/ {2,}\n/g, '<br>\n') + '</p>');
+      }
+
+      return out.join('\n');
+    }
+
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    function run() {
+      var html = convert(input.value);
+      output.value = html;
+      document.getElementById('render').innerHTML = html ||
+        '<p style="color:var(--muted);margin:0">Nothing to preview yet.</p>';
+    }
+
+    input.addEventListener('input', run);
+
+    document.getElementById('tab-preview').addEventListener('click', function () {
+      document.getElementById('pane-preview').hidden = false;
+      document.getElementById('pane-html').hidden = true;
+      this.classList.add('primary');
+      document.getElementById('tab-html').classList.remove('primary');
+    });
+
+    document.getElementById('tab-html').addEventListener('click', function () {
+      document.getElementById('pane-preview').hidden = true;
+      document.getElementById('pane-html').hidden = false;
+      this.classList.add('primary');
+      document.getElementById('tab-preview').classList.remove('primary');
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      input.value = SAMPLE;
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    input.value = SAMPLE;
+    run();
+  })();
+  </script>
+</body>
+</html>

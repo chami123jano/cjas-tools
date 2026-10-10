@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text Compare — Cja's Tools</title>
+<meta name="description" content="See line by line what changed between two versions of some text. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .diff {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: auto; max-height: 520px; background: var(--bg);
+  }
+  .dline {
+    display: grid; grid-template-columns: 46px 46px 18px 1fr;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 13px; line-height: 1.65;
+  }
+  .dline > span { padding: 1px 6px; }
+  .dline .n {
+    text-align: right; color: var(--muted); font-size: 11.5px;
+    user-select: none; background: var(--surface);
+  }
+  .dline .m { text-align: center; user-select: none; font-weight: 700; }
+  .dline .t { white-space: pre-wrap; word-break: break-word; }
+  .dline.add { background: rgba(39, 184, 106, 0.13); }
+  .dline.add .m { color: #1f9d55; }
+  .dline.del { background: rgba(212, 72, 59, 0.13); }
+  .dline.del .m { color: var(--danger); }
+  .dline.same .m { color: transparent; }
+  .skip {
+    padding: 5px 10px; font-size: 12px; color: var(--muted);
+    background: var(--surface); border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); text-align: center;
+  }
+  @media (max-width: 560px) { .dline { grid-template-columns: 34px 34px 16px 1fr; } }
+</style>
+</head>
+<body data-page="tool" data-slug="text-compare">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Text Compare</h1>
+        <p>Paste two versions and see exactly what moved, went or arrived.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="a">Original</label>
+            <textarea id="a" spellcheck="false"></textarea>
+          </div>
+          <div class="field">
+            <label for="b">Changed</label>
+            <textarea id="b" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="ignoreCase">Ignore capitals</button>
+          <button class="btn" data-opt="ignoreSpace">Ignore spacing</button>
+          <button class="btn primary" data-opt="collapse">Hide unchanged parts</button>
+          <button class="btn" id="swap">Swap sides</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-add">0</b><span>Lines added</span></div>
+          <div class="stat"><b id="s-del">0</b><span>Lines removed</span></div>
+          <div class="stat"><b id="s-same">0</b><span>Unchanged</span></div>
+        </div>
+        <div class="result" id="verdict" style="margin-top:14px">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="diff" id="diff"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { ignoreCase: false, ignoreSpace: false, collapse: true };
+
+    function norm(line) {
+      var s = line;
+      if (opts.ignoreSpace) s = s.replace(/\s+/g, ' ').trim();
+      if (opts.ignoreCase) s = s.toLowerCase();
+      return s;
+    }
+
+    /* Longest common subsequence over lines. The table is O(n*m), which is
+       fine for documents but would be unkind to two huge files, so very
+       long inputs fall back to a straight line-by-line comparison. */
+    function lcsDiff(a, b) {
+      var n = a.length, m = b.length;
+
+      if (n * m > 4000000) {
+        var out = [];
+        var len = Math.max(n, m);
+        for (var i = 0; i < len; i++) {
+          if (i < n && i < m && norm(a[i]) === norm(b[i])) {
+            out.push({ type: 'same', a: i, b: i, text: a[i] });
+          } else {
+            if (i < n) out.push({ type: 'del', a: i, text: a[i] });
+            if (i < m) out.push({ type: 'add', b: i, text: b[i] });
+          }
+        }
+        return out;
+      }
+
+      var na = a.map(norm), nb = b.map(norm);
+      var table = [];
+      for (var r = 0; r <= n; r++) table.push(new Uint32Array(m + 1));
+
+      for (var i2 = n - 1; i2 >= 0; i2--) {
+        for (var j2 = m - 1; j2 >= 0; j2--) {
+          table[i2][j2] = na[i2] === nb[j2]
+            ? table[i2 + 1][j2 + 1] + 1
+            : Math.max(table[i2 + 1][j2], table[i2][j2 + 1]);
+        }
+      }
+
+      var result = [];
+      var x = 0, y = 0;
+      while (x < n && y < m) {
+        if (na[x] === nb[y]) {
+          result.push({ type: 'same', a: x, b: y, text: a[x] });
+          x++; y++;
+        } else if (table[x + 1][y] >= table[x][y + 1]) {
+          result.push({ type: 'del', a: x, text: a[x] });
+          x++;
+        } else {
+          result.push({ type: 'add', b: y, text: b[y] });
+          y++;
+        }
+      }
+      while (x < n) { result.push({ type: 'del', a: x, text: a[x] }); x++; }
+      while (y < m) { result.push({ type: 'add', b: y, text: b[y] }); y++; }
+      return result;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function render(rows) {
+      var host = document.getElementById('diff');
+      var html = '';
+      var CONTEXT = 3;
+
+      /* With "hide unchanged" on, only a few lines either side of each
+         change are shown, so a small edit in a long file is findable. */
+      var show = rows.map(function () { return !opts.collapse; });
+      if (opts.collapse) {
+        rows.forEach(function (r, i) {
+          if (r.type === 'same') return;
+          for (var k = Math.max(0, i - CONTEXT);
+               k <= Math.min(rows.length - 1, i + CONTEXT); k++) show[k] = true;
+        });
+      }
+
+      var hidden = 0;
+      rows.forEach(function (r, i) {
+        if (!show[i]) { hidden++; return; }
+        if (hidden) {
+          html += '<div class="skip">' + hidden + ' unchanged line' +
+                  (hidden === 1 ? '' : 's') + ' hidden</div>';
+          hidden = 0;
+        }
+        var mark = r.type === 'add' ? '+' : r.type === 'del' ? '−' : ' ';
+        html += '<div class="dline ' + r.type + '">' +
+          '<span class="n">' + (r.a !== undefined ? r.a + 1 : '') + '</span>' +
+          '<span class="n">' + (r.b !== undefined ? r.b + 1 : '') + '</span>' +
+          '<span class="m">' + mark + '</span>' +
+          '<span class="t">' + (escapeHtml(r.text) || '&nbsp;') + '</span>' +
+        '</div>';
+      });
+      if (hidden) {
+        html += '<div class="skip">' + hidden + ' unchanged line' +
+                (hidden === 1 ? '' : 's') + ' hidden</div>';
+      }
+
+      host.innerHTML = html ||
+        '<p class="hint" style="margin:0;padding:16px">Paste text into both boxes.</p>';
+    }
+
+    function run() {
+      var aText = document.getElementById('a').value;
+      var bText = document.getElementById('b').value;
+
+      if (!aText && !bText) {
+        render([]);
+        ['s-add', 's-del', 's-same'].forEach(function (id) {
+          document.getElementById(id).textContent = '0';
+        });
+        document.getElementById('verdict').innerHTML =
+          '&mdash;<small>Paste text into both boxes</small>';
+        return;
+      }
+
+      var rows = lcsDiff(aText.split('\n'), bText.split('\n'));
+      var add = 0, del = 0, same = 0;
+      rows.forEach(function (r) {
+        if (r.type === 'add') add++;
+        else if (r.type === 'del') del++;
+        else same++;
+      });
+
+      document.getElementById('s-add').textContent = add.toLocaleString();
+      document.getElementById('s-del').textContent = del.toLocaleString();
+      document.getElementById('s-same').textContent = same.toLocaleString();
+
+      document.getElementById('verdict').innerHTML = (add + del === 0)
+        ? 'The two are identical' +
+          '<small>' + same + ' line' + (same === 1 ? '' : 's') + ', nothing changed</small>'
+        : (add + del) + ' line' + (add + del === 1 ? '' : 's') + ' differ' +
+          '<small>' + add + ' added, ' + del + ' removed</small>';
+
+      render(rows);
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-opt]');
+      if (!btn) return;
+      opts[btn.dataset.opt] = !opts[btn.dataset.opt];
+      btn.classList.toggle('primary', opts[btn.dataset.opt]);
+      run();
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var a = document.getElementById('a');
+      var b = document.getElementById('b');
+      var t = a.value; a.value = b.value; b.value = t;
+      run();
+    });
+
+    ['a', 'b'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sort Lines — Cja's Tools</title>
+<meta name="description" content="Sort a list alphabetically, numerically, by length, or shuffle it. Handles numbers inside names properly. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>#in, #out { font-size: 14px; }</style>
+</head>
+<body data-page="tool" data-slug="sort-lines">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Sort Lines</h1>
+        <p>Put a list in order. Numbers inside names sort the way you expect.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your list, one item per line</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="mode">Sort by</label>
+          <select id="mode">
+            <option value="alpha">A to Z, with numbers in order</option>
+            <option value="plain">A to Z, strict character order</option>
+            <option value="numeric">The number on each line</option>
+            <option value="length">Line length</option>
+            <option value="reverse">Just reverse the current order</option>
+            <option value="shuffle">Shuffle randomly</option>
+          </select>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="descending">Largest first</button>
+          <button class="btn" data-opt="ignoreCase">Ignore capitals</button>
+          <button class="btn primary" data-opt="dropBlank">Drop blank lines</button>
+          <button class="btn" data-opt="trim">Trim each line</button>
+        </div>
+        <p class="hint" id="mode-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="apply">Use as input</button>
+          <button class="btn" id="again" hidden>Shuffle again</button>
+        </div>
+        <p class="hint" id="count"></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { descending: false, ignoreCase: false, dropBlank: true, trim: false };
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    /* Plain string sorting puts "item10" before "item2", because it compares
+       character by character. Intl.Collator with numeric on reads runs of
+       digits as numbers, which is what anyone naming files expects. */
+    var natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'variant' });
+    var naturalCI = new Intl.Collator(undefined, { numeric: true, sensitivity: 'accent' });
+
+    function firstNumber(s) {
+      var m = s.match(/-?\d+(\.\d+)?/);
+      return m ? parseFloat(m[0]) : NaN;
+    }
+
+    var NOTES = {
+      alpha: 'Runs of digits are read as numbers, so item2 comes before item10.',
+      plain: 'Strict character order, so item10 comes before item2.',
+      numeric: 'Sorts on the first number found on each line. Lines with no number go last.',
+      length: 'Shortest first, unless you ask for largest first.',
+      reverse: 'No sorting, the order is simply flipped.',
+      shuffle: 'A different random order each time.'
+    };
+
+    function run(reshuffle) {
+      var raw = input.value;
+      var lines = raw === '' ? [] : raw.split('\n');
+
+      if (opts.trim) lines = lines.map(function (l) { return l.trim(); });
+      if (opts.dropBlank) lines = lines.filter(function (l) { return l.trim() !== ''; });
+
+      var mode = document.getElementById('mode').value;
+      var out = lines.slice();
+
+      if (mode === 'reverse') {
+        out.reverse();
+      } else if (mode === 'shuffle') {
+        /* Fisher-Yates, so every order is equally likely. Sorting by a
+           random comparator does not give an even shuffle. */
+        for (var i = out.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+        }
+      } else if (mode === 'numeric') {
+        out.sort(function (a, b) {
+          var na = firstNumber(a), nb = firstNumber(b);
+          /* Lines with no number at all go to the end rather than being
+             treated as zero, which would scatter them through the list. */
+          if (isNaN(na) && isNaN(nb)) return 0;
+          if (isNaN(na)) return 1;
+          if (isNaN(nb)) return -1;
+          return na - nb;
+        });
+        if (opts.descending) out.reverse();
+      } else if (mode === 'length') {
+        out.sort(function (a, b) { return a.length - b.length; });
+        if (opts.descending) out.reverse();
+      } else {
+        var col = opts.ignoreCase ? naturalCI : natural;
+        out.sort(mode === 'alpha'
+          ? function (a, b) { return col.compare(a, b); }
+          : function (a, b) {
+              var x = opts.ignoreCase ? a.toLowerCase() : a;
+              var y = opts.ignoreCase ? b.toLowerCase() : b;
+              return x < y ? -1 : x > y ? 1 : 0;
+            });
+        if (opts.descending) out.reverse();
+      }
+
+      output.value = out.join('\n');
+      document.getElementById('mode-note').textContent = NOTES[mode] || '';
+      document.getElementById('again').hidden = mode !== 'shuffle';
+      document.getElementById('count').textContent =
+        out.length ? out.length.toLocaleString() + ' lines' : '';
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-opt]');
+      if (!btn) return;
+      opts[btn.dataset.opt] = !opts[btn.dataset.opt];
+      btn.classList.toggle('primary', opts[btn.dataset.opt]);
+      run();
+    });
+
+    input.addEventListener('input', function () { run(); });
+    document.getElementById('mode').addEventListener('change', function () { run(); });
+    document.getElementById('again').addEventListener('click', function () { run(true); });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('apply').addEventListener('click', function () {
+      input.value = output.value;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>
