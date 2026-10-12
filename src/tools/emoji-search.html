@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emoji Search — Cja's Tools</title>
+<meta name="description" content="Find an emoji by name or feeling and copy it with one click. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .egrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px;
+  }
+  .ebtn {
+    aspect-ratio: 1; border: 1px solid transparent; border-radius: 10px;
+    background: none; cursor: pointer; font-size: 27px; line-height: 1;
+    display: grid; place-items: center; padding: 0;
+  }
+  .ebtn:hover { background: var(--surface-2); border-color: var(--border); }
+  .egroup { margin-bottom: 22px; }
+  .egroup h3 {
+    margin: 0 0 9px; font-size: 11.5px; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--muted); font-weight: 700;
+  }
+  .recent { min-height: 44px; }
+</style>
+</head>
+<body data-page="tool" data-slug="emoji-search">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Emoji Search</h1>
+        <p>Search by name or by what you mean. Click to copy.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="q">Search</label>
+          <input type="text" id="q" placeholder="happy, money, food, rain&hellip;"
+                 autocomplete="off" spellcheck="false">
+        </div>
+        <p class="hint" id="count"></p>
+      </div>
+
+      <div class="panel" id="recent-panel" hidden>
+        <h3 style="margin:0 0 9px;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Recently copied</h3>
+        <div class="egrid recent" id="recent"></div>
+      </div>
+
+      <div class="panel" id="results"></div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Each entry is the emoji and the words someone might search for.
+       Kept as plain data so adding one is a single line. */
+    var EMOJI = {
+      'Smileys': [
+        ['😀', 'grin smile happy'],
+        ['😃', 'smile happy open'],
+        ['😄', 'happy laugh joy'],
+        ['😁', 'beaming grin happy'],
+        ['😆', 'laughing squint haha'],
+        ['😅', 'sweat smile relief phew'],
+        ['😂', 'tears joy laughing crying lol'],
+        ['🤣', 'rolling floor laughing rofl'],
+        ['😊', 'blush smile shy happy'],
+        ['😇', 'angel halo innocent'],
+        ['😉', 'wink joking'],
+        ['😍', 'heart eyes love adore'],
+        ['🥰', 'smiling hearts love grateful'],
+        ['😘', 'kiss blowing love'],
+        ['😋', 'yum tongue tasty delicious'],
+        ['🤪', 'zany crazy silly wild'],
+        ['🤓', 'nerd glasses study clever'],
+        ['😎', 'cool sunglasses'],
+        ['🤩', 'star struck amazed wow'],
+        ['🥳', 'party celebrate birthday'],
+        ['😏', 'smirk sly'],
+        ['😒', 'unamused annoyed meh'],
+        ['😔', 'pensive sad disappointed'],
+        ['😴', 'sleeping tired zzz'],
+        ['🤤', 'drooling hungry'],
+        ['😪', 'sleepy tired exhausted'],
+        ['😵', 'dizzy confused shocked'],
+        ['🤯', 'mind blown exploding shocked'],
+        ['😳', 'flushed embarrassed surprised'],
+        ['🥺', 'pleading please puppy eyes beg'],
+        ['😢', 'crying sad tear'],
+        ['😭', 'sobbing crying loudly sad'],
+        ['😡', 'angry rage mad furious'],
+        ['😨', 'fearful scared worried'],
+        ['🤔', 'thinking hmm wondering'],
+        ['🤨', 'raised eyebrow doubt suspicious'],
+        ['😐', 'neutral blank straight face'],
+        ['🙄', 'rolling eyes whatever'],
+        ['🤐', 'zipper mouth quiet secret'],
+        ['🤒', 'sick thermometer ill fever'],
+        ['😷', 'mask sick covid flu'],
+        ['🥵', 'hot heat sweating'],
+        ['🥶', 'cold freezing'],
+        ['😱', 'scream shocked horror'],
+        ['😇', 'innocent halo good']
+      ],
+      'People and gestures': [
+        ['👍', 'thumbs up good yes ok like approve'],
+        ['👎', 'thumbs down bad no dislike'],
+        ['👏', 'clap applause well done bravo'],
+        ['🙏', 'pray thanks please namaste ayubowan'],
+        ['💪', 'muscle strong strength power'],
+        ['🤝', 'handshake deal agree partner'],
+        ['👋', 'wave hello hi bye goodbye'],
+        ['🤟', 'love you hand rock'],
+        ['✌️', 'peace victory two'],
+        ['👌', 'ok perfect fine'],
+        ['🤞', 'fingers crossed luck hope'],
+        ['👉', 'point right this'],
+        ['👈', 'point left'],
+        ['👇', 'point down below'],
+        ['☝️', 'point up one attention'],
+        ['🤦', 'facepalm oh no despair'],
+        ['🤷', 'shrug dunno whatever'],
+        ['🙌', 'raising hands praise celebrate yay'],
+        ['👶', 'baby infant child'],
+        ['👩', 'woman female'],
+        ['👨', 'man male'],
+        ['👪', 'family parents children'],
+        ['👫', 'couple together'],
+        ['👤', 'person user profile silhouette'],
+        ['👥', 'people users group team']
+      ],
+      'Hearts and symbols': [
+        ['❤️', 'red heart love'],
+        ['🧡', 'orange heart love'],
+        ['💛', 'yellow heart love friendship'],
+        ['💚', 'green heart love'],
+        ['💙', 'blue heart love'],
+        ['💜', 'purple heart love'],
+        ['🖤', 'black heart'],
+        ['💔', 'broken heart sad breakup'],
+        ['💖', 'sparkling heart love'],
+        ['✨', 'sparkles shine new magic'],
+        ['⭐', 'star favourite rating'],
+        ['🔥', 'fire hot lit trending'],
+        ['💯', 'hundred perfect score full marks'],
+        ['✅', 'tick check done complete yes'],
+        ['❌', 'cross wrong no error'],
+        ['⚠️', 'warning caution careful'],
+        ['❗', 'exclamation important'],
+        ['❓', 'question help'],
+        ['🔔', 'bell notification alert reminder'],
+        ['🔒', 'lock secure private locked'],
+        ['🔑', 'key password access'],
+        ['♻️', 'recycle reuse green'],
+        ['🚫', 'prohibited banned not allowed'],
+        ['💡', 'idea lightbulb tip thought'],
+        ['🎯', 'target goal aim bullseye']
+      ],
+      'Work and objects': [
+        ['💻', 'laptop computer work coding'],
+        ['📱', 'phone mobile smartphone'],
+        ['📧', 'email mail message'],
+        ['📅', 'calendar date schedule'],
+        ['⏰', 'alarm clock time wake'],
+        ['📊', 'chart bar graph data report'],
+        ['📈', 'chart up growth increase profit'],
+        ['📉', 'chart down decrease loss'],
+        ['📌', 'pin important note'],
+        ['📎', 'paperclip attach file'],
+        ['📁', 'folder file directory'],
+        ['📝', 'memo note write pencil paper'],
+        ['✏️', 'pencil write edit'],
+        ['📖', 'book read study open'],
+        ['🎓', 'graduation degree university student'],
+        ['🔍', 'search magnifying find look'],
+        ['⚙️', 'settings gear configure'],
+        ['🔧', 'wrench tool fix repair'],
+        ['💰', 'money bag cash rich'],
+        ['💸', 'money flying spending expense'],
+        ['💳', 'card credit payment pay'],
+        ['🧾', 'receipt bill invoice'],
+        ['🏠', 'house home'],
+        ['🏢', 'office building work company'],
+        ['🛒', 'trolley shopping cart buy'],
+        ['🎁', 'gift present birthday'],
+        ['🎉', 'party popper celebrate congratulations'],
+        ['💣', 'bomb explosive'],
+        ['🔋', 'battery charge power']
+      ],
+      'Food and drink': [
+        ['☕', 'coffee tea hot drink'],
+        ['🍚', 'rice bowl food meal'],
+        ['🍛', 'curry rice food meal'],
+        ['🍞', 'bread bakery loaf'],
+        ['🥗', 'salad healthy green'],
+        ['🍕', 'pizza slice food'],
+        ['🍔', 'burger fast food'],
+        ['🍜', 'noodles ramen soup'],
+        ['🍗', 'chicken meat poultry'],
+        ['🐟', 'fish seafood'],
+        ['🥥', 'coconut tropical'],
+        ['🍌', 'banana fruit'],
+        ['🍍', 'pineapple fruit tropical'],
+        ['🥭', 'mango fruit tropical'],
+        ['🍎', 'apple fruit red'],
+        ['🍉', 'watermelon fruit'],
+        ['🍰', 'cake dessert sweet birthday'],
+        ['🍦', 'ice cream dessert cold'],
+        ['🍫', 'chocolate sweet'],
+        ['🥤', 'drink juice cold cup'],
+        ['🍺', 'beer drink alcohol'],
+        ['🍵', 'tea green cup ceylon'],
+        ['🥛', 'milk glass drink']
+      ],
+      'Nature and weather': [
+        ['☀️', 'sun sunny clear hot'],
+        ['⛅', 'partly cloudy sun'],
+        ['☁️', 'cloud cloudy overcast'],
+        ['🌧️', 'rain raining wet monsoon'],
+        ['⛈️', 'thunderstorm storm lightning'],
+        ['🌈', 'rainbow colourful'],
+        ['🌙', 'moon crescent night poya'],
+        ['🌕', 'full moon poya night'],
+        ['❄️', 'snowflake cold winter'],
+        ['🌊', 'wave ocean sea beach'],
+        ['🌴', 'palm tree tropical beach coconut'],
+        ['🌿', 'herb leaf plant green'],
+        ['🌺', 'flower hibiscus bloom'],
+        ['🌻', 'sunflower flower yellow'],
+        ['🌱', 'seedling plant grow new'],
+        ['🐘', 'elephant animal'],
+        ['🐕', 'dog pet animal'],
+        ['🐈', 'cat pet animal'],
+        ['🐦', 'bird animal fly'],
+        ['🦋', 'butterfly insect pretty'],
+        ['🌍', 'earth globe world africa'],
+        ['🌏', 'earth globe world asia']
+      ],
+      'Travel and places': [
+        ['✈️', 'plane flight travel airport'],
+        ['🚗', 'car drive vehicle'],
+        ['🚌', 'bus transport public'],
+        ['🛺', 'tuk tuk auto rickshaw three wheeler'],
+        ['🚂', 'train railway transport'],
+        ['🏍️', 'motorbike motorcycle bike'],
+        ['🚲', 'bicycle cycle bike'],
+        ['🚢', 'ship boat sea'],
+        ['📍', 'location pin place map'],
+        ['🗺️', 'map directions travel'],
+        ['🏖️', 'beach holiday sea sand'],
+        ['🏔️', 'mountain hill peak'],
+        ['🏛️', 'temple building classical government'],
+        ['🏥', 'hospital medical clinic'],
+        ['🏫', 'school education building']
+      ]
+    };
+
+    var RECENT_KEY = 'cja-emoji-recent';
+    var q = document.getElementById('q');
+    var results = document.getElementById('results');
+    var count = document.getElementById('count');
+
+    function readRecent() {
+      try {
+        var raw = localStorage.getItem(RECENT_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) { return []; }
+    }
+
+    function pushRecent(e) {
+      var list = readRecent().filter(function (x) { return x !== e; });
+      list.unshift(e);
+      list = list.slice(0, 16);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (err) {}
+      drawRecent();
+    }
+
+    function btn(e, words) {
+      return '<button class="ebtn" data-e="' + e + '" title="' + words + '">' + e + '</button>';
+    }
+
+    function drawRecent() {
+      var list = readRecent();
+      document.getElementById('recent-panel').hidden = list.length === 0;
+      document.getElementById('recent').innerHTML =
+        list.map(function (e) { return btn(e, 'recently copied'); }).join('');
+    }
+
+    function search() {
+      var term = q.value.trim().toLowerCase();
+      var html = '';
+      var total = 0;
+
+      Object.keys(EMOJI).forEach(function (group) {
+        var items = EMOJI[group].filter(function (row) {
+          return !term || row[1].indexOf(term) !== -1;
+        });
+        if (!items.length) return;
+        total += items.length;
+        html += '<div class="egroup"><h3>' + group + '</h3><div class="egrid">' +
+          items.map(function (r) { return btn(r[0], r[1]); }).join('') +
+          '</div></div>';
+      });
+
+      if (!total) {
+        results.innerHTML = '<p class="hint" style="margin:0">Nothing matches "' +
+          q.value.trim() + '". Try a simpler word like happy, food or money.</p>';
+        count.textContent = '';
+        return;
+      }
+
+      results.innerHTML = html;
+      count.textContent = term
+        ? total + ' emoji match "' + q.value.trim() + '"'
+        : total + ' emoji, grouped';
+    }
+
+    document.body.addEventListener('click', function (e) {
+      var b = e.target.closest('.ebtn');
+      if (!b) return;
+      CT.copy(b.dataset.e);
+      pushRecent(b.dataset.e);
+    });
+
+    q.addEventListener('input', search);
+    drawRecent();
+    search();
+  })();
+  </script>
+</body>
+</html>

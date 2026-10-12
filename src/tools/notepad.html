@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notepad — Cja's Tools</title>
+<meta name="description" content="A scratch pad that saves itself on your device as you type. Nothing is uploaded. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #pad { min-height: 420px; font-size: 15.5px; line-height: 1.75; }
+  .bar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--muted); margin-top: 10px;
+  }
+  .bar .saved { display: flex; align-items: center; gap: 7px; margin-right: auto; }
+  .bar .dot { width: 7px; height: 7px; border-radius: 50%; background: #27b86a; }
+  .bar .dot.pending { background: #e8a33d; }
+</style>
+</head>
+<body data-page="tool" data-slug="notepad">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Notepad</h1>
+        <p>Type and it saves itself. Nothing leaves this device.</p>
+      </div>
+
+      <div class="panel">
+        <textarea id="pad" spellcheck="true" placeholder="Start typing&hellip;"></textarea>
+        <div class="bar">
+          <span class="saved"><span class="dot" id="dot"></span><span id="status">Saved</span></span>
+          <span id="counts"></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy everything</button>
+          <button class="btn" id="download">Download as .txt</button>
+          <button class="btn" id="clear">Clear the pad</button>
+        </div>
+        <p class="hint">Saved in this browser only. It survives closing the app,
+          but it does not travel to another device, and clearing your browser
+          data will remove it. Download a copy for anything you need to keep.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-notepad';
+    var pad = document.getElementById('pad');
+    var dot = document.getElementById('dot');
+    var status = document.getElementById('status');
+    var timer = null;
+    var storageWorks = true;
+
+    try {
+      var existing = localStorage.getItem(KEY);
+      if (existing !== null) pad.value = existing;
+    } catch (e) {
+      storageWorks = false;
+    }
+
+    function counts() {
+      var t = pad.value;
+      var words = t.trim() ? t.trim().split(/\s+/).length : 0;
+      document.getElementById('counts').textContent =
+        words.toLocaleString() + ' words · ' + t.length.toLocaleString() + ' characters';
+    }
+
+    function save() {
+      if (!storageWorks) return;
+      try {
+        localStorage.setItem(KEY, pad.value);
+        dot.classList.remove('pending');
+        status.textContent = 'Saved';
+      } catch (e) {
+        /* Usually means the browser is in private mode or storage is full.
+           Saying so beats a silent failure the user only finds out about
+           when their notes are gone. */
+        storageWorks = false;
+        dot.classList.add('pending');
+        status.textContent = 'Could not save — download a copy instead';
+      }
+    }
+
+    if (!storageWorks) {
+      dot.classList.add('pending');
+      status.textContent = 'Saving is unavailable here — download a copy instead';
+    }
+
+    pad.addEventListener('input', function () {
+      counts();
+      if (!storageWorks) return;
+      dot.classList.add('pending');
+      status.textContent = 'Saving…';
+      /* Waiting a moment avoids writing to storage on every keystroke. */
+      clearTimeout(timer);
+      timer = setTimeout(save, 400);
+    });
+
+    /* Catch the case where the window is closed mid-pause. */
+    window.addEventListener('beforeunload', save);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!pad.value) { CT.toast('The pad is empty'); return; }
+      CT.copy(pad.value);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      if (!pad.value) { CT.toast('The pad is empty'); return; }
+      var blob = new Blob([pad.value], { type: 'text/plain;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      var d = new Date();
+      a.download = 'notes-' + d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0') + '.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      if (!pad.value) return;
+      /* Deleting someone's notes is not undoable, so it asks first. */
+      if (!window.confirm('Clear the whole pad? This cannot be undone.')) return;
+      pad.value = '';
+      counts();
+      save();
+      pad.focus();
+    });
+
+    counts();
+  })();
+  </script>
+</body>
+</html>

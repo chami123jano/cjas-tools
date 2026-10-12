@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fancy Text — Cja's Tools</title>
+<meta name="description" content="Turn plain words into bold, italic, script, bubble or upside-down letters for social media bios. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .style-row {
+    display: grid; grid-template-columns: 116px 1fr auto; gap: 12px;
+    align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  .style-row:last-child { border-bottom: none; }
+  .style-row .label { font-size: 12.5px; color: var(--muted); }
+  .style-row .sample { font-size: 17px; word-break: break-word; line-height: 1.5; }
+  .style-row button {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  }
+  .style-row button:hover { border-color: var(--accent); color: var(--accent); }
+  @media (max-width: 560px) {
+    .style-row { grid-template-columns: 1fr auto; }
+    .style-row .label { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="fancy-text">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Fancy Text</h1>
+        <p>For bios and captions. Tap any style to copy it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your text</label>
+          <input type="text" id="in" value="Cja's Tools" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="panel" id="styles"></div>
+
+      <div class="panel">
+        <p class="hint">These are real Unicode letters, not a font, so they keep
+          their look wherever you paste them. The trade-off is that screen
+          readers cannot read most of them aloud, and search will not match
+          them &mdash; so use them for decoration, not for anything important.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Most of these live in contiguous Unicode blocks, so a style is just
+       an offset from A, a and 0. The few blocks with holes in them list
+       their exceptions, because the characters that "should" be there were
+       assigned elsewhere years earlier. */
+    function block(upper, lower, digit, holes) {
+      return function (ch) {
+        var code = ch.codePointAt(0);
+        if (holes && holes[ch]) return holes[ch];
+        if (upper && code >= 65 && code <= 90) {
+          return String.fromCodePoint(upper + (code - 65));
+        }
+        if (lower && code >= 97 && code <= 122) {
+          return String.fromCodePoint(lower + (code - 97));
+        }
+        if (digit && code >= 48 && code <= 57) {
+          return String.fromCodePoint(digit + (code - 48));
+        }
+        return ch;
+      };
+    }
+
+    var FLIP = {
+      a: 'ɐ', b: 'q', c: 'ɔ', d: 'p', e: 'ǝ', f: 'ɟ',
+      g: 'ƃ', h: 'ɥ', i: 'ᴉ', j: 'ɾ', k: 'ʞ',
+      l: 'l', m: 'ɯ', n: 'u', o: 'o', p: 'd', q: 'b', r: 'ɹ',
+      s: 's', t: 'ʇ', u: 'n', v: 'ʌ', w: 'ʍ', x: 'x',
+      y: 'ʎ', z: 'z',
+      '.': '˙', ',': "'", "'": ',', '"': '„', '?': '¿',
+      '!': '¡', '(': ')', ')': '(', '[': ']', ']': '[',
+      '<': '>', '>': '<', '&': '⅋', '_': '‾',
+      '1': 'Ɩ', '2': 'ᄅ', '3': 'Ɛ', '4': 'ㄣ',
+      '5': 'ϛ', '6': '9', '7': 'ㄥ', '8': '8', '9': '6', '0': '0'
+    };
+
+    var STYLES = [
+      { name: 'Bold', fn: block(0x1D400, 0x1D41A, 0x1D7CE) },
+      { name: 'Italic', fn: block(0x1D434, 0x1D44E, null, { h: 'ℎ' }) },
+      { name: 'Bold italic', fn: block(0x1D468, 0x1D482) },
+      { name: 'Script', fn: block(0x1D49C, 0x1D4B6, null, {
+          B: 'ℬ', E: 'ℰ', F: 'ℱ', H: 'ℋ', I: 'ℐ',
+          L: 'ℒ', M: 'ℳ', R: 'ℛ', e: 'ℯ', g: 'ℊ',
+          o: 'ℴ' }) },
+      { name: 'Bold script', fn: block(0x1D4D0, 0x1D4EA) },
+      { name: 'Fraktur', fn: block(0x1D504, 0x1D51E, null, {
+          C: 'ℭ', H: 'ℌ', I: 'ℑ', R: 'ℜ', Z: 'ℨ' }) },
+      { name: 'Double struck', fn: block(0x1D538, 0x1D552, 0x1D7D8, {
+          C: 'ℂ', H: 'ℍ', N: 'ℕ', P: 'ℙ', Q: 'ℚ',
+          R: 'ℝ', Z: 'ℤ' }) },
+      { name: 'Monospace', fn: block(0x1D670, 0x1D68A, 0x1D7F6) },
+      { name: 'Sans bold', fn: block(0x1D5D4, 0x1D5EE, 0x1D7EC) },
+      { name: 'Bubble', fn: block(0x24B6, 0x24D0, null, { '0': '⓪' }) },
+      { name: 'Squared', fn: block(0x1F130, null) },
+      { name: 'Small caps', fn: function (ch) {
+          var MAP = { a: 'ᴀ', b: 'ʙ', c: 'ᴄ', d: 'ᴅ',
+            e: 'ᴇ', f: 'ꜰ', g: 'ɢ', h: 'ʜ', i: 'ɪ',
+            j: 'ᴊ', k: 'ᴋ', l: 'ʟ', m: 'ᴍ', n: 'ɴ',
+            o: 'ᴏ', p: 'ᴘ', q: 'Q', r: 'ʀ', s: 'ꜱ',
+            t: 'ᴛ', u: 'ᴜ', v: 'ᴠ', w: 'ᴡ', x: 'x',
+            y: 'ʏ', z: 'ᴢ' };
+          return MAP[ch.toLowerCase()] || ch;
+        } },
+      { name: 'Upside down', fn: function (ch) {
+          return FLIP[ch.toLowerCase()] || ch;
+        }, reverse: true },
+      { name: 'Strikethrough', fn: function (ch) { return ch + '̶'; } },
+      { name: 'Underline', fn: function (ch) { return ch + '̲'; } },
+      { name: 'Wide', fn: function (ch) {
+          var code = ch.codePointAt(0);
+          if (code === 32) return '　';
+          if (code > 32 && code < 127) return String.fromCodePoint(0xFF01 + (code - 33));
+          return ch;
+        } }
+    ];
+
+    function apply(style, text) {
+      /* Split by code point, not by index, so characters outside the basic
+         range are not chopped in half. */
+      var chars = Array.from(text);
+      var out = chars.map(style.fn);
+      if (style.reverse) out.reverse();
+      return out.join('');
+    }
+
+    var input = document.getElementById('in');
+    var host = document.getElementById('styles');
+
+    function run() {
+      var text = input.value;
+      if (!text) {
+        host.innerHTML = '<p class="hint" style="margin:0">Type something above.</p>';
+        return;
+      }
+      host.innerHTML = STYLES.map(function (s, i) {
+        var result = apply(s, text);
+        return '<div class="style-row">' +
+          '<span class="label">' + s.name + '</span>' +
+          '<span class="sample">' + result
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+          '</span>' +
+          '<button data-i="' + i + '">Copy</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    host.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-i]');
+      if (!btn) return;
+      CT.copy(apply(STYLES[+btn.dataset.i], input.value));
+    });
+
+    input.addEventListener('input', run);
+    run();
+  })();
+  </script>
+</body>
+</html>

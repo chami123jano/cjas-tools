@@ -37,6 +37,43 @@ function loadTool(slug, opts = {}) {
       // everything else behaves as if the machine were offline, which is
       // the state these tools have to cope with anyway.
       window.fetch = opts.fetch || (() => Promise.reject(new Error('offline')));
+
+      // jsdom has no canvas, and getContext returns null, so any drawing
+      // tool would throw on load. This stub records the calls instead of
+      // rendering: enough to prove the code runs and computes the right
+      // geometry, but it does NOT verify anything is actually drawn.
+      window.HTMLCanvasElement.prototype.getContext = function () {
+        if (!this.__ctx) {
+          const calls = [];
+          const noop = (name) => (...args) => { calls.push([name, ...args]); };
+          this.__ctx = {
+            calls,
+            canvas: this,
+            fillStyle: '', strokeStyle: '', lineWidth: 1, font: '',
+            lineCap: '', lineJoin: '', globalAlpha: 1, textBaseline: '',
+            fillRect: noop('fillRect'), clearRect: noop('clearRect'),
+            strokeRect: noop('strokeRect'), beginPath: noop('beginPath'),
+            closePath: noop('closePath'), moveTo: noop('moveTo'),
+            lineTo: noop('lineTo'), stroke: noop('stroke'), fill: noop('fill'),
+            arc: noop('arc'), save: noop('save'), restore: noop('restore'),
+            translate: noop('translate'), rotate: noop('rotate'),
+            scale: noop('scale'), fillText: noop('fillText'),
+            strokeText: noop('strokeText'), drawImage: noop('drawImage'),
+            setTransform: noop('setTransform'),
+            // rough but stable: enough for line-wrapping logic to behave
+            measureText: (s) => ({ width: String(s).length * 8 }),
+            getImageData: (x, y, w, h) => ({
+              width: w, height: h, data: new Uint8ClampedArray(w * h * 4)
+            }),
+            putImageData: noop('putImageData'),
+            createImageData: (w, h) => ({ width: w, height: h })
+          };
+        }
+        return this.__ctx;
+      };
+      window.HTMLCanvasElement.prototype.toDataURL = function () {
+        return 'data:image/png;base64,stub';
+      };
       if (opts.onLine !== undefined) {
         Object.defineProperty(window.navigator, 'onLine',
           { value: opts.onLine, configurable: true });

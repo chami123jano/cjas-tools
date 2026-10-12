@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIC Number Decoder — Cja's Tools</title>
+<meta name="description" content="Read the date of birth, gender and age out of a Sri Lankan NIC number. Handles both the old 9-digit and new 12-digit formats. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #nic {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 19px; letter-spacing: 2px; text-align: center;
+  }
+  .parts { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+  .part {
+    padding: 7px 11px; border-radius: 9px; text-align: center;
+    font-family: ui-monospace, Consolas, monospace; font-size: 16px;
+  }
+  .part small {
+    display: block; font-family: inherit; font-size: 10.5px;
+    letter-spacing: 0.3px; margin-top: 3px; opacity: 0.8;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+  .p-year { background: #dbeafe; color: #1e40af; }
+  .p-day  { background: #dcf5e7; color: #146b3c; }
+  .p-ser  { background: #fef0d4; color: #7a4d06; }
+  .p-chk  { background: var(--surface-2); color: var(--muted); }
+  html:not([data-theme="light"]) .p-year { background:#1e3a5f; color:#a8cbff; }
+  html:not([data-theme="light"]) .p-day  { background:#17402c; color:#6fdca2; }
+  html:not([data-theme="light"]) .p-ser  { background:#4a3610; color:#f0c96a; }
+  :root[data-theme="dark"] .p-year { background:#1e3a5f; color:#a8cbff; }
+  :root[data-theme="dark"] .p-day  { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .p-ser  { background:#4a3610; color:#f0c96a; }
+  .note {
+    font-size: 12.5px; color: var(--muted); line-height: 1.6;
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface);
+  }
+  .note b { color: var(--text); }
+</style>
+</head>
+<body data-page="tool" data-slug="nic-decoder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=srilanka">Sri Lanka</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>NIC Number Decoder</h1>
+        <p>Works on both the old 9-digit card and the new 12-digit one.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="nic">NIC number</label>
+          <input type="text" id="nic" value="199234502023" autocomplete="off" spellcheck="false"
+                 placeholder="199234502023 or 923450202V">
+        </div>
+        <div class="parts" id="parts"></div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-dob">&mdash;</b><span>Date of birth</span></div>
+          <div class="stat"><b id="s-age">&mdash;</b><span>Age today</span></div>
+          <div class="stat"><b id="s-gender">&mdash;</b><span>Gender</span></div>
+          <div class="stat"><b id="s-weekday">&mdash;</b><span>Born on a</span></div>
+        </div>
+        <p class="hint" id="warn"></p>
+      </div>
+
+      <div class="panel">
+        <div class="note">
+          <b>How the number is built.</b> The old card is nine digits and a
+          letter: two digits of the birth year, three for the day of the year,
+          three for a serial number, then a check digit and V or X. The new card
+          is twelve digits: the full four-digit year, three for the day of the
+          year, then five more.
+          <br><br>
+          <b>The day-of-year carries the gender.</b> Under 500 is male. For a
+          female, 500 is added, so 532 means day 32 of the year.
+          <br><br>
+          <b>One honest limitation.</b> The numbering treats February as having
+          29 days in every year, including years that are not leap years. For a
+          birthday from March onwards in a non-leap year, that can make the
+          decoded date land one day out on some cards. This tool shows the
+          alternative date when that applies. Where it matters, check against
+          the date printed on the card itself.
+          <br><br>
+          This runs entirely on your device. The number is never sent anywhere.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var nicEl = document.getElementById('nic');
+
+    /* Cumulative days before each month, counting February as 29 days.
+       That is what the NIC numbering assumes, in every year. */
+    var CUM = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
+
+    function isLeap(y) {
+      return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    }
+
+    function dayToDate(year, day) {
+      for (var m = 11; m >= 0; m--) {
+        if (day > CUM[m]) {
+          return { month: m, day: day - CUM[m] };
+        }
+      }
+      return null;
+    }
+
+    function parse(raw) {
+      var s = raw.replace(/\s|-/g, '').toUpperCase();
+      if (!s) return { error: 'empty' };
+
+      var year, dayField, serial, check, letter, format;
+
+      if (/^\d{9}[VX]$/.test(s)) {
+        format = 'old';
+        var yy = parseInt(s.slice(0, 2), 10);
+        /* Two digits only, so the century has to be assumed. Cards in this
+           format stopped being issued in 2016, and nobody holding one was
+           born after 1999, so 19xx is the only sensible reading. */
+        year = 1900 + yy;
+        dayField = parseInt(s.slice(2, 5), 10);
+        serial = s.slice(5, 8);
+        check = s.slice(8, 9);
+        letter = s.slice(9);
+      } else if (/^\d{12}$/.test(s)) {
+        format = 'new';
+        year = parseInt(s.slice(0, 4), 10);
+        dayField = parseInt(s.slice(4, 7), 10);
+        serial = s.slice(7, 12);
+      } else if (/^\d{9}$/.test(s)) {
+        return { error: 'letter' };
+      } else {
+        return { error: 'shape' };
+      }
+
+      var female = dayField > 500;
+      var day = female ? dayField - 500 : dayField;
+
+      if (day < 1 || day > 366) return { error: 'day', dayField: dayField };
+      if (format === 'new' && (year < 1900 || year > new Date().getFullYear())) {
+        return { error: 'year', year: year };
+      }
+
+      var date = dayToDate(year, day);
+      if (!date) return { error: 'day', dayField: dayField };
+
+      /* Day 60 is 29 February under this numbering. In a year that has no
+         29 February the card is simply inconsistent, so it is reported
+         rather than quietly rounded to 1 March. */
+      var impossible = (date.month === 1 && date.day === 29 && !isLeap(year));
+
+      /* From March onwards in a non-leap year, the fixed 29-day February
+         means the real date may be the day before. */
+      var ambiguous = (!isLeap(year) && day > 60);
+      var alternative = null;
+      if (ambiguous) {
+        var alt = dayToDate(year, day - 1);
+        if (alt) alternative = alt;
+      }
+
+      return {
+        format: format, year: year, month: date.month, day: date.day,
+        female: female, dayField: dayField, dayOfYear: day,
+        serial: serial, check: check, letter: letter,
+        impossible: impossible, alternative: alternative,
+        raw: s
+      };
+    }
+
+    function ageOn(y, m, d) {
+      var now = new Date();
+      var age = now.getFullYear() - y;
+      var hadBirthday = (now.getMonth() > m) ||
+                        (now.getMonth() === m && now.getDate() >= d);
+      if (!hadBirthday) age--;
+      return age;
+    }
+
+    function show(r) {
+      var out = document.getElementById('out');
+      var parts = document.getElementById('parts');
+      var warn = document.getElementById('warn');
+
+      function blank() {
+        ['s-dob', 's-age', 's-gender', 's-weekday'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        parts.innerHTML = '';
+      }
+
+      if (r.error) {
+        var msg = {
+          empty: ['&mdash;', 'Type an NIC number'],
+          shape: ['Not an NIC number',
+                  'Expected nine digits and a V or X, or twelve digits'],
+          letter: ['Missing the letter', 'An old NIC ends in V or X'],
+          day: ['That day number cannot be right',
+                r.dayField + ' is not a day of the year, even allowing 500 for female'],
+          year: ['That birth year cannot be right', r.year + ' is not a plausible year']
+        }[r.error];
+        out.innerHTML = msg[0] + '<small>' + msg[1] + '</small>';
+        warn.textContent = '';
+        blank();
+        return;
+      }
+
+      var dob = r.day + ' ' + MONTHS[r.month] + ' ' + r.year;
+      var d = new Date(r.year, r.month, r.day, 12);
+
+      out.innerHTML = dob +
+        '<small>' + (r.female ? 'Female' : 'Male') + ', ' +
+        (r.format === 'old' ? 'old format card' : 'new format card') + '</small>';
+
+      document.getElementById('s-dob').textContent =
+        r.day + ' ' + MONTHS[r.month].slice(0, 3) + ' ' + r.year;
+      document.getElementById('s-age').textContent = ageOn(r.year, r.month, r.day);
+      document.getElementById('s-gender').textContent = r.female ? 'Female' : 'Male';
+      document.getElementById('s-weekday').textContent =
+        d.toLocaleDateString('en-GB', { weekday: 'long' });
+
+      var chips = '';
+      if (r.format === 'old') {
+        chips += '<span class="part p-year">' + r.raw.slice(0, 2) +
+                 '<small>year ' + r.year + '</small></span>';
+        chips += '<span class="part p-day">' + r.raw.slice(2, 5) +
+                 '<small>day ' + r.dayOfYear + (r.female ? ' +500' : '') + '</small></span>';
+        chips += '<span class="part p-ser">' + r.serial + '<small>serial</small></span>';
+        chips += '<span class="part p-chk">' + r.check + r.letter +
+                 '<small>check</small></span>';
+      } else {
+        chips += '<span class="part p-year">' + r.raw.slice(0, 4) +
+                 '<small>year</small></span>';
+        chips += '<span class="part p-day">' + r.raw.slice(4, 7) +
+                 '<small>day ' + r.dayOfYear + (r.female ? ' +500' : '') + '</small></span>';
+        chips += '<span class="part p-ser">' + r.serial + '<small>serial</small></span>';
+      }
+      parts.innerHTML = chips;
+
+      var notes = [];
+      if (r.impossible) {
+        notes.push('This card encodes 29 February ' + r.year +
+                   ', which did not exist. The numbering allows it in every year, ' +
+                   'so the real birthday is almost certainly 28 February or 1 March.');
+      } else if (r.alternative) {
+        notes.push(r.year + ' was not a leap year, but the numbering still ' +
+                   'reserves a slot for 29 February. On some cards this date ' +
+                   'reads instead as ' + r.alternative.day + ' ' +
+                   MONTHS[r.alternative.month] + ' ' + r.year +
+                   '. Check the card if it matters.');
+      }
+      if (r.format === 'old') {
+        notes.push('An old card gives only two digits of the year, so the ' +
+                   'century is assumed to be 19xx.');
+      }
+      warn.textContent = notes.join(' ');
+    }
+
+    function run() { show(parse(nicEl.value)); }
+
+    nicEl.addEventListener('input', run);
+    run();
+  })();
+  </script>
+</body>
+</html>

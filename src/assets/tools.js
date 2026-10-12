@@ -253,6 +253,48 @@ const TOOLS = [
     category: 'text',
     desc: 'Turn Markdown into clean HTML, with a live preview of how it looks.',
     keywords: ['markdown', 'html', 'convert', 'readme', 'preview', 'md', 'format']
+  },
+  {
+    slug: 'notepad',
+    name: 'Notepad',
+    category: 'text',
+    desc: 'A scratch pad that saves itself on this device as you type.',
+    keywords: ['notepad', 'notes', 'scratch', 'write', 'draft', 'save', 'text']
+  },
+  {
+    slug: 'emoji-search',
+    name: 'Emoji Search',
+    category: 'text',
+    desc: 'Find an emoji by name or feeling and copy it with one click.',
+    keywords: ['emoji', 'emoticon', 'smiley', 'symbol', 'search', 'copy', 'icon']
+  },
+  {
+    slug: 'fancy-text',
+    name: 'Fancy Text',
+    category: 'text',
+    desc: 'Turn plain words into bold, italic, script or bubble letters for bios.',
+    keywords: ['fancy', 'font', 'unicode', 'bold', 'script', 'bio', 'stylish']
+  },
+  {
+    slug: 'blackboard',
+    name: 'Blackboard',
+    category: 'text',
+    desc: 'A chalkboard you can write and draw on, then save as a picture.',
+    keywords: ['blackboard', 'chalkboard', 'draw', 'chalk', 'teach', 'sketch', 'whiteboard']
+  },
+  {
+    slug: 'handwriting',
+    name: 'Text to Handwriting',
+    category: 'text',
+    desc: 'Put your typed words onto ruled paper in a handwriting style.',
+    keywords: ['handwriting', 'handwritten', 'paper', 'note', 'cursive', 'assignment']
+  },
+  {
+    slug: 'nic-decoder',
+    name: 'NIC Number Decoder',
+    category: 'srilanka',
+    desc: 'Read the date of birth, gender and age out of a Sri Lankan NIC number.',
+    keywords: ['nic', 'id', 'identity card', 'birthday', 'age', 'gender', 'sri lanka']
   }
 ];
 

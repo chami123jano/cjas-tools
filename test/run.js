@@ -572,6 +572,103 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- day 9
+
+(function nicDecoder() {
+  const t = loadTool('nic-decoder');
+
+  // the one published worked example I could find
+  t.set('nic', '790029871V');
+  has(t.text('out'), '2 January 1979', 'the documented example decodes correctly');
+  has(t.text('s-gender'), 'Male', 'under 500 is male');
+
+  // new 12-digit format, leap year
+  t.set('nic', '199234502023');
+  has(t.text('out'), '10 December 1992', 'a new-format card decodes');
+
+  // 500 added means female, and the day is the remainder
+  t.set('nic', '855400123V');
+  has(t.text('s-gender'), 'Female', 'over 500 is female');
+  has(t.text('out'), '1985', 'and the year still reads correctly');
+
+  // garbage in must not produce a confident date
+  t.set('nic', 'hello');
+  has(t.text('out'), 'Not an NIC', 'nonsense is rejected');
+  t.set('nic', '123456789');
+  has(t.text('out'), 'Missing the letter', 'nine digits with no V or X is flagged');
+  t.set('nic', '999999999V');
+  has(t.text('out'), 'cannot be right', 'an impossible day number is refused');
+
+  // the leap-year caveat should surface, not be hidden
+  t.set('nic', '199930012345');   // 1999 is not a leap year, day 300
+  has(t.text('warn'), 'not a leap year', 'the non-leap-year ambiguity is disclosed');
+  t.close();
+})();
+
+(function notepad() {
+  const t = loadTool('notepad');
+  t.set('pad', 'hello there');
+  has(t.text('counts'), '2 words', 'word count updates');
+  has(t.text('counts'), '11 characters', 'character count updates');
+  t.close();
+})();
+
+(function fancyText() {
+  const t = loadTool('fancy-text');
+  t.set('in', 'Hi');
+  const shown = t.text('styles');
+  // mathematical bold capital H and small i
+  has(shown, '\u{1D407}\u{1D422}', 'bold style produced');
+  // script capital H is a legacy codepoint, not in the contiguous block
+  has(shown, 'ℋ', 'script H uses the legacy codepoint, not a hole in the block');
+  t.set('in', '');
+  has(t.text('styles'), 'Type something', 'empty input is handled');
+  t.close();
+})();
+
+(function emojiSearch() {
+  const t = loadTool('emoji-search');
+  t.set('q', 'happy');
+  ok(t.document.querySelectorAll('#results .ebtn').length > 0,
+     'searching for happy finds emoji');
+  t.set('q', 'rupee-not-an-emoji');
+  has(t.text('results'), 'Nothing matches', 'a miss says so');
+  t.set('q', 'poya');
+  has(t.text('results'), '🌕', 'searching poya finds the full moon');
+  t.close();
+})();
+
+(function canvasToolsLoad() {
+  // Canvas output cannot be verified here - the harness stubs the context.
+  // These only prove the pages run and their controls are wired up.
+  const b = loadTool('blackboard');
+  ok(b.byId('board') !== null, 'blackboard canvas exists');
+  ok(b.document.querySelectorAll('#swatches .sw').length === 6,
+     'six chalk colours offered');
+  b.close();
+
+  const h = loadTool('handwriting');
+  ok(h.byId('paper') !== null, 'handwriting page renders a canvas');
+  ok(h.document.querySelectorAll('#font option').length >= 1,
+     'at least one handwriting font is offered');
+  h.set('in', 'test').set('fsize', 30);
+  ok(h.byId('paper').__ctx.calls.some(c => c[0] === 'fillText'),
+     'text is actually written to the canvas');
+  h.close();
+
+  const q = loadTool('qr-code-generator');
+  q.set('text', 'https://example.com');
+  ok(q.document.querySelector('#qr-box canvas') !== null,
+     'a QR canvas is produced');
+  q.set('kind', 'wifi');
+  q.set('ssid', 'My Net').set('wifi-pass', 'secret;1');
+  ok(q.document.querySelector('#qr-box canvas') !== null,
+     'a wifi QR is produced with an awkward password');
+  q.set('kind', 'text').set('text', '');
+  has(q.text('qr-box'), 'Enter something', 'empty input shows a prompt, not a broken code');
+  q.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text to Handwriting — Cja's Tools</title>
+<meta name="description" content="Put your typed words onto ruled paper in a handwriting style and save it as a picture. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .paper-wrap {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: auto; background: var(--surface); padding: 10px; line-height: 0;
+  }
+  #paper { width: 100%; height: auto; display: block; background: #fff; }
+</style>
+</head>
+<body data-page="tool" data-slug="handwriting">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=text">Text</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Text to Handwriting</h1>
+        <p>Your words on ruled paper, saved as a picture.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">What to write</label>
+          <textarea id="in" spellcheck="false">Cja's Tools
+
+Every little tool, on your computer.
+Free, private, and it works with no internet.</textarea>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="font">Handwriting style</label>
+            <select id="font"></select>
+          </div>
+          <div class="field">
+            <label for="ink">Ink</label>
+            <select id="ink">
+              <option value="#1a3a8f">Blue</option>
+              <option value="#111827">Black</option>
+              <option value="#0b6b3a">Green</option>
+              <option value="#9b1c1c">Red</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="fsize">Size: <span id="fsize-val">30</span></label>
+            <input type="range" id="fsize" min="18" max="52" value="30" style="width:100%">
+          </div>
+          <div class="field">
+            <label for="wobble">Untidiness: <span id="wobble-val">4</span></label>
+            <input type="range" id="wobble" min="0" max="12" value="4" style="width:100%">
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="lines">Ruled lines</button>
+          <button class="btn primary" data-opt="margin">Red margin</button>
+          <button class="btn" data-opt="holes">Punch holes</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="paper-wrap">
+          <canvas id="paper" width="1240" height="1754"></canvas>
+        </div>
+        <div class="btns" style="margin-top:14px">
+          <button class="btn primary" id="save">Save as picture</button>
+        </div>
+        <p class="hint" id="font-note"></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* No font is bundled, because a handwriting font would add megabytes
+       to the download for one tool. These are the ones commonly installed
+       already; whichever exists on this machine is offered. */
+    var CANDIDATES = [
+      ['Segoe Script', 'Segoe Script'],
+      ['Ink Free', 'Ink Free'],
+      ['Bradley Hand ITC', 'Bradley Hand ITC'],
+      ['Comic Sans MS', 'Comic Sans MS'],
+      ['Lucida Handwriting', 'Lucida Handwriting'],
+      ['Gabriola', 'Gabriola'],
+      ['cursive', 'Your system cursive font']
+    ];
+
+    var canvas = document.getElementById('paper');
+    var ctx = canvas.getContext('2d');
+    var opts = { lines: true, margin: true, holes: false };
+
+    /* document.fonts.check is the only reliable way to know whether a font
+       is really present - naming a missing font silently falls back, and
+       the result would look nothing like handwriting. */
+    function available() {
+      var found = [];
+      CANDIDATES.forEach(function (c) {
+        if (c[0] === 'cursive') { found.push(c); return; }
+        try {
+          if (document.fonts && document.fonts.check('16px "' + c[0] + '"')) found.push(c);
+        } catch (e) { /* older engine - leave it out */ }
+      });
+      return found.length > 1 ? found : CANDIDATES.slice(-1);
+    }
+
+    var fonts = available();
+    var fontSel = document.getElementById('font');
+    fontSel.innerHTML = fonts.map(function (f) {
+      return '<option value="' + f[0] + '">' + f[1] + '</option>';
+    }).join('');
+
+    document.getElementById('font-note').textContent = fonts.length > 1
+      ? 'Using handwriting fonts already installed on this computer, so nothing extra had to be downloaded.'
+      : 'No handwriting font was found on this computer, so your system cursive font is being used. It may look fairly plain.';
+
+    /* A small repeatable jitter per character is what stops it reading as
+       typed text. Seeded so the same input always produces the same page. */
+    function rand(seed) {
+      var x = Math.sin(seed) * 10000;
+      return x - Math.floor(x);
+    }
+
+    function draw() {
+      var text = document.getElementById('in').value;
+      var size = +document.getElementById('fsize').value;
+      var wobble = +document.getElementById('wobble').value;
+      var ink = document.getElementById('ink').value;
+      var font = fontSel.value;
+
+      var W = canvas.width, H = canvas.height;
+      var padLeft = opts.margin ? 150 : 90;
+      var padRight = 80;
+      var padTop = 110;
+      var lineHeight = Math.round(size * 1.9);
+
+      ctx.fillStyle = '#fffdf7';
+      ctx.fillRect(0, 0, W, H);
+
+      if (opts.lines) {
+        ctx.strokeStyle = '#c9d8ea';
+        ctx.lineWidth = 1.5;
+        for (var y = padTop; y < H - 60; y += lineHeight) {
+          ctx.beginPath();
+          ctx.moveTo(60, y + 6);
+          ctx.lineTo(W - 50, y + 6);
+          ctx.stroke();
+        }
+      }
+
+      if (opts.margin) {
+        ctx.strokeStyle = '#eab3b3';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(padLeft - 26, 40);
+        ctx.lineTo(padLeft - 26, H - 40);
+        ctx.stroke();
+      }
+
+      if (opts.holes) {
+        ctx.fillStyle = '#e8e8e8';
+        [0.22, 0.5, 0.78].forEach(function (f) {
+          ctx.beginPath();
+          ctx.arc(34, H * f, 15, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      ctx.fillStyle = ink;
+      ctx.font = size + 'px "' + font + '", cursive';
+      ctx.textBaseline = 'alphabetic';
+
+      var maxWidth = W - padLeft - padRight;
+      var lines = [];
+
+      /* Wrap by word, and keep the author's own blank lines. */
+      text.split('\n').forEach(function (para) {
+        if (!para.trim()) { lines.push(''); return; }
+        var words = para.split(/\s+/);
+        var current = '';
+        words.forEach(function (w) {
+          var attempt = current ? current + ' ' + w : w;
+          if (ctx.measureText(attempt).width > maxWidth && current) {
+            lines.push(current);
+            current = w;
+          } else {
+            current = attempt;
+          }
+        });
+        if (current) lines.push(current);
+      });
+
+      var seed = 1;
+      var yPos = padTop;
+      var clipped = 0;
+
+      lines.forEach(function (line) {
+        if (yPos > H - 70) { clipped++; return; }
+        var x = padLeft;
+        Array.from(line).forEach(function (ch) {
+          seed++;
+          var dx = (rand(seed) - 0.5) * wobble * 0.6;
+          var dy = (rand(seed * 1.7) - 0.5) * wobble;
+          var angle = (rand(seed * 2.3) - 0.5) * wobble * 0.006;
+          ctx.save();
+          ctx.translate(x + dx, yPos + dy);
+          ctx.rotate(angle);
+          ctx.fillText(ch, 0, 0);
+          ctx.restore();
+          x += ctx.measureText(ch).width;
+        });
+        yPos += lineHeight;
+      });
+
+      document.getElementById('font-note').textContent =
+        (clipped
+          ? clipped + ' line' + (clipped === 1 ? '' : 's') +
+            ' did not fit on the page — use a smaller size, or split the text. '
+          : '') +
+        (fonts.length > 1
+          ? 'Using a handwriting font already installed on this computer.'
+          : 'No handwriting font found here, so the system cursive font is used.');
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      draw();
+    });
+
+    ['in', 'ink', 'font'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', draw);
+      document.getElementById(id).addEventListener('change', draw);
+    });
+
+    document.getElementById('fsize').addEventListener('input', function () {
+      document.getElementById('fsize-val').textContent = this.value;
+      draw();
+    });
+
+    document.getElementById('wobble').addEventListener('input', function () {
+      document.getElementById('wobble-val').textContent = this.value;
+      draw();
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'handwriting.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+
+    draw();
+  })();
+  </script>
+</body>
+</html>
