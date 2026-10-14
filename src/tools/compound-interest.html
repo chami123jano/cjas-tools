@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compound Interest — Cja's Tools</title>
+<meta name="description" content="Work out what savings grow to over time, including money you add each month. Free and works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .yr { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .yr th, .yr td { padding: 8px 4px; text-align: right; }
+  .yr th:first-child, .yr td:first-child { text-align: left; }
+  .yr thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .yr tbody tr { border-bottom: 1px solid var(--border); }
+  .wrap { overflow-x: auto; }
+  .bar { display: flex; height: 26px; border-radius: 7px; overflow: hidden; margin-top: 4px; }
+  .bar i { display: block; }
+  .bar .p { background: var(--accent); }
+  .bar .c { background: #7aa7ff; }
+  .bar .g { background: #27b86a; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 9px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+</style>
+</head>
+<body data-page="tool" data-slug="compound-interest">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Compound Interest</h1>
+        <p>What your savings turn into, and how much of that is interest.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="principal">Starting amount</label>
+          <input type="number" id="principal" value="100000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Interest rate (% a year)</label>
+            <input type="number" id="rate" value="10" step="any">
+          </div>
+          <div class="field">
+            <label for="years">For how many years</label>
+            <input type="number" id="years" value="10" step="any" min="0">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="monthly">Adding each month</label>
+            <input type="number" id="monthly" value="10000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="freq">Interest added</label>
+            <select id="freq">
+              <option value="12" selected>Monthly</option>
+              <option value="4">Quarterly</option>
+              <option value="2">Twice a year</option>
+              <option value="1">Once a year</option>
+              <option value="365">Daily</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="bar" id="bar"></div>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i><span id="l-p">Starting amount</span></span>
+          <span><i style="background:#7aa7ff"></i><span id="l-c">What you added</span></span>
+          <span><i style="background:#27b86a"></i><span id="l-g">Interest earned</span></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Year by year</label>
+        <div class="wrap">
+          <table class="yr">
+            <thead>
+              <tr><th>Year</th><th>Paid in</th><th>Interest so far</th><th>Balance</th></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="hint">Interest is assumed to stay the same the whole time, which
+          real accounts rarely do. Tax on interest is not taken off.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function calc() {
+      var principal = n('principal');
+      var rate = n('rate');
+      var years = n('years');
+      var monthly = n('monthly');
+      var freq = parseInt(document.getElementById('freq').value, 10);
+
+      var out = document.getElementById('out');
+
+      if (!isFinite(principal) || !isFinite(rate) || !isFinite(years) || years < 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        document.getElementById('rows').innerHTML = '';
+        document.getElementById('bar').innerHTML = '';
+        return;
+      }
+      if (!isFinite(monthly)) monthly = 0;
+
+      /* Stepped forward one month at a time, because the deposit schedule
+         and the compounding schedule are usually different - saving monthly
+         into an account that pays quarterly is normal, and a closed-form
+         formula only works when the two line up. Interest is applied
+         whenever a compounding period closes. */
+      var months = Math.round(years * 12);
+      var monthsPerCompound = freq <= 12 ? Math.round(12 / freq) : 1;
+      var balance = principal;
+      var contributed = 0;
+      var rows = [];
+
+      for (var m = 1; m <= months; m++) {
+        balance += monthly;
+        contributed += monthly;
+
+        if (freq > 12) {
+          /* Daily, applied as one month's worth in a single step rather
+             than looping 365 times a year for no extra accuracy. */
+          balance *= Math.pow(1 + rate / 100 / freq, freq / 12);
+        } else if (m % monthsPerCompound === 0) {
+          balance *= (1 + rate / 100 / freq);
+        }
+
+        if (m % 12 === 0 || m === months) {
+          rows.push({
+            year: Math.round(m / 12 * 10) / 10,
+            contributed: contributed,
+            interest: balance - principal - contributed,
+            balance: balance
+          });
+        }
+      }
+
+      var interest = balance - principal - contributed;
+
+      out.innerHTML = money(balance) +
+        '<small>after ' + CT.num(years, 1) + ' years — ' +
+        money(interest) + ' of that is interest</small>';
+
+      var total = Math.max(balance, 1);
+      document.getElementById('bar').innerHTML =
+        '<i class="p" style="width:' + (principal / total * 100) + '%"></i>' +
+        '<i class="c" style="width:' + (contributed / total * 100) + '%"></i>' +
+        '<i class="g" style="width:' + (Math.max(0, interest) / total * 100) + '%"></i>';
+
+      document.getElementById('l-p').textContent = 'Started with ' + money(principal);
+      document.getElementById('l-c').textContent = 'You added ' + money(contributed);
+      document.getElementById('l-g').textContent = 'Interest ' + money(interest);
+
+      document.getElementById('rows').innerHTML = rows.map(function (r) {
+        return '<tr><td>' + r.year + '</td><td>' + money(principal + r.contributed) +
+          '</td><td>' + money(r.interest) + '</td><td>' + money(r.balance) + '</td></tr>';
+      }).join('');
+    }
+
+    ['principal', 'rate', 'years', 'monthly'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+    document.getElementById('freq').addEventListener('change', calc);
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

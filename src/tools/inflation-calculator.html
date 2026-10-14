@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inflation Calculator — Cja's Tools</title>
+<meta name="description" content="What an amount of money from one year is worth in another, and how much buying power it loses over time. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .note {
+    font-size: 12.5px; color: var(--muted); line-height: 1.6;
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface);
+  }
+  .note b { color: var(--text); }
+  .yr { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .yr th, .yr td { padding: 8px 4px; text-align: right; }
+  .yr th:first-child, .yr td:first-child { text-align: left; }
+  .yr thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .yr tbody tr { border-bottom: 1px solid var(--border); }
+</style>
+</head>
+<body data-page="tool" data-slug="inflation-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Inflation Calculator</h1>
+        <p>What money loses while it sits still.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="amount">Amount</label>
+          <input type="number" id="amount" value="100000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Inflation (% a year)</label>
+            <input type="number" id="rate" value="6" step="any">
+          </div>
+          <div class="field">
+            <label for="years">Over how many years</label>
+            <input type="number" id="years" value="10" step="any" min="0">
+          </div>
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-r="4">4% low</button>
+          <button class="btn" data-r="6">6% typical</button>
+          <button class="btn" data-r="12">12% high</button>
+          <button class="btn" data-r="50">50% crisis</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-worth">&mdash;</b><span>Buying power then</span></div>
+          <div class="stat"><b id="s-need">&mdash;</b><span>Needed to match</span></div>
+          <div class="stat"><b id="s-lost">&mdash;</b><span>Lost to inflation</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Year by year</label>
+        <table class="yr">
+          <thead>
+            <tr><th>Year</th><th>What it buys</th><th>Needed to keep up</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="note">
+          <b>You supply the rate.</b> This does not carry an official inflation
+          series, because the Colombo Consumer Price Index moves every month and
+          a number baked into an app would be wrong within weeks. Put in the rate
+          you want to test.
+          <br><br>
+          <b>For a sense of scale</b>, Sri Lankan inflation has spent most of the
+          last twenty years in the mid single digits, but went far higher during
+          the 2022 crisis. Testing a few rates tells you more than one number.
+          <br><br>
+          The Central Bank of Sri Lanka publishes the current figures.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function calc() {
+      var amount = n('amount');
+      var rate = n('rate');
+      var years = n('years');
+      var out = document.getElementById('out');
+
+      if (!isFinite(amount) || !isFinite(rate) || !isFinite(years) || years < 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        document.getElementById('rows').innerHTML = '';
+        return;
+      }
+
+      var factor = Math.pow(1 + rate / 100, years);
+
+      /* Two different questions, and people mix them up. Buying power is
+         what today's amount will still be worth later. The equivalent is
+         what you would need later to buy what the amount buys today. */
+      var buyingPower = amount / factor;
+      var equivalent = amount * factor;
+      var lost = amount - buyingPower;
+
+      out.innerHTML = money(buyingPower) +
+        '<small>what ' + money(amount) + ' will feel like in ' +
+        CT.num(years, 0) + ' years at ' + CT.num(rate, 1) + '% a year</small>';
+
+      document.getElementById('s-worth').textContent = money(buyingPower);
+      document.getElementById('s-need').textContent = money(equivalent);
+      document.getElementById('s-lost').textContent =
+        money(lost) + ' (' + CT.num(lost / amount * 100, 1) + '%)';
+
+      var rows = '';
+      var step = years <= 12 ? 1 : Math.ceil(years / 12);
+      for (var y = step; y <= years + 0.001; y += step) {
+        var f = Math.pow(1 + rate / 100, y);
+        rows += '<tr><td>' + CT.num(y, 0) + '</td><td>' +
+          money(amount / f) + '</td><td>' + money(amount * f) + '</td></tr>';
+      }
+      document.getElementById('rows').innerHTML = rows;
+    }
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-r]');
+      if (!b) return;
+      document.getElementById('rate').value = b.dataset.r;
+      calc();
+    });
+
+    ['amount', 'rate', 'years'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

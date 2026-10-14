@@ -295,6 +295,41 @@ const TOOLS = [
     category: 'srilanka',
     desc: 'Read the date of birth, gender and age out of a Sri Lankan NIC number.',
     keywords: ['nic', 'id', 'identity card', 'birthday', 'age', 'gender', 'sri lanka']
+  },
+  {
+    slug: 'compound-interest',
+    name: 'Compound Interest',
+    category: 'money',
+    desc: 'What savings grow to over time, including money you add each month.',
+    keywords: ['compound', 'interest', 'savings', 'invest', 'growth', 'fixed deposit']
+  },
+  {
+    slug: 'mortgage-calculator',
+    name: 'Mortgage Calculator',
+    category: 'money',
+    desc: 'Monthly payment on a house, with the deposit and the real total cost.',
+    keywords: ['mortgage', 'housing loan', 'home', 'house', 'deposit', 'property']
+  },
+  {
+    slug: 'savings-goal',
+    name: 'Savings Goal',
+    category: 'money',
+    desc: 'How long until you reach a target, or what you need to put away monthly.',
+    keywords: ['savings', 'goal', 'target', 'save', 'plan', 'monthly', 'deposit']
+  },
+  {
+    slug: 'salary-converter',
+    name: 'Salary Converter',
+    category: 'money',
+    desc: 'Switch a wage between hourly, daily, weekly, monthly and yearly.',
+    keywords: ['salary', 'wage', 'hourly', 'annual', 'monthly', 'pay', 'rate']
+  },
+  {
+    slug: 'inflation-calculator',
+    name: 'Inflation Calculator',
+    category: 'money',
+    desc: 'What money from one year is worth in another, and what it buys now.',
+    keywords: ['inflation', 'value', 'purchasing power', 'cost of living', 'rupee']
   }
 ];
 

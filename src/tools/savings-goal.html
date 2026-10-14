@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Savings Goal — Cja's Tools</title>
+<meta name="description" content="How long until you reach a savings target, or how much you need to put away each month to get there by a date. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .track { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 6px; }
+  .track i { display: block; height: 100%; background: #27b86a; }
+</style>
+</head>
+<body data-page="tool" data-slug="savings-goal">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Savings Goal</h1>
+        <p>Work out the time, or work out the monthly amount. Your choice.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="mode">What do you want to know?</label>
+          <select id="mode">
+            <option value="time">How long it will take</option>
+            <option value="amount">How much to save each month</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="target">Target amount</label>
+            <input type="number" id="target" value="1000000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="current">Saved already</label>
+            <input type="number" id="current" value="150000" step="any" min="0">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" id="monthly-field">
+            <label for="monthly">Saving each month</label>
+            <input type="number" id="monthly" value="25000" step="any" min="0">
+          </div>
+          <div class="field" id="months-field" hidden>
+            <label for="months">Want it in how many months</label>
+            <input type="number" id="months" value="24" step="1" min="1">
+          </div>
+          <div class="field">
+            <label for="rate">Interest (% a year)</label>
+            <input type="number" id="rate" value="8" step="any" min="0">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="track"><i id="progress" style="width:0%"></i></div>
+        <p class="hint" id="progress-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-need">&mdash;</b><span>Still to find</span></div>
+          <div class="stat"><b id="s-contrib">&mdash;</b><span>You will pay in</span></div>
+          <div class="stat"><b id="s-interest">&mdash;</b><span>Interest helps with</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function duration(months) {
+      var y = Math.floor(months / 12);
+      var m = months % 12;
+      if (!y) return m + ' month' + (m === 1 ? '' : 's');
+      if (!m) return y + ' year' + (y === 1 ? '' : 's');
+      return y + ' year' + (y === 1 ? '' : 's') + ' ' + m + ' month' + (m === 1 ? '' : 's');
+    }
+
+    function calc() {
+      var mode = document.getElementById('mode').value;
+      var target = n('target');
+      var current = n('current');
+      var rate = n('rate');
+      var out = document.getElementById('out');
+
+      document.getElementById('monthly-field').hidden = mode !== 'time';
+      document.getElementById('months-field').hidden = mode !== 'amount';
+
+      if (!isFinite(target) || !isFinite(current) || !isFinite(rate) || target <= 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        return;
+      }
+
+      var r = rate / 100 / 12;
+      var gap = target - current;
+
+      document.getElementById('progress').style.width =
+        Math.min(100, Math.max(0, current / target * 100)) + '%';
+      document.getElementById('progress-note').textContent =
+        CT.num(Math.min(100, current / target * 100), 1) + '% of the way there — ' +
+        money(current) + ' of ' + money(target);
+
+      if (gap <= 0) {
+        out.innerHTML = 'Already there' +
+          '<small>you have ' + money(current - target) + ' more than the target</small>';
+        ['s-need', 's-contrib', 's-interest'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        return;
+      }
+
+      document.getElementById('s-need').textContent = money(gap);
+
+      if (mode === 'time') {
+        var monthly = n('monthly');
+        if (!isFinite(monthly) || monthly < 0) {
+          out.innerHTML = '&mdash;<small>How much can you save each month?</small>';
+          return;
+        }
+
+        /* Interest alone can carry a balance to the target, but only if
+           there is a balance to earn on. With nothing saved and nothing
+           going in, it never gets there. */
+        if (monthly === 0 && (r === 0 || current === 0)) {
+          out.innerHTML = 'Never, at this rate' +
+            '<small>nothing is going in, and interest alone will not cover the gap</small>';
+          document.getElementById('s-contrib').textContent = money(0);
+          document.getElementById('s-interest').textContent = '—';
+          return;
+        }
+
+        /* Stepped month by month rather than solved with logarithms, so
+           the zero-interest case needs no separate formula and the answer
+           is always a whole number of months. */
+        var balance = current;
+        var months = 0;
+        var paid = 0;
+        while (balance < target && months < 1200) {
+          balance = balance * (1 + r) + monthly;
+          paid += monthly;
+          months++;
+        }
+
+        if (balance < target) {
+          out.innerHTML = 'More than 100 years' +
+            '<small>the monthly amount is too small for this target</small>';
+          document.getElementById('s-contrib').textContent = '—';
+          document.getElementById('s-interest').textContent = '—';
+          return;
+        }
+
+        var done = new Date();
+        done.setMonth(done.getMonth() + months);
+
+        out.innerHTML = duration(months) +
+          '<small>reaching ' + money(target) + ' around ' +
+          done.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) +
+          '</small>';
+
+        document.getElementById('s-contrib').textContent = money(paid);
+        document.getElementById('s-interest').textContent =
+          money(Math.max(0, balance - current - paid));
+        return;
+      }
+
+      /* Working the other way: given a deadline, what monthly amount gets
+         there? Solved directly from the future-value formula. */
+      var months2 = Math.round(n('months'));
+      if (!isFinite(months2) || months2 < 1) {
+        out.innerHTML = '&mdash;<small>How many months do you have?</small>';
+        return;
+      }
+
+      var grown = current * Math.pow(1 + r, months2);
+      var needed;
+      if (r === 0) {
+        needed = (target - grown) / months2;
+      } else {
+        var factor = (Math.pow(1 + r, months2) - 1) / r;
+        needed = (target - grown) / factor;
+      }
+
+      if (needed <= 0) {
+        out.innerHTML = 'Nothing more needed' +
+          '<small>what you have already saved will grow past the target in ' +
+          duration(months2) + '</small>';
+        document.getElementById('s-contrib').textContent = money(0);
+        document.getElementById('s-interest').textContent = money(grown - current);
+        return;
+      }
+
+      out.innerHTML = 'Rs. ' + money(needed) +
+        '<small>every month for ' + duration(months2) + '</small>';
+
+      document.getElementById('s-contrib').textContent = money(needed * months2);
+      document.getElementById('s-interest').textContent =
+        money(Math.max(0, target - current - needed * months2));
+    }
+
+    ['mode', 'target', 'current', 'monthly', 'months', 'rate'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', calc);
+      el.addEventListener('change', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Salary Converter — Cja's Tools</title>
+<meta name="description" content="Switch a wage between hourly, daily, weekly, monthly and yearly, based on the hours you actually work. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .srow {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--border);
+  }
+  .srow:last-child { border-bottom: none; }
+  .srow .lbl { font-size: 14.5px; font-weight: 550; }
+  .srow .lbl small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .srow .amt {
+    text-align: right; font-size: 18px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="salary-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Salary Converter</h1>
+        <p>Enter a wage any way round and see all the others.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="amount">Amount</label>
+            <input type="number" id="amount" value="150000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="per">Per</label>
+            <select id="per">
+              <option value="hour">Hour</option>
+              <option value="day">Day</option>
+              <option value="week">Week</option>
+              <option value="month" selected>Month</option>
+              <option value="year">Year</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="hours">Hours a day</label>
+            <input type="number" id="hours" value="8" step="any" min="0.5" max="24">
+          </div>
+          <div class="field">
+            <label for="days">Days a week</label>
+            <input type="number" id="days" value="5" step="any" min="0.5" max="7">
+          </div>
+          <div class="field">
+            <label for="weeks">Weeks worked a year</label>
+            <input type="number" id="weeks" value="52" step="any" min="1" max="52">
+          </div>
+        </div>
+        <p class="hint">Drop the weeks a year if you take unpaid leave &mdash; at
+          48 weeks the hourly rate works out higher for the same annual pay.</p>
+      </div>
+
+      <div class="panel" id="results"></div>
+
+      <div class="panel">
+        <p class="hint">This is gross pay, before tax, EPF and anything else.
+          For what actually lands in your account, use the
+          <a href="paye-tax-calculator.html">PAYE calculator</a>.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function calc() {
+      var amount = n('amount');
+      var per = document.getElementById('per').value;
+      var hoursDay = n('hours');
+      var daysWeek = n('days');
+      var weeksYear = n('weeks');
+      var host = document.getElementById('results');
+
+      if (!isFinite(amount) || !isFinite(hoursDay) || !isFinite(daysWeek) ||
+          !isFinite(weeksYear) || hoursDay <= 0 || daysWeek <= 0 || weeksYear <= 0) {
+        host.innerHTML = '<p class="hint" style="margin:0">Fill in the boxes above.</p>';
+        return;
+      }
+
+      var hoursWeek = hoursDay * daysWeek;
+      var hoursYear = hoursWeek * weeksYear;
+
+      /* Everything is converted to a yearly figure first, then back out.
+         A month is a twelfth of the year rather than four weeks, because
+         four weeks times twelve is only 48 - salaries are not paid that
+         way and the error compounds into every other figure. */
+      var yearly;
+      switch (per) {
+        case 'hour':  yearly = amount * hoursYear; break;
+        case 'day':   yearly = amount * daysWeek * weeksYear; break;
+        case 'week':  yearly = amount * weeksYear; break;
+        case 'month': yearly = amount * 12; break;
+        default:      yearly = amount;
+      }
+
+      var rows = [
+        ['Hourly', yearly / hoursYear, CT.num(hoursYear, 0) + ' hours a year'],
+        ['Daily', yearly / (daysWeek * weeksYear),
+         CT.num(daysWeek * weeksYear, 0) + ' working days a year'],
+        ['Weekly', yearly / weeksYear, CT.num(hoursWeek, 1) + ' hours a week'],
+        ['Fortnightly', yearly / 26, 'twice a month, roughly'],
+        ['Monthly', yearly / 12, 'a twelfth of the year'],
+        ['Yearly', yearly, CT.num(weeksYear, 0) + ' weeks worked']
+      ];
+
+      host.innerHTML = rows.map(function (r) {
+        return '<div class="srow">' +
+          '<span class="lbl">' + r[0] + '<small>' + r[2] + '</small></span>' +
+          '<span class="amt">Rs. ' + money(r[1]) + '</span></div>';
+      }).join('');
+    }
+
+    ['amount', 'per', 'hours', 'days', 'weeks'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', calc);
+      el.addEventListener('change', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

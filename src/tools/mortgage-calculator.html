@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mortgage Calculator — Cja's Tools</title>
+<meta name="description" content="Monthly payment on a house loan, including the deposit, and what the property really costs you in total. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { display: flex; height: 26px; border-radius: 7px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 9px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+</style>
+</head>
+<body data-page="tool" data-slug="mortgage-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Mortgage Calculator</h1>
+        <p>What the house costs each month, and what it costs in the end.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="price">Property price</label>
+          <input type="number" id="price" value="25000000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="deposit">Deposit</label>
+            <input type="number" id="deposit" value="5000000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="depositPct">Deposit as a %</label>
+            <input type="number" id="depositPct" value="20" step="any" min="0" max="100">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Interest rate (% a year)</label>
+            <input type="number" id="rate" value="13" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="years">Term (years)</label>
+            <input type="number" id="years" value="20" step="any" min="0">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-loan">&mdash;</b><span>Amount borrowed</span></div>
+          <div class="stat"><b id="s-interest">&mdash;</b><span>Interest over the term</span></div>
+          <div class="stat"><b id="s-total">&mdash;</b><span>Total cost of the house</span></div>
+        </div>
+        <div class="bar" id="bar"></div>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i><span id="l-a">Deposit</span></span>
+          <span><i style="background:#7aa7ff"></i><span id="l-b">Loan repaid</span></span>
+          <span><i style="background:#e8a33d"></i><span id="l-c">Interest</span></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">What if the rate moves?</label>
+        <div id="sensitivity"></div>
+        <p class="hint">Housing loans here are usually on a variable rate, so the
+          payment can change during the term. These are the monthly payments at
+          nearby rates, to show how exposed you would be.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function payment(principal, annualRate, years) {
+      var months = Math.round(years * 12);
+      if (months <= 0) return NaN;
+      var r = annualRate / 100 / 12;
+      return r === 0 ? principal / months
+        : principal * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+    }
+
+    /* The deposit can be typed either as an amount or as a percentage, and
+       whichever one was touched last drives the other. Without this the two
+       boxes silently disagree. */
+    var syncing = false;
+
+    function fromAmount() {
+      if (syncing) return;
+      var price = n('price'), dep = n('deposit');
+      if (!isFinite(price) || price <= 0 || !isFinite(dep)) return;
+      syncing = true;
+      document.getElementById('depositPct').value =
+        Math.round(dep / price * 10000) / 100;
+      syncing = false;
+    }
+
+    function fromPct() {
+      if (syncing) return;
+      var price = n('price'), pct = n('depositPct');
+      if (!isFinite(price) || !isFinite(pct)) return;
+      syncing = true;
+      document.getElementById('deposit').value = Math.round(price * pct / 100);
+      syncing = false;
+    }
+
+    function calc() {
+      var price = n('price');
+      var deposit = n('deposit');
+      var rate = n('rate');
+      var years = n('years');
+      var out = document.getElementById('out');
+
+      if (!isFinite(price) || !isFinite(deposit) || !isFinite(rate) ||
+          !isFinite(years) || price <= 0 || years <= 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        document.getElementById('sensitivity').innerHTML = '';
+        return;
+      }
+
+      if (deposit >= price) {
+        out.innerHTML = 'No loan needed' +
+          '<small>the deposit covers the whole price</small>';
+        ['s-loan', 's-interest', 's-total'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        document.getElementById('sensitivity').innerHTML = '';
+        return;
+      }
+
+      var loan = price - deposit;
+      var monthly = payment(loan, rate, years);
+      var totalRepaid = monthly * Math.round(years * 12);
+      var interest = totalRepaid - loan;
+      var trueCost = deposit + totalRepaid;
+
+      out.innerHTML = 'Rs. ' + money(monthly) +
+        '<small>a month for ' + CT.num(years, 0) + ' years</small>';
+
+      document.getElementById('s-loan').textContent = money(loan);
+      document.getElementById('s-interest').textContent = money(interest);
+      document.getElementById('s-total').textContent = money(trueCost);
+
+      var total = Math.max(trueCost, 1);
+      document.getElementById('bar').innerHTML =
+        '<i style="background:var(--accent);width:' + (deposit / total * 100) + '%"></i>' +
+        '<i style="background:#7aa7ff;width:' + (loan / total * 100) + '%"></i>' +
+        '<i style="background:#e8a33d;width:' + (interest / total * 100) + '%"></i>';
+
+      document.getElementById('l-a').textContent = 'Deposit ' + money(deposit);
+      document.getElementById('l-b').textContent = 'Loan ' + money(loan);
+      document.getElementById('l-c').textContent = 'Interest ' + money(interest);
+
+      var offsets = [-2, -1, 0, 1, 2, 3];
+      document.getElementById('sensitivity').innerHTML = offsets.map(function (o) {
+        var r = rate + o;
+        if (r < 0) return '';
+        var p = payment(loan, r, years);
+        var diff = p - monthly;
+        return '<div style="display:flex;justify-content:space-between;padding:8px 2px;' +
+          'border-bottom:1px solid var(--border);font-size:14px">' +
+          '<span>' + CT.num(r, 2) + '%' + (o === 0 ? ' (yours)' : '') + '</span>' +
+          '<span style="font-variant-numeric:tabular-nums"><b>Rs. ' + money(p) + '</b>' +
+          (o === 0 ? '' : ' <span style="color:var(--muted);font-size:12.5px">' +
+            (diff > 0 ? '+' : '') + money(diff) + '</span>') +
+          '</span></div>';
+      }).join('');
+    }
+
+    document.getElementById('deposit').addEventListener('input', function () {
+      fromAmount(); calc();
+    });
+    document.getElementById('depositPct').addEventListener('input', function () {
+      fromPct(); calc();
+    });
+    document.getElementById('price').addEventListener('input', function () {
+      fromPct(); calc();
+    });
+    ['rate', 'years'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

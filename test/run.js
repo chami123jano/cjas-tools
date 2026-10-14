@@ -669,6 +669,101 @@ pending.push(function currencyLive() {
   q.close();
 })();
 
+// ---------------------------------------------------------------- money
+
+(function compoundInterest() {
+  const t = loadTool('compound-interest');
+  // 100,000 at 10% compounded once a year for 10 years = 100000 * 1.1^10
+  t.set('principal', 100000).set('rate', 10).set('years', 10)
+   .set('monthly', 0).set('freq', '1');
+  has(t.text('out'), '259,374', 'yearly compounding matches 1.1^10');
+
+  // the same money compounded monthly ends up higher
+  t.set('freq', '12');
+  has(t.text('out'), '270,704', 'monthly compounding beats yearly');
+
+  // zero interest must just add up the deposits
+  t.set('rate', 0).set('monthly', 1000).set('years', 1).set('principal', 0);
+  has(t.text('out'), '12,000', 'no interest is simply the deposits');
+
+  // a quarterly account fed monthly - the case a closed-form formula gets wrong
+  t.set('principal', 100000).set('rate', 12).set('years', 1)
+   .set('monthly', 0).set('freq', '4');
+  has(t.text('out'), '112,550', 'quarterly compounding over a year');
+  t.close();
+})();
+
+(function mortgage() {
+  const t = loadTool('mortgage-calculator');
+  t.set('price', 10000000).set('depositPct', 20).set('rate', 12).set('years', 20);
+  // typing a percentage must fill in the amount
+  ok(t.byId('deposit').value === '2000000',
+     'a deposit percentage fills in the amount', 'got ' + t.byId('deposit').value);
+  // 8,000,000 at 12% over 20 years is about 88,086 a month
+  has(t.text('out'), '88,0', 'the monthly payment is right');
+  has(t.text('s-loan'), '8,000,000', 'the loan is price minus deposit');
+
+  // and typing an amount must fill in the percentage
+  t.set('deposit', 2500000);
+  ok(t.byId('depositPct').value === '25',
+     'a deposit amount fills in the percentage', 'got ' + t.byId('depositPct').value);
+
+  // a deposit covering the whole price means no loan
+  t.set('deposit', 10000000);
+  has(t.text('out'), 'No loan needed', 'a full-price deposit needs no loan');
+  t.close();
+})();
+
+(function savingsGoal() {
+  const t = loadTool('savings-goal');
+  t.set('mode', 'time').set('target', 120000).set('current', 0)
+   .set('monthly', 10000).set('rate', 0);
+  has(t.text('out'), '1 year', '120,000 at 10,000 a month with no interest is a year');
+
+  // already past the target
+  t.set('current', 200000);
+  has(t.text('out'), 'Already there', 'an exceeded target says so');
+
+  // saving nothing, with nothing saved, never gets there
+  t.set('current', 0).set('monthly', 0).set('rate', 0);
+  has(t.text('out'), 'Never', 'saving nothing never reaches the target');
+
+  // the other direction: a deadline gives a monthly amount
+  t.set('mode', 'amount').set('target', 120000).set('current', 0)
+   .set('months', 12).set('rate', 0);
+  has(t.text('out'), '10,000', 'the required monthly amount is worked out');
+  t.close();
+})();
+
+(function salaryConverter() {
+  const t = loadTool('salary-converter');
+  t.set('amount', 150000).set('per', 'month')
+   .set('hours', 8).set('days', 5).set('weeks', 52);
+  const rows = t.text('results');
+  has(rows, '1,800,000', 'a monthly salary gives the yearly figure');
+  // 1,800,000 / (8 * 5 * 52) = 865.38
+  has(rows, '865.38', 'and the hourly rate from real hours worked');
+
+  // fewer weeks worked means each hour is worth more for the same year
+  t.set('per', 'year').set('amount', 1800000).set('weeks', 48);
+  has(t.text('results'), '937.50', 'unpaid leave raises the effective hourly rate');
+  t.close();
+})();
+
+(function inflation() {
+  const t = loadTool('inflation-calculator');
+  t.set('amount', 100000).set('rate', 6).set('years', 10);
+  // 100000 / 1.06^10 = 55,839
+  has(t.text('s-worth'), '55,839', 'buying power falls as expected');
+  // 100000 * 1.06^10 = 179,085
+  has(t.text('s-need'), '179,085', 'and the equivalent amount rises');
+  has(t.text('s-lost'), '44.2%', 'the percentage lost is shown');
+
+  t.set('years', 0);
+  has(t.text('s-worth'), '100,000', 'over zero years nothing changes');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {
