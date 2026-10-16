@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fuel Cost Calculator — Cja's Tools</title>
+<meta name="description" content="What a trip costs in fuel, what your driving costs each month, and how much splitting it saves. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="fuel-cost">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Fuel Cost Calculator</h1>
+        <p>For one trip, or for everything you drive in a month.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="distance">Distance (km)</label>
+            <input type="number" id="distance" value="120" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="economy">Fuel economy</label>
+            <input type="number" id="economy" value="12" step="any" min="0.1">
+          </div>
+          <div class="field">
+            <label for="unit">Measured as</label>
+            <select id="unit">
+              <option value="kmpl" selected>km per litre</option>
+              <option value="l100">litres per 100 km</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="price">Fuel price per litre</label>
+            <input type="number" id="price" value="310" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="people">Sharing between</label>
+            <input type="number" id="people" value="1" step="1" min="1">
+          </div>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" id="return" style="width:auto;margin-right:7px">
+            Return trip (double the distance)
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-litres">&mdash;</b><span>Fuel used</span></div>
+          <div class="stat"><b id="s-perkm">&mdash;</b><span>Cost per km</span></div>
+          <div class="stat"><b id="s-each">&mdash;</b><span>Each person pays</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">If you drive this every day</label>
+        <div class="stats">
+          <div class="stat"><b id="s-week">&mdash;</b><span>A week (5 days)</span></div>
+          <div class="stat"><b id="s-month">&mdash;</b><span>A month (22 days)</span></div>
+          <div class="stat"><b id="s-year">&mdash;</b><span>A year</span></div>
+        </div>
+        <p class="hint">Useful for working out what a commute actually costs, or
+          whether a more economical vehicle would pay for itself.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return 'Rs. ' + v.toLocaleString('en-LK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function calc() {
+      var distance = n('distance');
+      var economy = n('economy');
+      var price = n('price');
+      var people = Math.max(1, Math.floor(n('people')) || 1);
+      var unit = document.getElementById('unit').value;
+      var out = document.getElementById('out');
+
+      if (!isFinite(distance) || !isFinite(economy) || !isFinite(price) ||
+          distance < 0 || economy <= 0 || price < 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        ['s-litres', 's-perkm', 's-each', 's-week', 's-month', 's-year'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        return;
+      }
+
+      if (document.getElementById('return').checked) distance *= 2;
+
+      /* Two ways of quoting economy, and they are inverses of one another.
+         Mixing them up is the classic mistake here - 12 km/l is efficient,
+         12 l/100km is not. */
+      var litres = unit === 'kmpl'
+        ? distance / economy
+        : distance * economy / 100;
+
+      var cost = litres * price;
+
+      out.innerHTML = money(cost) +
+        '<small>for ' + CT.num(distance, 1) + ' km' +
+        (people > 1 ? ', shared between ' + people : '') + '</small>';
+
+      document.getElementById('s-litres').textContent = CT.num(litres, 2) + ' L';
+      document.getElementById('s-perkm').textContent =
+        distance > 0 ? money(cost / distance) : '—';
+      document.getElementById('s-each').textContent = money(cost / people);
+
+      document.getElementById('s-week').textContent = money(cost * 5);
+      document.getElementById('s-month').textContent = money(cost * 22);
+      document.getElementById('s-year').textContent = money(cost * 22 * 12);
+    }
+
+    ['distance', 'economy', 'price', 'people', 'unit', 'return'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', calc);
+      el.addEventListener('change', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

@@ -330,6 +330,41 @@ const TOOLS = [
     category: 'money',
     desc: 'What money from one year is worth in another, and what it buys now.',
     keywords: ['inflation', 'value', 'purchasing power', 'cost of living', 'rupee']
+  },
+  {
+    slug: 'debt-payoff',
+    name: 'Debt Payoff Planner',
+    category: 'money',
+    desc: 'Clear several debts in the order that saves the most, or the order that keeps you going.',
+    keywords: ['debt', 'payoff', 'snowball', 'avalanche', 'loan', 'clear', 'plan']
+  },
+  {
+    slug: 'credit-card-payoff',
+    name: 'Credit Card Payoff',
+    category: 'money',
+    desc: 'How long the minimum payment really takes, and what paying more saves.',
+    keywords: ['credit card', 'minimum payment', 'interest', 'payoff', 'debt']
+  },
+  {
+    slug: 'car-loan',
+    name: 'Car Loan Calculator',
+    category: 'money',
+    desc: 'Monthly instalment on a vehicle, with the deposit and the real total cost.',
+    keywords: ['car', 'vehicle', 'loan', 'lease', 'instalment', 'auto', 'bike']
+  },
+  {
+    slug: 'fuel-cost',
+    name: 'Fuel Cost Calculator',
+    category: 'money',
+    desc: 'What a trip costs in fuel, and what your driving costs per month.',
+    keywords: ['fuel', 'petrol', 'diesel', 'mileage', 'trip', 'cost', 'car']
+  },
+  {
+    slug: 'paycheck',
+    name: 'Payslip Calculator',
+    category: 'money',
+    desc: 'Build a full payslip from basic, allowances and overtime down to net pay.',
+    keywords: ['payslip', 'paycheck', 'salary', 'net pay', 'deductions', 'overtime', 'epf']
   }
 ];
 

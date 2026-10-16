@@ -764,6 +764,108 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- money, part 2
+
+(function sharedTaxTable() {
+  // The PAYE tool and the payslip tool must agree, because they now read
+  // the same file. This checks the shared figures are actually shared.
+  const win = {};
+  new Function('window', fs.readFileSync(path.join(SRC, 'assets/lk-tax.js'), 'utf8'))(win);
+  const T = win.LK_TAX;
+  ok(T.relief === 1800000, 'relief is 1,800,000');
+  ok(T.bands.length === 5, 'five bands above the relief');
+  ok(Math.abs(T.annualTax(3000000).total - 96000) < 0.01,
+     'shared table gives 96,000 on a 3,000,000 income',
+     'got ' + T.annualTax(3000000).total);
+  ok(Math.abs(T.monthlyTax(250000) - 8000) < 0.01,
+     'and 8,000 a month on a 250,000 salary');
+
+  const payeSrc = fs.readFileSync(path.join(SRC, 'tools/paye-tax-calculator.html'), 'utf8');
+  ok(payeSrc.indexOf('lk-tax.js') !== -1, 'the PAYE tool loads the shared table');
+  ok(payeSrc.indexOf('var RELIEF = 1800000') === -1,
+     'and no longer keeps its own copy of the relief figure');
+})();
+
+(function debtPayoff() {
+  const t = loadTool('debt-payoff');
+  t.set('extra', 10000);
+  const shown = t.text('compare');
+  has(shown, 'Avalanche', 'both strategies are compared');
+  has(shown, 'Snowball', 'including snowball');
+  // avalanche must never cost more than snowball
+  has(shown, 'Costs less', 'one is marked as cheaper');
+  t.close();
+})();
+
+(function creditCard() {
+  const t = loadTool('credit-card-payoff');
+  t.set('balance', 200000).set('rate', 28).set('minPct', 5).set('minFloor', 1000);
+  has(t.text('out'), 'year', 'minimum payments take years');
+
+  // the important case: a minimum that cannot cover the interest
+  t.set('minPct', 1).set('minFloor', 0);
+  has(t.text('out'), 'never clears', 'a minimum below the interest never clears');
+  has(t.text('alarm-slot'), 'grows every month', 'and it explains why');
+
+  // zero interest should clear in balance / payment months
+  t.set('rate', 0).set('minPct', 0).set('minFloor', 10000);
+  has(t.text('out'), '1 year 8 months', '200,000 at 10,000 a month is 20 months');
+  t.close();
+})();
+
+(function carLoan() {
+  const t = loadTool('car-loan');
+  t.set('price', 5000000).set('depositPct', 20).set('rate', 15).set('years', 5).set('fees', 0);
+  ok(t.byId('deposit').value === '1000000', 'deposit percentage fills the amount');
+  has(t.text('s-loan'), '4,000,000', 'the financed amount');
+  // 4,000,000 at 15% over 5 years is about 95,161 a month
+  has(t.text('out'), '95,1', 'the monthly instalment');
+  // fees added to the loan must increase it
+  t.set('fees', 100000);
+  has(t.text('s-loan'), '4,100,000', 'fees are added to the amount financed');
+  t.close();
+})();
+
+(function fuelCost() {
+  const t = loadTool('fuel-cost');
+  t.set('distance', 120).set('economy', 12).set('unit', 'kmpl')
+   .set('price', 310).set('people', 1);
+  // 120 / 12 = 10 litres at 310 = 3100
+  has(t.text('out'), '3,100', '120km at 12km/l and Rs.310 is Rs.3,100');
+  has(t.text('s-litres'), '10 L', 'ten litres used');
+
+  // the other way of quoting economy is the inverse, not the same number
+  t.set('unit', 'l100').set('economy', 12);
+  // 120 * 12 / 100 = 14.4 litres
+  has(t.text('s-litres'), '14.4 L', 'l/100km is handled as the inverse, not the same');
+
+  t.set('unit', 'kmpl').set('economy', 12).set('people', 4);
+  has(t.text('s-each'), '775', 'splitting four ways');
+
+  t.set('people', 1).set('return', true);
+  has(t.text('out'), '6,200', 'a return trip doubles the cost');
+  t.close();
+})();
+
+(function payslip() {
+  const t = loadTool('paycheck');
+  t.set('basic', 120000).set('ot-hours', 0).set('epf-on', true);
+  const slip = t.text('slip');
+  // 120,000 + 15,000 + 10,000 default allowances = 145,000 gross
+  has(slip, '145,000.00', 'gross is basic plus allowances');
+  // EPF 8% of 145,000 = 11,600
+  has(slip, '11,600.00', 'EPF is 8% of earnings');
+  // employer 12% = 17,400
+  has(slip, '17,400.00', 'employer EPF is 12%');
+
+  // overtime must be added to gross but excluded from the EPF base
+  t.set('ot-hours', 10).set('ot-rate', '1.5');
+  // hourly = 120000/240 = 500, OT = 500 * 1.5 * 10 = 7,500
+  has(t.text('slip'), '7,500.00', 'overtime is priced off the basic salary');
+  has(t.text('slip'), '11,600.00', 'and EPF still ignores overtime');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

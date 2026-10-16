@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debt Payoff Planner — Cja's Tools</title>
+<meta name="description" content="Clear several debts in the order that saves the most interest, or the order that clears accounts fastest. Compares both. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .debt {
+    display: grid; grid-template-columns: 1fr 118px 84px 104px auto;
+    gap: 9px; align-items: center; margin-bottom: 9px;
+  }
+  .head-row {
+    display: grid; grid-template-columns: 1fr 118px 84px 104px auto; gap: 9px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  .debt .drop {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 17px; padding: 0 4px;
+  }
+  .debt .drop:hover { color: var(--danger); }
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .plan {
+    padding: 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+  }
+  .plan.best { border-color: #27b86a; }
+  .plan h4 { margin: 0 0 4px; font-size: 14.5px; }
+  .plan .big { font-size: 21px; font-weight: 650; margin: 6px 0 2px; }
+  .plan .sub { font-size: 12.5px; color: var(--muted); }
+  .plan .tag {
+    display: inline-block; margin-top: 9px; padding: 2px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 650; background: #dcf5e7; color: #146b3c;
+  }
+  .order { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+  @media (max-width: 680px) {
+    .debt, .head-row { grid-template-columns: 1fr 88px 64px 78px auto; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="debt-payoff">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Debt Payoff Planner</h1>
+        <p>Two ways to clear the same debts. It shows you both.</p>
+      </div>
+
+      <div class="panel">
+        <div class="head-row">
+          <span>Debt</span><span>Balance</span><span>Rate %</span><span>Minimum</span><span></span>
+        </div>
+        <div id="debts"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="add">Add a debt</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="extra">Extra you can put in each month, on top of the minimums</label>
+          <input type="number" id="extra" value="10000" step="any" min="0">
+        </div>
+        <p class="hint" id="min-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="compare" id="compare"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Avalanche</b> pays the highest interest rate first. It
+          always costs the least. <b>Snowball</b> pays the smallest balance first,
+          so accounts disappear sooner &mdash; it costs more, but people stick with
+          it. If the difference is small, pick the one you will actually follow.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var debts = [
+      { name: 'Credit card', balance: 250000, rate: 28, min: 12500 },
+      { name: 'Personal loan', balance: 600000, rate: 16, min: 18000 },
+      { name: 'Phone instalment', balance: 80000, rate: 0, min: 8000 }
+    ];
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function duration(m) {
+      var y = Math.floor(m / 12), r = m % 12;
+      if (!y) return r + ' month' + (r === 1 ? '' : 's');
+      if (!r) return y + ' year' + (y === 1 ? '' : 's');
+      return y + 'y ' + r + 'm';
+    }
+
+    function draw() {
+      document.getElementById('debts').innerHTML = debts.map(function (d, i) {
+        return '<div class="debt">' +
+          '<input type="text" data-i="' + i + '" data-f="name" value="' +
+            d.name.replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-i="' + i + '" data-f="balance" value="' +
+            d.balance + '" step="any" min="0">' +
+          '<input type="number" data-i="' + i + '" data-f="rate" value="' +
+            d.rate + '" step="any" min="0">' +
+          '<input type="number" data-i="' + i + '" data-f="min" value="' +
+            d.min + '" step="any" min="0">' +
+          '<button class="drop" data-drop="' + i + '" title="Remove">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    /* Runs the whole repayment month by month. Every debt gets its minimum,
+       then whatever is left over goes entirely to one target debt, chosen by
+       the strategy. When a debt clears, its minimum joins the spare money -
+       that rolling-up is what makes either method work. */
+    function simulate(order, extra) {
+      var list = debts.map(function (d) {
+        return {
+          name: d.name,
+          balance: Math.max(0, parseFloat(d.balance) || 0),
+          rate: Math.max(0, parseFloat(d.rate) || 0),
+          min: Math.max(0, parseFloat(d.min) || 0)
+        };
+      }).filter(function (d) { return d.balance > 0; });
+
+      if (!list.length) return null;
+
+      var queue = order(list.slice());
+      var months = 0;
+      var totalInterest = 0;
+      var cleared = [];
+
+      while (months < 600) {
+        var open = queue.filter(function (d) { return d.balance > 0.005; });
+        if (!open.length) break;
+        months++;
+
+        /* Interest first, on what is still owed. */
+        open.forEach(function (d) {
+          var i = d.balance * (d.rate / 100 / 12);
+          d.balance += i;
+          totalInterest += i;
+        });
+
+        var pot = extra;
+        open.forEach(function (d) { pot += d.min; });
+
+        /* Minimums, capped so nobody overpays a nearly-cleared debt. */
+        open.forEach(function (d) {
+          var pay = Math.min(d.min, d.balance, pot);
+          d.balance -= pay;
+          pot -= pay;
+        });
+
+        /* Everything left goes to the first debt still open, in order. */
+        for (var k = 0; k < queue.length && pot > 0.005; k++) {
+          var d = queue[k];
+          if (d.balance <= 0.005) continue;
+          var pay2 = Math.min(pot, d.balance);
+          d.balance -= pay2;
+          pot -= pay2;
+        }
+
+        queue.forEach(function (d) {
+          if (d.balance <= 0.005 && cleared.indexOf(d.name) === -1) {
+            cleared.push(d.name);
+          }
+        });
+      }
+
+      var done = queue.every(function (d) { return d.balance <= 0.005; });
+      return {
+        months: months, interest: totalInterest, order: queue.map(function (d) {
+          return d.name;
+        }), cleared: cleared, finished: done
+      };
+    }
+
+    function calc() {
+      var extra = parseFloat(document.getElementById('extra').value);
+      if (!isFinite(extra) || extra < 0) extra = 0;
+
+      var totalMin = debts.reduce(function (a, d) {
+        return a + (parseFloat(d.min) || 0);
+      }, 0);
+      document.getElementById('min-note').textContent =
+        'Minimums add up to Rs. ' + money(totalMin) + ' a month, so you would be paying Rs. ' +
+        money(totalMin + extra) + ' in total.';
+
+      var avalanche = simulate(function (l) {
+        return l.sort(function (a, b) { return b.rate - a.rate; });
+      }, extra);
+
+      var snowball = simulate(function (l) {
+        return l.sort(function (a, b) { return a.balance - b.balance; });
+      }, extra);
+
+      var host = document.getElementById('compare');
+
+      if (!avalanche || !snowball) {
+        host.innerHTML = '<p class="hint" style="margin:0">Add a debt with a balance above zero.</p>';
+        return;
+      }
+
+      if (!avalanche.finished || !snowball.finished) {
+        host.innerHTML = '<p class="hint" style="margin:0">' +
+          'At these payments the debts never clear — the interest is growing ' +
+          'faster than the payments. Increase the minimums or the extra amount.</p>';
+        return;
+      }
+
+      var saving = snowball.interest - avalanche.interest;
+
+      function card(title, r, best, note) {
+        return '<div class="plan' + (best ? ' best' : '') + '">' +
+          '<h4>' + title + '</h4>' +
+          '<div class="sub">' + note + '</div>' +
+          '<div class="big">' + duration(r.months) + '</div>' +
+          '<div class="sub">Rs. ' + money(r.interest) + ' paid in interest</div>' +
+          (best ? '<span class="tag">Costs less</span>' : '') +
+          '<div class="order">Order: ' + r.order.join(' → ') + '</div>' +
+        '</div>';
+      }
+
+      host.innerHTML =
+        card('Avalanche', avalanche, saving > 0.5, 'Highest interest rate first') +
+        card('Snowball', snowball, saving <= 0.5, 'Smallest balance first') +
+        '<div class="plan" style="grid-column:1/-1;border-style:dashed">' +
+          '<h4>The difference</h4>' +
+          '<div class="big">' + (saving < 1 ? 'Almost nothing' : 'Rs. ' + money(saving)) + '</div>' +
+          '<div class="sub">' +
+            (saving < 1
+              ? 'Both orders cost about the same here, so choose whichever you will keep up.'
+              : 'Avalanche saves that much in interest, and finishes ' +
+                (snowball.months === avalanche.months
+                  ? 'in the same time'
+                  : Math.abs(snowball.months - avalanche.months) + ' month' +
+                    (Math.abs(snowball.months - avalanche.months) === 1 ? '' : 's') +
+                    (avalanche.months < snowball.months ? ' sooner' : ' later')) + '.') +
+          '</div></div>';
+    }
+
+    document.getElementById('debts').addEventListener('input', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      debts[+el.dataset.i][el.dataset.f] = el.dataset.f === 'name' ? el.value : el.value;
+      calc();
+    });
+
+    document.getElementById('debts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      if (debts.length <= 1) { CT.toast('Keep at least one debt'); return; }
+      debts.splice(+b.dataset.drop, 1);
+      draw();
+      calc();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      debts.push({ name: 'Debt ' + (debts.length + 1), balance: 100000, rate: 15, min: 5000 });
+      draw();
+      calc();
+    });
+
+    document.getElementById('extra').addEventListener('input', calc);
+
+    draw();
+    calc();
+  })();
+  </script>
+</body>
+</html>

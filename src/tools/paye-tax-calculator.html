@@ -104,24 +104,19 @@
 
   <script src="../assets/tools.js"></script>
   <script src="../assets/app.js"></script>
+  <script src="../assets/lk-tax.js"></script>
   <script>
   (function () {
-    /* Yearly bands effective 1 April 2025. Each band is the width of the
-       slab and the rate on it; the first is the tax-free personal relief.
-       Working yearly and dividing by twelve avoids the rounding drift you
-       get from the rounded monthly figures in the printed IRD table. */
-    var RELIEF = 1800000;
-    var BANDS = [
-      { width: 1000000, rate: 0.06 },
-      { width:  500000, rate: 0.18 },
-      { width:  500000, rate: 0.24 },
-      { width:  500000, rate: 0.30 },
-      { width: Infinity, rate: 0.36 }
-    ];
+    /* The bands, relief and contribution rates live in assets/lk-tax.js so
+       this tool and the payslip builder cannot drift apart when rates
+       change. Working yearly and dividing by twelve avoids the rounding
+       drift of the printed monthly IRD table. */
+    var RELIEF = LK_TAX.relief;
+    var BANDS = LK_TAX.bands;
 
-    var EPF_EMPLOYEE = 0.08;
-    var EPF_EMPLOYER = 0.12;
-    var ETF_EMPLOYER = 0.03;
+    var EPF_EMPLOYEE = LK_TAX.epfEmployee;
+    var EPF_EMPLOYER = LK_TAX.epfEmployer;
+    var ETF_EMPLOYER = LK_TAX.etfEmployer;
 
     var salaryInput = document.getElementById('salary');
     var epfBox = document.getElementById('epf');
@@ -132,42 +127,11 @@
       });
     }
 
+    /* Delegates to the shared implementation. It returns every band,
+       including the ones above this income with zero tax, so the whole
+       table can be shown greyed out. */
     function annualTax(annual) {
-      var taxable = Math.max(0, annual - RELIEF);
-      var rows = [];
-      var lower = RELIEF;
-      var total = 0;
-
-      for (var i = 0; i < BANDS.length; i++) {
-        var b = BANDS[i];
-        var inBand = Math.min(taxable, b.width);
-        var tax = inBand * b.rate;
-        total += tax;
-        rows.push({
-          from: lower,
-          to: b.width === Infinity ? Infinity : lower + b.width,
-          rate: b.rate,
-          amount: inBand,
-          tax: tax
-        });
-        lower = b.width === Infinity ? lower : lower + b.width;
-        taxable -= inBand;
-        if (taxable <= 0) {
-          /* Still list the remaining bands, greyed out, so the whole
-             table is visible and the user can see what comes next. */
-          for (var j = i + 1; j < BANDS.length; j++) {
-            var nb = BANDS[j];
-            rows.push({
-              from: lower,
-              to: nb.width === Infinity ? Infinity : lower + nb.width,
-              rate: nb.rate, amount: 0, tax: 0
-            });
-            lower = nb.width === Infinity ? lower : lower + nb.width;
-          }
-          break;
-        }
-      }
-      return { total: total, rows: rows };
+      return LK_TAX.annualTax(annual);
     }
 
     function bandLabel(row) {

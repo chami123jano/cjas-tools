@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Car Loan Calculator — Cja's Tools</title>
+<meta name="description" content="Monthly instalment on a vehicle loan or lease, with the deposit, the total interest and what the vehicle really costs. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .bar { display: flex; height: 26px; border-radius: 7px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 9px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+  .terms { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .terms th, .terms td { padding: 8px 4px; text-align: right; }
+  .terms th:first-child, .terms td:first-child { text-align: left; }
+  .terms thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .terms tbody tr { border-bottom: 1px solid var(--border); }
+  .terms tbody tr.on { background: var(--accent-soft); }
+</style>
+</head>
+<body data-page="tool" data-slug="car-loan">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Car Loan Calculator</h1>
+        <p>Works for a car, a van, a bike or a three-wheeler.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="price">Vehicle price</label>
+          <input type="number" id="price" value="6500000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="deposit">Deposit</label>
+            <input type="number" id="deposit" value="1950000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="depositPct">Deposit as a %</label>
+            <input type="number" id="depositPct" value="30" step="any" min="0" max="100">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Interest rate (% a year)</label>
+            <input type="number" id="rate" value="15" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="years">Term (years)</label>
+            <input type="number" id="years" value="5" step="any" min="0">
+          </div>
+        </div>
+        <div class="field">
+          <label for="fees">One-off fees added to the loan</label>
+          <input type="number" id="fees" value="0" step="any" min="0">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:16px">
+          <div class="stat"><b id="s-loan">&mdash;</b><span>Amount financed</span></div>
+          <div class="stat"><b id="s-interest">&mdash;</b><span>Interest over the term</span></div>
+          <div class="stat"><b id="s-total">&mdash;</b><span>Total cost of the vehicle</span></div>
+        </div>
+        <div class="bar" id="bar"></div>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i><span id="l-a">Deposit</span></span>
+          <span><i style="background:#7aa7ff"></i><span id="l-b">Loan</span></span>
+          <span><i style="background:#e8a33d"></i><span id="l-c">Interest</span></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Longer or shorter term</label>
+        <table class="terms">
+          <thead><tr><th>Term</th><th>Monthly</th><th>Total interest</th></tr></thead>
+          <tbody id="terms"></tbody>
+        </table>
+        <p class="hint">A longer term drops the monthly payment but adds interest.
+          Vehicles also lose value, so a long term on a depreciating asset can
+          leave you owing more than it is worth.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function payment(principal, annualRate, years) {
+      var months = Math.round(years * 12);
+      if (months <= 0) return NaN;
+      var r = annualRate / 100 / 12;
+      return r === 0 ? principal / months
+        : principal * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+    }
+
+    /* Deposit as an amount and as a percentage stay in step, whichever the
+       user last touched. The flag stops them updating each other in a loop. */
+    var syncing = false;
+
+    function fromAmount() {
+      if (syncing) return;
+      var price = n('price'), dep = n('deposit');
+      if (!isFinite(price) || price <= 0 || !isFinite(dep)) return;
+      syncing = true;
+      document.getElementById('depositPct').value = Math.round(dep / price * 10000) / 100;
+      syncing = false;
+    }
+
+    function fromPct() {
+      if (syncing) return;
+      var price = n('price'), pct = n('depositPct');
+      if (!isFinite(price) || !isFinite(pct)) return;
+      syncing = true;
+      document.getElementById('deposit').value = Math.round(price * pct / 100);
+      syncing = false;
+    }
+
+    function calc() {
+      var price = n('price');
+      var deposit = n('deposit');
+      var rate = n('rate');
+      var years = n('years');
+      var fees = n('fees');
+      var out = document.getElementById('out');
+
+      if (!isFinite(fees)) fees = 0;
+
+      if (!isFinite(price) || !isFinite(deposit) || !isFinite(rate) ||
+          !isFinite(years) || price <= 0 || years <= 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        document.getElementById('terms').innerHTML = '';
+        return;
+      }
+
+      if (deposit >= price) {
+        out.innerHTML = 'No loan needed' +
+          '<small>the deposit covers the whole price</small>';
+        ['s-loan', 's-interest', 's-total'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        document.getElementById('terms').innerHTML = '';
+        return;
+      }
+
+      var loan = price - deposit + fees;
+      var monthly = payment(loan, rate, years);
+      var totalRepaid = monthly * Math.round(years * 12);
+      var interest = totalRepaid - loan;
+      var trueCost = deposit + totalRepaid;
+
+      out.innerHTML = 'Rs. ' + money(monthly) +
+        '<small>a month for ' + CT.num(years, 0) + ' years</small>';
+
+      document.getElementById('s-loan').textContent = money(loan);
+      document.getElementById('s-interest').textContent = money(interest);
+      document.getElementById('s-total').textContent = money(trueCost);
+
+      var total = Math.max(trueCost, 1);
+      document.getElementById('bar').innerHTML =
+        '<i style="background:var(--accent);width:' + (deposit / total * 100) + '%"></i>' +
+        '<i style="background:#7aa7ff;width:' + (loan / total * 100) + '%"></i>' +
+        '<i style="background:#e8a33d;width:' + (interest / total * 100) + '%"></i>';
+
+      document.getElementById('l-a').textContent = 'Deposit ' + money(deposit);
+      document.getElementById('l-b').textContent = 'Loan ' + money(loan);
+      document.getElementById('l-c').textContent = 'Interest ' + money(interest);
+
+      document.getElementById('terms').innerHTML = [1, 2, 3, 4, 5, 6, 7].map(function (y) {
+        var p = payment(loan, rate, y);
+        var ti = p * y * 12 - loan;
+        return '<tr' + (Math.round(years) === y ? ' class="on"' : '') + '>' +
+          '<td>' + y + ' year' + (y === 1 ? '' : 's') + '</td>' +
+          '<td>' + money(p) + '</td><td>' + money(ti) + '</td></tr>';
+      }).join('');
+    }
+
+    document.getElementById('deposit').addEventListener('input', function () { fromAmount(); calc(); });
+    document.getElementById('depositPct').addEventListener('input', function () { fromPct(); calc(); });
+    document.getElementById('price').addEventListener('input', function () { fromPct(); calc(); });
+    ['rate', 'years', 'fees'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

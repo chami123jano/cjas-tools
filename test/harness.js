@@ -84,18 +84,19 @@ function loadTool(slug, opts = {}) {
   const { window } = dom;
   const { document } = window;
 
-  // The page's <script src> tags are not fetched by jsdom, so the shared
-  // files are injected by hand in the same order the page lists them.
-  for (const rel of ['assets/tools.js', 'assets/app.js']) {
-    const code = fs.readFileSync(path.join(SRC, rel), 'utf8');
+  // jsdom does not fetch <script src>, so every file the page references is
+  // read off disk and injected here, in the order the page lists them. Read
+  // from the markup rather than a fixed list, so a page pulling in a new
+  // shared file just works instead of failing with an undefined global.
+  const srcs = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]);
+  for (const src of srcs) {
+    const rel = src.replace(/^(\.\.\/)+/, '');
+    const file = path.join(SRC, rel);
+    if (!fs.existsSync(file)) {
+      throw new Error(slug + '.html references ' + src + ', which does not exist');
+    }
     const el = document.createElement('script');
-    el.textContent = code;
-    document.body.appendChild(el);
-  }
-  for (const vendor of html.match(/vendor\/[\w.]+\.js/g) || []) {
-    const code = fs.readFileSync(path.join(SRC, 'assets', vendor), 'utf8');
-    const el = document.createElement('script');
-    el.textContent = code;
+    el.textContent = fs.readFileSync(file, 'utf8');
     document.body.appendChild(el);
   }
 

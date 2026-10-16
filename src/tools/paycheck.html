@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payslip Calculator — Cja's Tools</title>
+<meta name="description" content="Build a full Sri Lankan payslip from basic salary, allowances and overtime down to net pay, with EPF, ETF and APIT. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .slip { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .slip td { padding: 8px 4px; }
+  .slip td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .slip tr.sub td { border-top: 1px solid var(--border); font-weight: 650; }
+  .slip tr.total td {
+    border-top: 2px solid var(--border); font-weight: 700; font-size: 16px; padding-top: 11px;
+  }
+  .slip tr.muted td { color: var(--muted); }
+  .slip tr.head td {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); padding-top: 16px;
+  }
+  .rows { display: grid; grid-template-columns: 1fr 140px auto; gap: 9px; align-items: center; margin-bottom: 9px; }
+  .rows .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .rows .drop:hover { color: var(--danger); }
+</style>
+</head>
+<body data-page="tool" data-slug="paycheck">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Payslip Calculator</h1>
+        <p>From basic salary all the way down to what reaches your account.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="basic">Basic salary</label>
+          <input type="number" id="basic" value="120000" step="any" min="0">
+        </div>
+        <label style="margin-bottom:7px">Allowances</label>
+        <div id="allowances"></div>
+        <div class="btns">
+          <button class="btn" id="add-allow">Add an allowance</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Overtime</label>
+        <div class="row">
+          <div class="field">
+            <label for="ot-hours">Hours</label>
+            <input type="number" id="ot-hours" value="0" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="ot-rate">Rate multiplier</label>
+            <select id="ot-rate">
+              <option value="1.5" selected>1.5&times; (normal overtime)</option>
+              <option value="2">2&times; (holiday or rest day)</option>
+              <option value="1">1&times; (plain rate)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="ot-note"></p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:7px">Other deductions</label>
+        <div id="deductions"></div>
+        <div class="btns">
+          <button class="btn" id="add-ded">Add a deduction</button>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label>
+            <input type="checkbox" id="epf-on" checked style="width:auto;margin-right:7px">
+            Deduct EPF at 8%
+          </label>
+        </div>
+        <p class="hint">EPF is normally worked out on basic salary plus allowances
+          that count as earnings. Overtime usually does not attract EPF, so it is
+          left out of the EPF base here.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="net">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <table class="slip"><tbody id="slip"></tbody></table>
+        <p class="hint" id="rates-note"></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/lk-tax.js"></script>
+  <script>
+  (function () {
+    var allowances = [
+      { name: 'Transport', amount: 15000 },
+      { name: 'Meal', amount: 10000 }
+    ];
+    var deductions = [
+      { name: 'Staff loan', amount: 0 }
+    ];
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : 0;
+    }
+
+    function drawRows(host, list, kind) {
+      document.getElementById(host).innerHTML = list.map(function (r, i) {
+        return '<div class="rows">' +
+          '<input type="text" data-k="' + kind + '" data-i="' + i + '" data-f="name" value="' +
+            r.name.replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-k="' + kind + '" data-i="' + i + '" data-f="amount" value="' +
+            r.amount + '" step="any" min="0">' +
+          '<button class="drop" data-k="' + kind + '" data-drop="' + i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function calc() {
+      var basic = n('basic');
+      var allowTotal = allowances.reduce(function (a, r) {
+        return a + (parseFloat(r.amount) || 0);
+      }, 0);
+
+      /* Overtime is normally priced off the basic salary, using the common
+         240-hour month convention (8 hours over 30 days). Employers differ,
+         so the assumption is stated on the page rather than hidden. */
+      var hourly = basic / 240;
+      var otHours = n('ot-hours');
+      var otMultiplier = parseFloat(document.getElementById('ot-rate').value);
+      var otPay = hourly * otMultiplier * otHours;
+
+      document.getElementById('ot-note').textContent = basic > 0
+        ? 'Based on an hourly rate of Rs. ' + money(hourly) +
+          ', which is the basic salary over 240 hours a month. Check how your ' +
+          'employer works this out.'
+        : '';
+
+      var gross = basic + allowTotal + otPay;
+
+      /* EPF is taken on earnings, not on overtime. */
+      var epfBase = basic + allowTotal;
+      var epfOn = document.getElementById('epf-on').checked;
+      var epfEmployee = epfOn ? epfBase * LK_TAX.epfEmployee : 0;
+      var epfEmployer = epfOn ? epfBase * LK_TAX.epfEmployer : 0;
+      var etfEmployer = epfOn ? epfBase * LK_TAX.etfEmployer : 0;
+
+      /* APIT is on total remuneration, and is not reduced by the employee's
+         own EPF contribution. */
+      var tax = LK_TAX.monthlyTax(gross);
+
+      var otherDed = deductions.reduce(function (a, r) {
+        return a + (parseFloat(r.amount) || 0);
+      }, 0);
+
+      var net = gross - tax - epfEmployee - otherDed;
+
+      document.getElementById('net').innerHTML = 'Rs. ' + money(net) +
+        '<small>reaching your account each month</small>';
+
+      var rows = '';
+      rows += '<tr class="head"><td>Earnings</td><td></td></tr>';
+      rows += '<tr><td>Basic salary</td><td>' + money(basic) + '</td></tr>';
+      allowances.forEach(function (a) {
+        var v = parseFloat(a.amount) || 0;
+        if (v) rows += '<tr><td>' + (a.name || 'Allowance') + '</td><td>' + money(v) + '</td></tr>';
+      });
+      if (otPay) {
+        rows += '<tr><td>Overtime (' + CT.num(otHours, 1) + ' hrs at ' +
+          otMultiplier + '&times;)</td><td>' + money(otPay) + '</td></tr>';
+      }
+      rows += '<tr class="sub"><td>Gross pay</td><td>' + money(gross) + '</td></tr>';
+
+      rows += '<tr class="head"><td>Deductions</td><td></td></tr>';
+      rows += '<tr><td>APIT (PAYE)</td><td>− ' + money(tax) + '</td></tr>';
+      if (epfOn) {
+        rows += '<tr><td>EPF employee (8%)</td><td>− ' + money(epfEmployee) + '</td></tr>';
+      }
+      deductions.forEach(function (d) {
+        var v = parseFloat(d.amount) || 0;
+        if (v) rows += '<tr><td>' + (d.name || 'Deduction') + '</td><td>− ' + money(v) + '</td></tr>';
+      });
+
+      rows += '<tr class="total"><td>Net pay</td><td>' + money(net) + '</td></tr>';
+
+      if (epfOn) {
+        rows += '<tr class="head"><td>Paid by your employer, on top</td><td></td></tr>';
+        rows += '<tr class="muted"><td>EPF employer (12%)</td><td>' + money(epfEmployer) + '</td></tr>';
+        rows += '<tr class="muted"><td>ETF employer (3%)</td><td>' + money(etfEmployer) + '</td></tr>';
+        rows += '<tr class="muted"><td>Into your EPF this month</td><td>' +
+          money(epfEmployee + epfEmployer) + '</td></tr>';
+      }
+
+      document.getElementById('slip').innerHTML = rows;
+
+      document.getElementById('rates-note').textContent =
+        'Tax bands are those in force from ' + LK_TAX.effectiveFrom +
+        '. This assumes one employer named as your primary employment and a ' +
+        'regular monthly salary. Bonuses and second jobs use different IRD tables.';
+    }
+
+    function bind(host) {
+      document.getElementById(host).addEventListener('input', function (e) {
+        var el = e.target;
+        if (el.dataset.i === undefined) return;
+        var list = el.dataset.k === 'allow' ? allowances : deductions;
+        list[+el.dataset.i][el.dataset.f] = el.value;
+        calc();
+      });
+      document.getElementById(host).addEventListener('click', function (e) {
+        var b = e.target.closest('[data-drop]');
+        if (!b) return;
+        var list = b.dataset.k === 'allow' ? allowances : deductions;
+        list.splice(+b.dataset.drop, 1);
+        drawRows(host, list, b.dataset.k);
+        calc();
+      });
+    }
+
+    document.getElementById('add-allow').addEventListener('click', function () {
+      allowances.push({ name: 'Allowance ' + (allowances.length + 1), amount: 0 });
+      drawRows('allowances', allowances, 'allow');
+      calc();
+    });
+
+    document.getElementById('add-ded').addEventListener('click', function () {
+      deductions.push({ name: 'Deduction ' + (deductions.length + 1), amount: 0 });
+      drawRows('deductions', deductions, 'ded');
+      calc();
+    });
+
+    ['basic', 'ot-hours', 'ot-rate', 'epf-on'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', calc);
+      el.addEventListener('change', calc);
+    });
+
+    drawRows('allowances', allowances, 'allow');
+    drawRows('deductions', deductions, 'ded');
+    bind('allowances');
+    bind('deductions');
+    calc();
+  })();
+  </script>
+</body>
+</html>

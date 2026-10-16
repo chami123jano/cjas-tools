@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Credit Card Payoff — Cja's Tools</title>
+<meta name="description" content="See how long the minimum payment really takes to clear a credit card, and how much paying a little more saves. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .opt {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
+    align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--border);
+  }
+  .opt:last-child { border-bottom: none; }
+  .opt .lbl { font-size: 14.5px; }
+  .opt .lbl small { display: block; color: var(--muted); font-size: 12px; }
+  .opt .time { font-weight: 650; font-size: 15px; text-align: right; }
+  .opt .cost { text-align: right; font-size: 13.5px; color: var(--muted); min-width: 108px; }
+  .alarm {
+    padding: 13px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="credit-card-payoff">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Credit Card Payoff</h1>
+        <p>The minimum payment is designed to keep you paying. This shows by how much.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="balance">Balance owed</label>
+          <input type="number" id="balance" value="200000" step="any" min="0">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Interest rate (% a year)</label>
+            <input type="number" id="rate" value="28" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="minPct">Minimum payment (% of balance)</label>
+            <input type="number" id="minPct" value="5" step="any" min="0">
+          </div>
+        </div>
+        <div class="field">
+          <label for="minFloor">But never less than</label>
+          <input type="number" id="minFloor" value="1000" step="any" min="0">
+        </div>
+        <p class="hint">Sri Lankan cards commonly ask for 5% of the balance with a
+          small floor. Check your own statement &mdash; the terms vary.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div id="alarm-slot" style="margin-top:14px"></div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">If you paid a fixed amount instead</label>
+        <div id="options"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function duration(m) {
+      var y = Math.floor(m / 12), r = m % 12;
+      if (!y) return r + ' month' + (r === 1 ? '' : 's');
+      if (!r) return y + ' year' + (y === 1 ? '' : 's');
+      return y + ' year' + (y === 1 ? '' : 's') + ' ' + r + ' month' + (r === 1 ? '' : 's');
+    }
+
+    /* Minimum payments shrink as the balance does, which is exactly why they
+       drag on. Simulated month by month rather than solved, because the
+       payment is not constant. */
+    function payMinimum(balance, annual, pct, floor) {
+      var r = annual / 100 / 12;
+      var months = 0, interest = 0, paid = 0;
+      while (balance > 0.005 && months < 1200) {
+        var i = balance * r;
+        balance += i;
+        interest += i;
+        var pay = Math.max(balance * pct / 100, floor);
+        if (pay > balance) pay = balance;
+        /* If the minimum cannot even cover the interest, the balance grows
+           and it never clears. Worth saying outright. */
+        if (pay <= i && pay < balance) return { never: true };
+        balance -= pay;
+        paid += pay;
+        months++;
+      }
+      if (balance > 0.005) return { never: true };
+      return { months: months, interest: interest, paid: paid };
+    }
+
+    function payFixed(balance, annual, amount) {
+      var r = annual / 100 / 12;
+      var months = 0, interest = 0, paid = 0;
+      while (balance > 0.005 && months < 1200) {
+        var i = balance * r;
+        balance += i;
+        interest += i;
+        var pay = Math.min(amount, balance);
+        if (pay <= i && pay < balance) return { never: true };
+        balance -= pay;
+        paid += pay;
+        months++;
+      }
+      if (balance > 0.005) return { never: true };
+      return { months: months, interest: interest, paid: paid };
+    }
+
+    function calc() {
+      var balance = n('balance');
+      var rate = n('rate');
+      var pct = n('minPct');
+      var floor = n('minFloor');
+      var out = document.getElementById('out');
+      var alarm = document.getElementById('alarm-slot');
+      var host = document.getElementById('options');
+
+      if (!isFinite(balance) || !isFinite(rate) || !isFinite(pct) || balance <= 0) {
+        out.innerHTML = '&mdash;<small>Fill in the boxes above</small>';
+        alarm.innerHTML = '';
+        host.innerHTML = '';
+        return;
+      }
+      if (!isFinite(floor)) floor = 0;
+
+      var min = payMinimum(balance, rate, pct, floor);
+
+      if (min.never) {
+        out.innerHTML = 'It never clears' +
+          '<small>the minimum payment does not even cover the interest</small>';
+        alarm.innerHTML = '<div class="alarm">At ' + CT.num(rate, 1) +
+          '% a year, the interest on this balance is more than the minimum ' +
+          'payment. The debt grows every month no matter how long you keep ' +
+          'paying. This needs a bigger payment or a cheaper loan to move it.</div>';
+      } else {
+        var firstPayment = Math.max(balance * pct / 100, floor);
+        out.innerHTML = duration(min.months) +
+          '<small>paying the minimum, starting at Rs. ' + money(firstPayment) +
+          ' — Rs. ' + money(min.interest) + ' of interest on a Rs. ' +
+          money(balance) + ' balance</small>';
+
+        alarm.innerHTML = min.interest > balance * 0.5
+          ? '<div class="alarm">You would pay Rs. ' + money(min.interest) +
+            ' in interest, which is ' + CT.num(min.interest / balance * 100, 0) +
+            '% of what you actually borrowed.</div>'
+          : '';
+      }
+
+      /* Fixed amounts to compare against, anchored on the first minimum. */
+      var base = Math.max(balance * pct / 100, floor);
+      var candidates = [base, base * 1.5, base * 2, base * 3, balance / 12, balance / 6];
+      var seen = {};
+      var rows = '';
+
+      candidates
+        .map(function (v) { return Math.round(v / 500) * 500; })
+        .filter(function (v) {
+          if (v <= 0 || seen[v]) return false;
+          seen[v] = true;
+          return true;
+        })
+        .sort(function (a, b) { return a - b; })
+        .forEach(function (amount) {
+          var r = payFixed(balance, rate, amount);
+          if (r.never) {
+            rows += '<div class="opt"><span class="lbl">Rs. ' + money(amount) +
+              ' a month<small>does not cover the interest</small></span>' +
+              '<span class="time">Never</span><span class="cost">—</span></div>';
+            return;
+          }
+          var saved = min.never ? null : min.interest - r.interest;
+          rows += '<div class="opt">' +
+            '<span class="lbl">Rs. ' + money(amount) + ' a month' +
+              (saved !== null && saved > 0
+                ? '<small>saves Rs. ' + money(saved) + ' in interest</small>'
+                : '<small>Rs. ' + money(r.interest) + ' of interest</small>') +
+            '</span>' +
+            '<span class="time">' + duration(r.months) + '</span>' +
+            '<span class="cost">Rs. ' + money(r.paid) + ' total</span>' +
+          '</div>';
+        });
+
+      host.innerHTML = rows;
+    }
+
+    ['balance', 'rate', 'minPct', 'minFloor'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>
