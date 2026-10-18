@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple Bookkeeping — Cja's Tools</title>
+<meta name="description" content="A small cash book for a shop or side business. Income and expenses, saved on your own device, exportable to CSV. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .entry-form { display: grid; grid-template-columns: 130px 1fr 130px 120px auto; gap: 9px; align-items: end; }
+  .ledger { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .ledger th, .ledger td { padding: 8px 5px; }
+  .ledger th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); text-align: left; border-bottom: 1px solid var(--border);
+  }
+  .ledger td.amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .ledger tbody tr { border-bottom: 1px solid var(--border); }
+  .ledger .in { color: #1f9d55; font-weight: 600; }
+  .ledger .out { color: var(--danger); font-weight: 600; }
+  .ledger .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+  .ledger .drop:hover { color: var(--danger); }
+  .wrap { overflow-x: auto; }
+  @media (max-width: 700px) {
+    .entry-form { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="bookkeeping">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Simple Bookkeeping</h1>
+        <p>A cash book for a shop or a side business. Stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="entry-form">
+          <div class="field" style="margin:0">
+            <label for="date">Date</label>
+            <input type="date" id="date">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="desc">Description</label>
+            <input type="text" id="desc" placeholder="What was it for?" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="kind">Money</label>
+            <select id="kind">
+              <option value="in">Coming in</option>
+              <option value="out" selected>Going out</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="amount">Amount</label>
+            <input type="number" id="amount" step="any" min="0" placeholder="0">
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add</button>
+        </div>
+        <p class="hint" id="form-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-in">&mdash;</b><span>Money in</span></div>
+          <div class="stat"><b id="s-out">&mdash;</b><span>Money out</span></div>
+          <div class="stat"><b id="s-balance">&mdash;</b><span>Balance</span></div>
+          <div class="stat"><b id="s-count">0</b><span>Entries</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="filter">Show</label>
+          <select id="filter">
+            <option value="all">Everything</option>
+            <option value="month">This month only</option>
+            <option value="in">Money in only</option>
+            <option value="out">Money out only</option>
+          </select>
+        </div>
+        <div class="wrap">
+          <table class="ledger">
+            <thead>
+              <tr><th>Date</th><th>Description</th><th style="text-align:right">In</th>
+                  <th style="text-align:right">Out</th><th style="text-align:right">Balance</th><th></th></tr>
+            </thead>
+            <tbody id="ledger"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="export">Download as CSV</button>
+          <button class="btn" id="clear">Clear the book</button>
+        </div>
+        <p class="hint">Everything is kept in this browser on this device. It does
+          not sync anywhere and clearing your browser data will erase it, so
+          download a CSV regularly if this is for a real business. This is a cash
+          book, not accounting software &mdash; it does not do VAT or double entry.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-bookkeeping';
+    var entries = load();
+
+    function load() {
+      try {
+        var raw = localStorage.getItem(KEY);
+        if (raw) {
+          var p = JSON.parse(raw);
+          if (Array.isArray(p)) return p;
+        }
+      } catch (e) {}
+      return [];
+    }
+
+    function save() {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(entries));
+      } catch (e) {
+        CT.toast('Could not save — download a CSV');
+      }
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function todayISO() {
+      var d = new Date();
+      return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+    }
+
+    function fmtDate(iso) {
+      var p = iso.split('-');
+      if (p.length !== 3) return iso;
+      return new Date(+p[0], +p[1] - 1, +p[2], 12)
+        .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function render() {
+      /* Sorted oldest first so the running balance reads down the page the
+         way a paper cash book does, then shown newest first. */
+      var sorted = entries.slice().sort(function (a, b) {
+        return a.date === b.date ? a.id - b.id : (a.date < b.date ? -1 : 1);
+      });
+
+      var running = 0;
+      sorted.forEach(function (e) {
+        running += e.kind === 'in' ? e.amount : -e.amount;
+        e.balance = running;
+      });
+
+      var filter = document.getElementById('filter').value;
+      var now = new Date();
+      var thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+      var shown = sorted.filter(function (e) {
+        if (filter === 'in') return e.kind === 'in';
+        if (filter === 'out') return e.kind === 'out';
+        if (filter === 'month') return e.date.indexOf(thisMonth) === 0;
+        return true;
+      }).reverse();
+
+      var totalIn = 0, totalOut = 0;
+      sorted.forEach(function (e) {
+        if (e.kind === 'in') totalIn += e.amount; else totalOut += e.amount;
+      });
+
+      document.getElementById('s-in').textContent = money(totalIn);
+      document.getElementById('s-out').textContent = money(totalOut);
+      document.getElementById('s-balance').textContent = money(totalIn - totalOut);
+      document.getElementById('s-count').textContent = entries.length;
+
+      document.getElementById('ledger').innerHTML = shown.length
+        ? shown.map(function (e) {
+            return '<tr>' +
+              '<td>' + fmtDate(e.date) + '</td>' +
+              '<td>' + escapeHtml(e.desc || '—') + '</td>' +
+              '<td class="amt in">' + (e.kind === 'in' ? money(e.amount) : '') + '</td>' +
+              '<td class="amt out">' + (e.kind === 'out' ? money(e.amount) : '') + '</td>' +
+              '<td class="amt">' + money(e.balance) + '</td>' +
+              '<td style="text-align:right"><button class="drop" data-id="' + e.id +
+                '" title="Remove">&times;</button></td>' +
+            '</tr>';
+          }).join('')
+        : '<tr><td colspan="6" style="padding:22px 4px;color:var(--muted);text-align:center">' +
+          (entries.length ? 'Nothing matches that filter.' : 'No entries yet. Add one above.') +
+          '</td></tr>';
+
+      save();
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var amount = parseFloat(document.getElementById('amount').value);
+      var note = document.getElementById('form-note');
+
+      if (!isFinite(amount) || amount <= 0) {
+        note.textContent = 'Enter an amount above zero.';
+        document.getElementById('amount').focus();
+        return;
+      }
+      note.textContent = '';
+
+      entries.push({
+        id: Date.now() + Math.random(),
+        date: document.getElementById('date').value || todayISO(),
+        desc: document.getElementById('desc').value.trim(),
+        kind: document.getElementById('kind').value,
+        amount: amount
+      });
+
+      document.getElementById('desc').value = '';
+      document.getElementById('amount').value = '';
+      document.getElementById('desc').focus();
+      render();
+    });
+
+    document.getElementById('ledger').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-id]');
+      if (!b) return;
+      entries = entries.filter(function (x) { return String(x.id) !== b.dataset.id; });
+      render();
+    });
+
+    document.getElementById('filter').addEventListener('change', render);
+
+    /* Enter in the amount box should add the entry, not do nothing. */
+    ['desc', 'amount'].forEach(function (id) {
+      document.getElementById(id).addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          document.getElementById('add').click();
+        }
+      });
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      if (!entries.length) { CT.toast('Nothing to export'); return; }
+      var sorted = entries.slice().sort(function (a, b) {
+        return a.date === b.date ? a.id - b.id : (a.date < b.date ? -1 : 1);
+      });
+      var running = 0;
+      var lines = ['Date,Description,In,Out,Balance'];
+      sorted.forEach(function (e) {
+        running += e.kind === 'in' ? e.amount : -e.amount;
+        lines.push([
+          e.date,
+          '"' + String(e.desc).replace(/"/g, '""') + '"',
+          e.kind === 'in' ? e.amount : '',
+          e.kind === 'out' ? e.amount : '',
+          running.toFixed(2)
+        ].join(','));
+      });
+      var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'cash-book.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      if (!entries.length) return;
+      if (!window.confirm('Delete all ' + entries.length +
+          ' entries? This cannot be undone. Download a CSV first if you need them.')) return;
+      entries = [];
+      render();
+    });
+
+    document.getElementById('date').value = todayISO();
+    render();
+  })();
+  </script>
+</body>
+</html>

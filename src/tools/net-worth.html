@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Net Worth Tracker — Cja's Tools</title>
+<meta name="description" content="Add up what you own against what you owe. Saved on your own device and never uploaded. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .line {
+    display: grid; grid-template-columns: 1fr 150px auto; gap: 9px;
+    align-items: center; margin-bottom: 8px;
+  }
+  .line .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .line .drop:hover { color: var(--danger); }
+  .bar { display: flex; height: 26px; border-radius: 7px; overflow: hidden; margin-top: 6px; background: var(--surface-2); }
+  .bar i { display: block; }
+  .saved { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .saved .dot { width: 7px; height: 7px; border-radius: 50%; background: #27b86a; }
+  .saved .dot.off { background: #e8a33d; }
+</style>
+</head>
+<body data-page="tool" data-slug="net-worth">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Net Worth Tracker</h1>
+        <p>What you own, minus what you owe. Kept on this device only.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="bar" id="bar"></div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-assets">&mdash;</b><span>Total assets</span></div>
+          <div class="stat"><b id="s-debts">&mdash;</b><span>Total liabilities</span></div>
+          <div class="stat"><b id="s-ratio">&mdash;</b><span>Owed as % of owned</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">What you own</label>
+        <div id="assets"></div>
+        <div class="btns"><button class="btn" id="add-asset">Add an asset</button></div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">What you owe</label>
+        <div id="debts"></div>
+        <div class="btns"><button class="btn" id="add-debt">Add a liability</button></div>
+      </div>
+
+      <div class="panel">
+        <div class="saved"><span class="dot" id="dot"></span><span id="status">Saved on this device</span></div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn" id="export">Download as CSV</button>
+          <button class="btn" id="reset">Start again</button>
+        </div>
+        <p class="hint">Saved in this browser only. It does not travel to another
+          device, and clearing browser data removes it. Download a copy if it matters.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-networth';
+
+    var DEFAULT = {
+      assets: [
+        { name: 'Bank savings', amount: 450000 },
+        { name: 'Fixed deposit', amount: 1000000 },
+        { name: 'Vehicle', amount: 3200000 },
+        { name: 'EPF balance', amount: 850000 }
+      ],
+      debts: [
+        { name: 'Vehicle loan', amount: 1800000 },
+        { name: 'Credit card', amount: 120000 }
+      ]
+    };
+
+    var data = load();
+    var storageWorks = true;
+
+    function load() {
+      try {
+        var raw = localStorage.getItem(KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.assets) && Array.isArray(parsed.debts)) {
+            return parsed;
+          }
+        }
+      } catch (e) { /* fall through to the sample data */ }
+      return JSON.parse(JSON.stringify(DEFAULT));
+    }
+
+    function save() {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(data));
+        document.getElementById('dot').classList.remove('off');
+        document.getElementById('status').textContent = 'Saved on this device';
+      } catch (e) {
+        storageWorks = false;
+        document.getElementById('dot').classList.add('off');
+        document.getElementById('status').textContent =
+          'Could not save here — download a copy instead';
+      }
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function total(list) {
+      return list.reduce(function (a, r) { return a + (parseFloat(r.amount) || 0); }, 0);
+    }
+
+    function drawList(host, list, kind) {
+      document.getElementById(host).innerHTML = list.map(function (r, i) {
+        return '<div class="line">' +
+          '<input type="text" data-k="' + kind + '" data-i="' + i + '" data-f="name" value="' +
+            String(r.name).replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-k="' + kind + '" data-i="' + i + '" data-f="amount" value="' +
+            r.amount + '" step="any">' +
+          '<button class="drop" data-k="' + kind + '" data-drop="' + i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function calc() {
+      var assets = total(data.assets);
+      var debts = total(data.debts);
+      var net = assets - debts;
+
+      document.getElementById('out').innerHTML = 'Rs. ' + money(net) +
+        '<small>' + (net < 0
+          ? 'you owe more than you own by ' + money(-net)
+          : 'net worth today') + '</small>';
+
+      document.getElementById('s-assets').textContent = money(assets);
+      document.getElementById('s-debts').textContent = money(debts);
+      document.getElementById('s-ratio').textContent =
+        assets > 0 ? CT.num(debts / assets * 100, 1) + '%' : '—';
+
+      /* The bar is drawn against total assets, so the debt slice shows how
+         much of what you own is really the bank's. */
+      var base = Math.max(assets, debts, 1);
+      document.getElementById('bar').innerHTML =
+        '<i style="background:#27b86a;width:' + (Math.max(0, net) / base * 100) + '%"></i>' +
+        '<i style="background:#e8a33d;width:' + (Math.min(debts, assets) / base * 100) + '%"></i>' +
+        (net < 0 ? '<i style="background:var(--danger);width:' +
+          ((-net) / base * 100) + '%"></i>' : '');
+
+      save();
+    }
+
+    function bind(host) {
+      var el = document.getElementById(host);
+      el.addEventListener('input', function (e) {
+        var t = e.target;
+        if (t.dataset.i === undefined) return;
+        var list = t.dataset.k === 'a' ? data.assets : data.debts;
+        list[+t.dataset.i][t.dataset.f] = t.value;
+        calc();
+      });
+      el.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-drop]');
+        if (!b) return;
+        var list = b.dataset.k === 'a' ? data.assets : data.debts;
+        list.splice(+b.dataset.drop, 1);
+        drawList(host, list, b.dataset.k);
+        calc();
+      });
+    }
+
+    document.getElementById('add-asset').addEventListener('click', function () {
+      data.assets.push({ name: '', amount: 0 });
+      drawList('assets', data.assets, 'a');
+      calc();
+    });
+
+    document.getElementById('add-debt').addEventListener('click', function () {
+      data.debts.push({ name: '', amount: 0 });
+      drawList('debts', data.debts, 'd');
+      calc();
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      if (!window.confirm('Clear everything and start again? This cannot be undone.')) return;
+      data = { assets: [{ name: '', amount: 0 }], debts: [{ name: '', amount: 0 }] };
+      drawList('assets', data.assets, 'a');
+      drawList('debts', data.debts, 'd');
+      calc();
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      var lines = ['Type,Name,Amount'];
+      data.assets.forEach(function (r) {
+        lines.push('Asset,"' + String(r.name).replace(/"/g, '""') + '",' + (r.amount || 0));
+      });
+      data.debts.forEach(function (r) {
+        lines.push('Liability,"' + String(r.name).replace(/"/g, '""') + '",' + (r.amount || 0));
+      });
+      lines.push('Net,,' + (total(data.assets) - total(data.debts)));
+      var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'net-worth.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    drawList('assets', data.assets, 'a');
+    drawList('debts', data.debts, 'd');
+    bind('assets');
+    bind('debts');
+    calc();
+  })();
+  </script>
+</body>
+</html>

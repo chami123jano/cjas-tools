@@ -866,6 +866,81 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- money, part 3
+
+(function netWorth() {
+  const t = loadTool('net-worth');
+  // defaults: assets 5,500,000 and debts 1,920,000
+  has(t.text('out'), '3,580,000', 'net worth is assets minus liabilities');
+  has(t.text('s-assets'), '5,500,000', 'total assets');
+  has(t.text('s-debts'), '1,920,000', 'total liabilities');
+  t.close();
+})();
+
+(function budgetPlanner() {
+  const t = loadTool('budget-planner');
+  t.set('income', 150000);
+  // defaults add up to 136,000 spent, leaving 14,000
+  has(t.text('out'), '14,000 left over', 'what is left after everything');
+  has(t.text('s-spent'), '136,000', 'total spending');
+
+  t.set('income', 100000);
+  has(t.text('out'), 'short', 'spending more than you earn is flagged');
+  t.close();
+})();
+
+(function emergencyFund() {
+  const t = loadTool('emergency-fund');
+  t.set('expenses', 90000).set('saved', 150000).set('monthly', 20000).set('months', '6');
+  // 150,000 / 90,000 = 1.7 months
+  has(t.text('out'), '1.7 months', 'cover is savings over monthly essentials');
+  has(t.text('s-target'), '540,000', 'six months of cover');
+  // gap 390,000 at 20,000 a month = 20 months
+  has(t.text('s-time'), '1y 8m', 'time to close the gap');
+
+  t.set('saved', 600000);
+  has(t.text('out'), 'past your 6-month target', 'reaching the target is recognised');
+
+  t.set('saved', 0).set('monthly', 0);
+  has(t.text('s-time'), 'Never', 'saving nothing never gets there');
+  t.close();
+})();
+
+(function rentVsBuy() {
+  const t = loadTool('rent-vs-buy');
+  t.set('years', 10);
+  const shown = t.text('compare');
+  has(shown, 'Renting', 'both sides are costed');
+  has(shown, 'Buying', 'including buying');
+  has(t.text('verdict'), 'comes out ahead', 'a verdict is given');
+  // the useful part is the break-even year, not just the total
+  has(t.text('verdict'), 'year', 'and it mentions how long you must stay');
+  t.close();
+})();
+
+(function bookkeeping() {
+  const t = loadTool('bookkeeping');
+  // starts empty
+  has(t.text('ledger'), 'No entries yet', 'an empty book says so');
+
+  t.set('desc', 'Sale').set('kind', 'in').set('amount', 5000);
+  t.click('add');
+  has(t.text('s-in'), '5,000.00', 'income recorded');
+
+  t.set('desc', 'Stock').set('kind', 'out').set('amount', 2000);
+  t.click('add');
+  has(t.text('s-out'), '2,000.00', 'expense recorded');
+  has(t.text('s-balance'), '3,000.00', 'balance is in minus out');
+  has(t.text('s-count'), '2', 'two entries');
+
+  // an amount of zero or nothing must be refused, not silently added
+  t.set('desc', 'Bad').set('amount', 0);
+  t.click('add');
+  has(t.text('form-note'), 'above zero', 'a zero amount is refused');
+  has(t.text('s-count'), '2', 'and nothing was added');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

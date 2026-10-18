@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emergency Fund — Cja's Tools</title>
+<meta name="description" content="How much you should keep aside for emergencies, how long what you have would last, and how long to build it up. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .track { height: 14px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+  .track i { display: block; height: 100%; }
+  .levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .lvl {
+    padding: 13px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+  }
+  .lvl.reached { border-color: #27b86a; background: rgba(39,184,106,0.07); }
+  .lvl h4 { margin: 0 0 3px; font-size: 13px; }
+  .lvl .big { font-size: 17px; font-weight: 650; }
+  .lvl .sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+</style>
+</head>
+<body data-page="tool" data-slug="emergency-fund">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Emergency Fund</h1>
+        <p>The money that stops a bad month becoming a bad year.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="expenses">Essential spending each month</label>
+          <input type="number" id="expenses" value="90000" step="any" min="0">
+        </div>
+        <p class="hint">Rent, food, utilities, transport, loan payments and
+          medicine. Not eating out or subscriptions &mdash; in a real emergency
+          those stop.</p>
+        <div class="row">
+          <div class="field">
+            <label for="saved">Saved so far</label>
+            <input type="number" id="saved" value="150000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="monthly">Can put aside monthly</label>
+            <input type="number" id="monthly" value="20000" step="any" min="0">
+          </div>
+        </div>
+        <div class="field">
+          <label for="months">Months of cover you want</label>
+          <select id="months">
+            <option value="3">3 months — the usual minimum</option>
+            <option value="6" selected>6 months — the common target</option>
+            <option value="9">9 months</option>
+            <option value="12">12 months — self-employed or single income</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="track"><i id="bar" style="width:0%;background:#27b86a"></i></div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-target">&mdash;</b><span>Target</span></div>
+          <div class="stat"><b id="s-gap">&mdash;</b><span>Still to save</span></div>
+          <div class="stat"><b id="s-time">&mdash;</b><span>Time to get there</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">What you have already covers</label>
+        <div class="levels" id="levels"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint">Keep this money somewhere you can reach within a day or
+          two. A savings account earns less than a fixed deposit, but a fixed
+          deposit you cannot break is not an emergency fund.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function duration(m) {
+      var y = Math.floor(m / 12), r = m % 12;
+      if (!y) return r + ' month' + (r === 1 ? '' : 's');
+      if (!r) return y + ' year' + (y === 1 ? '' : 's');
+      return y + 'y ' + r + 'm';
+    }
+
+    function calc() {
+      var expenses = n('expenses');
+      var saved = n('saved');
+      var monthly = n('monthly');
+      var wanted = parseInt(document.getElementById('months').value, 10);
+      var out = document.getElementById('out');
+
+      if (!isFinite(expenses) || expenses <= 0 || !isFinite(saved)) {
+        out.innerHTML = '&mdash;<small>Enter your monthly essentials</small>';
+        document.getElementById('levels').innerHTML = '';
+        return;
+      }
+      if (!isFinite(monthly) || monthly < 0) monthly = 0;
+
+      var target = expenses * wanted;
+      var gap = Math.max(0, target - saved);
+      var covered = saved / expenses;
+
+      out.innerHTML = CT.num(covered, 1) + ' months of cover' +
+        '<small>' + (covered >= wanted
+          ? 'you are past your ' + wanted + '-month target'
+          : 'Rs. ' + money(saved) + ' saved against a Rs. ' + money(target) +
+            ' target') + '</small>';
+
+      document.getElementById('bar').style.width =
+        Math.min(100, saved / target * 100) + '%';
+      document.getElementById('bar').style.background =
+        covered >= wanted ? '#27b86a' : covered >= 3 ? '#5aa9e6' : '#e8a33d';
+
+      document.getElementById('s-target').textContent = money(target);
+      document.getElementById('s-gap').textContent = gap > 0 ? money(gap) : 'Reached';
+
+      if (gap <= 0) {
+        document.getElementById('s-time').textContent = 'Done';
+      } else if (monthly <= 0) {
+        document.getElementById('s-time').textContent = 'Never at Rs. 0';
+      } else {
+        document.getElementById('s-time').textContent =
+          duration(Math.ceil(gap / monthly));
+      }
+
+      document.getElementById('levels').innerHTML = [1, 3, 6, 12].map(function (m) {
+        var need = expenses * m;
+        var reached = saved >= need;
+        return '<div class="lvl' + (reached ? ' reached' : '') + '">' +
+          '<h4>' + m + ' month' + (m === 1 ? '' : 's') + '</h4>' +
+          '<div class="big">' + (reached ? 'Covered' : 'Rs. ' + money(need - saved) + ' short') + '</div>' +
+          '<div class="sub">needs Rs. ' + money(need) + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    ['expenses', 'saved', 'monthly', 'months'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', calc);
+      el.addEventListener('change', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>

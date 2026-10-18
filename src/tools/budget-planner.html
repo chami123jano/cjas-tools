@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Planner — Cja's Tools</title>
+<meta name="description" content="See where your money goes each month and whether it adds up, with the 50/30/20 split as a guide. Saved on your device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .line {
+    display: grid; grid-template-columns: 1fr 130px 118px auto; gap: 9px;
+    align-items: center; margin-bottom: 8px;
+  }
+  .head-row {
+    display: grid; grid-template-columns: 1fr 130px 118px auto; gap: 9px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  .line .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .line .drop:hover { color: var(--danger); }
+  .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .box {
+    padding: 14px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+  }
+  .box h4 { margin: 0 0 3px; font-size: 13.5px; }
+  .box .big { font-size: 19px; font-weight: 650; }
+  .box .sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .box.over { border-color: #e8a33d; }
+  .track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+  .track i { display: block; height: 100%; }
+  @media (max-width: 620px) {
+    .line, .head-row { grid-template-columns: 1fr 88px 84px auto; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="budget-planner">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Budget Planner</h1>
+        <p>What comes in, what goes out, and what is left.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="income">Take-home pay each month</label>
+          <input type="number" id="income" value="150000" step="any" min="0">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="head-row">
+          <span>Expense</span><span>Amount</span><span>Kind</span><span></span>
+        </div>
+        <div id="lines"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="add">Add an expense</button>
+          <button class="btn" id="reset">Start again</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-spent">&mdash;</b><span>Total going out</span></div>
+          <div class="stat"><b id="s-left">&mdash;</b><span>Left over</span></div>
+          <div class="stat"><b id="s-rate">&mdash;</b><span>You keep</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Against the 50 / 30 / 20 guide</label>
+        <div class="split" id="split"></div>
+        <p class="hint">A common rule of thumb: about half on needs, a third on
+          wants, a fifth saved. It is a guide, not a law &mdash; rent takes a much
+          bigger share in Colombo than the rule assumes.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-budget';
+
+    var DEFAULT = [
+      { name: 'Rent', amount: 45000, kind: 'need' },
+      { name: 'Food and groceries', amount: 30000, kind: 'need' },
+      { name: 'Transport and fuel', amount: 15000, kind: 'need' },
+      { name: 'Electricity and water', amount: 8000, kind: 'need' },
+      { name: 'Phone and internet', amount: 5000, kind: 'need' },
+      { name: 'Eating out', amount: 10000, kind: 'want' },
+      { name: 'Subscriptions', amount: 3000, kind: 'want' },
+      { name: 'Savings', amount: 20000, kind: 'save' }
+    ];
+
+    var lines = load();
+
+    function load() {
+      try {
+        var raw = localStorage.getItem(KEY);
+        if (raw) {
+          var p = JSON.parse(raw);
+          if (Array.isArray(p) && p.length) return p;
+        }
+      } catch (e) {}
+      return JSON.parse(JSON.stringify(DEFAULT));
+    }
+
+    function save() {
+      try { localStorage.setItem(KEY, JSON.stringify(lines)); } catch (e) {}
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function draw() {
+      document.getElementById('lines').innerHTML = lines.map(function (r, i) {
+        return '<div class="line">' +
+          '<input type="text" data-i="' + i + '" data-f="name" value="' +
+            String(r.name).replace(/"/g, '&quot;') + '">' +
+          '<input type="number" data-i="' + i + '" data-f="amount" value="' +
+            r.amount + '" step="any" min="0">' +
+          '<select data-i="' + i + '" data-f="kind">' +
+            '<option value="need"' + (r.kind === 'need' ? ' selected' : '') + '>Need</option>' +
+            '<option value="want"' + (r.kind === 'want' ? ' selected' : '') + '>Want</option>' +
+            '<option value="save"' + (r.kind === 'save' ? ' selected' : '') + '>Saving</option>' +
+          '</select>' +
+          '<button class="drop" data-drop="' + i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    function calc() {
+      var income = parseFloat(document.getElementById('income').value);
+      if (!isFinite(income) || income < 0) income = 0;
+
+      var sums = { need: 0, want: 0, save: 0 };
+      lines.forEach(function (r) {
+        var v = parseFloat(r.amount) || 0;
+        sums[r.kind === 'want' ? 'want' : r.kind === 'save' ? 'save' : 'need'] += v;
+      });
+
+      var spent = sums.need + sums.want + sums.save;
+      var left = income - spent;
+
+      document.getElementById('out').innerHTML =
+        (left < 0 ? 'Rs. ' + money(-left) + ' short' : 'Rs. ' + money(left) + ' left over') +
+        '<small>' + (left < 0
+          ? 'you are planning to spend more than you bring in'
+          : 'after everything above, including what you save') + '</small>';
+
+      document.getElementById('s-spent').textContent = money(spent);
+      document.getElementById('s-left').textContent = money(left);
+      document.getElementById('s-rate').textContent =
+        income > 0 ? CT.num((sums.save + Math.max(0, left)) / income * 100, 1) + '%' : '—';
+
+      var guide = [
+        ['Needs', 'need', 0.5, '#5aa9e6'],
+        ['Wants', 'want', 0.3, '#e8a33d'],
+        ['Saving', 'save', 0.2, '#27b86a']
+      ];
+
+      document.getElementById('split').innerHTML = guide.map(function (g) {
+        var actual = sums[g[1]];
+        /* Anything left unspent is money you have effectively kept, so it
+           counts towards saving rather than vanishing from the comparison. */
+        if (g[1] === 'save') actual += Math.max(0, left);
+        var target = income * g[2];
+        var pct = income > 0 ? actual / income * 100 : 0;
+        var over = actual > target + 0.5;
+        return '<div class="box' + (over && g[1] !== 'save' ? ' over' : '') + '">' +
+          '<h4>' + g[0] + '</h4>' +
+          '<div class="big">' + CT.num(pct, 1) + '%</div>' +
+          '<div class="sub">Rs. ' + money(actual) + ' of a Rs. ' + money(target) +
+            ' guide</div>' +
+          '<div class="track"><i style="width:' +
+            Math.min(100, pct) + '%;background:' + g[3] + '"></i></div>' +
+        '</div>';
+      }).join('');
+
+      save();
+    }
+
+    document.getElementById('lines').addEventListener('input', function (e) {
+      var t = e.target;
+      if (t.dataset.i === undefined) return;
+      lines[+t.dataset.i][t.dataset.f] = t.value;
+      calc();
+    });
+
+    document.getElementById('lines').addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.dataset.i === undefined) return;
+      lines[+t.dataset.i][t.dataset.f] = t.value;
+      calc();
+    });
+
+    document.getElementById('lines').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      lines.splice(+b.dataset.drop, 1);
+      if (!lines.length) lines.push({ name: '', amount: 0, kind: 'need' });
+      draw();
+      calc();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      lines.push({ name: '', amount: 0, kind: 'need' });
+      draw();
+      calc();
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      if (!window.confirm('Clear the budget and start again?')) return;
+      lines = [{ name: '', amount: 0, kind: 'need' }];
+      draw();
+      calc();
+    });
+
+    document.getElementById('income').addEventListener('input', calc);
+
+    draw();
+    calc();
+  })();
+  </script>
+</body>
+</html>

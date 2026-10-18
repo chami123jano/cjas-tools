@@ -365,6 +365,41 @@ const TOOLS = [
     category: 'money',
     desc: 'Build a full payslip from basic, allowances and overtime down to net pay.',
     keywords: ['payslip', 'paycheck', 'salary', 'net pay', 'deductions', 'overtime', 'epf']
+  },
+  {
+    slug: 'net-worth',
+    name: 'Net Worth Tracker',
+    category: 'money',
+    desc: 'Add up what you own against what you owe, and keep it on this device.',
+    keywords: ['net worth', 'assets', 'liabilities', 'wealth', 'balance', 'track']
+  },
+  {
+    slug: 'budget-planner',
+    name: 'Budget Planner',
+    category: 'money',
+    desc: 'Where your money goes each month, and whether it adds up.',
+    keywords: ['budget', 'planner', 'expenses', 'spending', 'monthly', 'income', '50 30 20']
+  },
+  {
+    slug: 'emergency-fund',
+    name: 'Emergency Fund',
+    category: 'money',
+    desc: 'How much you should keep aside, and how long it would last.',
+    keywords: ['emergency', 'fund', 'savings', 'buffer', 'rainy day', 'months']
+  },
+  {
+    slug: 'rent-vs-buy',
+    name: 'Rent or Buy',
+    category: 'money',
+    desc: 'Compare renting against buying the same home over the years you would stay.',
+    keywords: ['rent', 'buy', 'house', 'property', 'compare', 'mortgage', 'decision']
+  },
+  {
+    slug: 'bookkeeping',
+    name: 'Simple Bookkeeping',
+    category: 'money',
+    desc: 'A small cash book for income and expenses, saved on this device.',
+    keywords: ['bookkeeping', 'ledger', 'accounts', 'income', 'expenses', 'business', 'cash book']
   }
 ];
 

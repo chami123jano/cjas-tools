@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rent or Buy — Cja's Tools</title>
+<meta name="description" content="Compare renting against buying the same home over the years you would actually stay, including the money your deposit could have earned. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .side {
+    padding: 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+  }
+  .side.best { border-color: #27b86a; }
+  .side h4 { margin: 0 0 8px; font-size: 14.5px; }
+  .side .big { font-size: 21px; font-weight: 650; }
+  .side .sub { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .side ul { margin: 11px 0 0; padding-left: 16px; font-size: 12.5px; color: var(--muted); line-height: 1.8; }
+  .verdict {
+    padding: 14px 16px; border-radius: var(--radius);
+    background: var(--accent-soft); border: 1px solid var(--accent);
+    font-size: 14.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="rent-vs-buy">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=money">Money</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Rent or Buy</h1>
+        <p>The honest comparison depends mostly on how long you stay.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="years">How many years would you stay?</label>
+          <input type="number" id="years" value="10" step="1" min="1" max="40">
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">If you rent</label>
+        <div class="row">
+          <div class="field">
+            <label for="rent">Rent a month</label>
+            <input type="number" id="rent" value="60000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="rentRise">Rent rises (% a year)</label>
+            <input type="number" id="rentRise" value="7" step="any">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">If you buy</label>
+        <div class="row">
+          <div class="field">
+            <label for="price">Price</label>
+            <input type="number" id="price" value="18000000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="deposit">Deposit</label>
+            <input type="number" id="deposit" value="3600000" step="any" min="0">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="rate">Loan rate (% a year)</label>
+            <input type="number" id="rate" value="13" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="term">Loan term (years)</label>
+            <input type="number" id="term" value="20" step="any" min="1">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="upkeep">Upkeep and rates a year</label>
+            <input type="number" id="upkeep" value="120000" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="growth">Property grows (% a year)</label>
+            <input type="number" id="growth" value="6" step="any">
+          </div>
+        </div>
+        <div class="field">
+          <label for="invest">If you rented, your deposit would earn (% a year)</label>
+          <input type="number" id="invest" value="8" step="any">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="compare" id="compare"></div>
+        <div id="verdict" style="margin-top:14px"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint">This compares money only. It cannot weigh the security of
+          owning, the freedom of renting, or the risk that either rents or
+          property prices move differently from your guesses. Change the growth
+          and rent-rise figures and watch how fast the answer flips &mdash; that
+          tells you how much the result really rests on assumptions.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(v) {
+      return v.toLocaleString('en-LK',
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    }
+
+    function payment(principal, annualRate, years) {
+      var months = Math.round(years * 12);
+      if (months <= 0) return 0;
+      var r = annualRate / 100 / 12;
+      return r === 0 ? principal / months
+        : principal * r * Math.pow(1 + r, months) / (Math.pow(1 + r, months) - 1);
+    }
+
+    function calc() {
+      var years = Math.round(n('years'));
+      var rent = n('rent');
+      var rentRise = n('rentRise');
+      var price = n('price');
+      var deposit = n('deposit');
+      var rate = n('rate');
+      var term = n('term');
+      var upkeep = n('upkeep');
+      var growth = n('growth');
+      var invest = n('invest');
+
+      var host = document.getElementById('compare');
+
+      if ([years, rent, rentRise, price, deposit, rate, term, upkeep, growth, invest]
+          .some(function (v) { return !isFinite(v); }) || years < 1 || price <= 0) {
+        host.innerHTML = '<p class="hint" style="margin:0">Fill in the boxes above.</p>';
+        document.getElementById('verdict').innerHTML = '';
+        return;
+      }
+
+      /* RENTING: rent paid over the period, with the deposit you did not
+         spend left invested. The money is gone at the end, but the
+         investment is not - that is what makes the comparison fair. */
+      var rentPaid = 0;
+      var thisRent = rent;
+      for (var y = 0; y < years; y++) {
+        rentPaid += thisRent * 12;
+        thisRent *= (1 + rentRise / 100);
+      }
+      var investedPot = deposit * Math.pow(1 + invest / 100, years);
+      var rentNet = rentPaid - (investedPot - deposit);
+
+      /* BUYING: deposit, instalments and upkeep go out. At the end you own
+         the property, less whatever is still owed on the loan. */
+      var loan = Math.max(0, price - deposit);
+      var monthly = payment(loan, rate, term);
+      var monthsHeld = Math.min(years, term) * 12;
+      var paidToLoan = monthly * monthsHeld;
+
+      /* Walk the loan forward to find what is still owed when you sell. */
+      var balance = loan;
+      var r = rate / 100 / 12;
+      for (var m = 0; m < monthsHeld; m++) {
+        balance = balance * (1 + r) - monthly;
+        if (balance < 0) balance = 0;
+      }
+
+      var upkeepPaid = upkeep * years;
+      var valueThen = price * Math.pow(1 + growth / 100, years);
+      var equity = valueThen - balance;
+      var buyNet = deposit + paidToLoan + upkeepPaid - equity;
+
+      var buyBetter = buyNet < rentNet;
+      var difference = Math.abs(buyNet - rentNet);
+
+      host.innerHTML =
+        '<div class="side' + (!buyBetter ? ' best' : '') + '">' +
+          '<h4>Renting</h4>' +
+          '<div class="big">Rs. ' + money(rentNet) + '</div>' +
+          '<div class="sub">real cost over ' + years + ' years</div>' +
+          '<ul>' +
+            '<li>Rent paid: ' + money(rentPaid) + '</li>' +
+            '<li>Deposit invested instead: ' + money(investedPot) + '</li>' +
+            '<li>Rent by the last year: ' + money(thisRent) + ' a month</li>' +
+          '</ul>' +
+        '</div>' +
+        '<div class="side' + (buyBetter ? ' best' : '') + '">' +
+          '<h4>Buying</h4>' +
+          '<div class="big">Rs. ' + money(buyNet) + '</div>' +
+          '<div class="sub">real cost over ' + years + ' years</div>' +
+          '<ul>' +
+            '<li>Instalment: ' + money(monthly) + ' a month</li>' +
+            '<li>Paid in total: ' + money(deposit + paidToLoan + upkeepPaid) + '</li>' +
+            '<li>Property worth then: ' + money(valueThen) + '</li>' +
+            '<li>Still owed: ' + money(balance) + '</li>' +
+          '</ul>' +
+        '</div>';
+
+      /* Find the year the answer flips, which is more useful than the
+         single number - it tells you how long you have to stay. */
+      var flip = null;
+      for (var yy = 1; yy <= 40; yy++) {
+        var rp = 0, tr = rent;
+        for (var k = 0; k < yy; k++) { rp += tr * 12; tr *= (1 + rentRise / 100); }
+        var rn = rp - (deposit * Math.pow(1 + invest / 100, yy) - deposit);
+
+        var mh = Math.min(yy, term) * 12;
+        var bal = loan;
+        for (var mm = 0; mm < mh; mm++) {
+          bal = bal * (1 + r) - monthly;
+          if (bal < 0) bal = 0;
+        }
+        var bn = deposit + monthly * mh + upkeep * yy -
+                 (price * Math.pow(1 + growth / 100, yy) - bal);
+        if (bn < rn) { flip = yy; break; }
+      }
+
+      document.getElementById('verdict').innerHTML = '<div class="verdict">' +
+        '<b>' + (buyBetter ? 'Buying' : 'Renting') + ' comes out ahead by Rs. ' +
+        money(difference) + '</b> over ' + years + ' years. ' +
+        (flip === null
+          ? 'On these figures buying never catches up within 40 years.'
+          : flip === 1
+            ? 'Buying is ahead from the first year.'
+            : 'Buying overtakes renting once you stay about ' + flip +
+              ' years, so it turns on whether you will really be there that long.') +
+        '</div>';
+    }
+
+    ['years', 'rent', 'rentRise', 'price', 'deposit', 'rate', 'term',
+     'upkeep', 'growth', 'invest'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', calc);
+    });
+
+    calc();
+  })();
+  </script>
+</body>
+</html>
