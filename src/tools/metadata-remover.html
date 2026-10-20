@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Metadata Remover — Cja's Tools</title>
+<meta name="description" content="Strip the GPS location, camera details and timestamps hidden inside a photo before you share it. Done on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 34px 16px; text-align: center; color: var(--muted);
+    font-size: 14px; cursor: pointer;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+  .preview { max-width: 100%; border-radius: var(--radius); display: block; margin-top: 14px; }
+  .found { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .found td { padding: 7px 4px; border-bottom: 1px solid var(--border); }
+  .found td:last-child { text-align: right; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .found tr:last-child td { border-bottom: none; }
+  .warn {
+    padding: 12px 15px; border: 1px solid #e8a33d;
+    border-radius: var(--radius); font-size: 13.5px; line-height: 1.6;
+    background: rgba(232,163,61,.1);
+  }
+  .clean {
+    padding: 12px 15px; border: 1px solid #27b86a;
+    border-radius: var(--radius); font-size: 13.5px; background: #dcf5e7; color: #146b3c;
+  }
+  html:not([data-theme="light"]) .clean { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .clean { background:#17402c; color:#6fdca2; }
+</style>
+</head>
+<body data-page="tool" data-slug="metadata-remover">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=security">Security</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Photo Metadata Remover</h1>
+        <p>Photos carry where and when they were taken. This takes that out.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop">
+          <input type="file" id="file" accept="image/*" hidden>
+          Click to choose a photo, or drag one here
+        </div>
+        <p class="hint" id="file-info"></p>
+      </div>
+
+      <div class="panel" id="found-panel" hidden>
+        <label style="margin-bottom:10px">What is hidden in this photo</label>
+        <div id="found-slot"></div>
+      </div>
+
+      <div class="panel" id="out-panel" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="format">Save as</label>
+            <select id="format">
+              <option value="image/jpeg">JPEG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </div>
+          <div class="field" id="quality-field">
+            <label for="quality">Quality: <span id="quality-val">92</span></label>
+            <input type="range" id="quality" min="50" max="100" value="92" style="width:100%">
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="download">Download the clean photo</button>
+        </div>
+        <p class="hint" id="size-note"></p>
+        <img class="preview" id="preview" alt="The cleaned photo">
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>How this works.</b> The photo is drawn onto a blank
+          canvas and saved again from the pixels alone. Everything that was not
+          a pixel &mdash; GPS coordinates, camera model, serial number, the date
+          and time, editing history &mdash; is simply not carried across.
+          <br><br>
+          <b>Two things to know.</b> Saving a JPEG again loses a little quality,
+          because JPEG is lossy; choose PNG if that matters more than file size.
+          And the original file on your device is untouched &mdash; this gives you
+          a new copy to share.
+          <br><br>
+          The photo never leaves this device.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var currentName = 'photo';
+    var canvas = document.createElement('canvas');
+
+    function human(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(2) + ' MB';
+    }
+
+    /* A minimal EXIF reader. It is not trying to decode every tag - just
+       enough to tell someone honestly what is in their photo, especially
+       whether it carries a location. The stripping itself does not depend
+       on this; redrawing removes everything regardless. */
+    function readExif(buffer) {
+      var view = new DataView(buffer);
+      if (view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) return null;  /* not JPEG */
+
+      var offset = 2;
+      while (offset < view.byteLength - 1) {
+        if (view.getUint8(offset) !== 0xFF) break;
+        var marker = view.getUint8(offset + 1);
+        var size = view.getUint16(offset + 2);
+
+        if (marker === 0xE1) {
+          var start = offset + 4;
+          if (view.getUint32(start) !== 0x45786966) return null;   /* "Exif" */
+          return parseTiff(view, start + 6);
+        }
+        if (marker === 0xDA) break;   /* image data starts, no EXIF found */
+        offset += 2 + size;
+      }
+      return null;
+    }
+
+    var TAGS = {
+      0x010F: 'Camera make',
+      0x0110: 'Camera model',
+      0x0131: 'Software',
+      0x0132: 'Date and time',
+      0x8298: 'Copyright',
+      0x9003: 'Date taken',
+      0xA430: 'Camera owner',
+      0xA431: 'Serial number'
+    };
+
+    function parseTiff(view, tiffStart) {
+      var little;
+      var order = view.getUint16(tiffStart);
+      if (order === 0x4949) little = true;
+      else if (order === 0x4D4D) little = false;
+      else return null;
+
+      if (view.getUint16(tiffStart + 2, little) !== 0x002A) return null;
+
+      var found = {};
+      var dirStart = tiffStart + view.getUint32(tiffStart + 4, little);
+      var entries = view.getUint16(dirStart, little);
+
+      for (var i = 0; i < entries; i++) {
+        var entry = dirStart + 2 + i * 12;
+        if (entry + 12 > view.byteLength) break;
+        var tag = view.getUint16(entry, little);
+
+        /* The GPS block is a pointer to another directory. Its mere
+           presence is the headline, so the contents are not decoded. */
+        if (tag === 0x8825) found['Location (GPS)'] = 'present';
+
+        if (TAGS[tag]) {
+          var type = view.getUint16(entry + 2, little);
+          var count = view.getUint32(entry + 4, little);
+          if (type === 2 && count > 0 && count < 200) {
+            var valueOffset = count > 4
+              ? tiffStart + view.getUint32(entry + 8, little)
+              : entry + 8;
+            var s = '';
+            for (var c = 0; c < count - 1; c++) {
+              if (valueOffset + c >= view.byteLength) break;
+              var ch = view.getUint8(valueOffset + c);
+              if (ch === 0) break;
+              s += String.fromCharCode(ch);
+            }
+            if (s.trim()) found[TAGS[tag]] = s.trim();
+          }
+        }
+      }
+      return Object.keys(found).length ? found : null;
+    }
+
+    function showFound(found, isJpeg) {
+      var panel = document.getElementById('found-panel');
+      var slot = document.getElementById('found-slot');
+      panel.hidden = false;
+
+      if (!isJpeg) {
+        slot.innerHTML = '<div class="clean">This is not a JPEG, so it carries no ' +
+          'EXIF block. Saving it again still guarantees a clean copy.</div>';
+        return;
+      }
+      if (!found) {
+        slot.innerHTML = '<div class="clean">No EXIF data found in this photo. ' +
+          'You can still save a clean copy below to be certain.</div>';
+        return;
+      }
+
+      var hasGps = !!found['Location (GPS)'];
+      var rows = Object.keys(found).map(function (k) {
+        return '<tr><td>' + k + '</td><td>' +
+          String(found[k]).replace(/[<>&]/g, '') + '</td></tr>';
+      }).join('');
+
+      slot.innerHTML =
+        (hasGps
+          ? '<div class="warn" style="margin-bottom:12px"><b>This photo records ' +
+            'where it was taken.</b> Posting it as it is could reveal your home ' +
+            'or workplace.</div>'
+          : '') +
+        '<table class="found">' + rows + '</table>';
+    }
+
+    function load(f) {
+      if (!f) return;
+      if (!/^image\//.test(f.type)) {
+        document.getElementById('file-info').textContent =
+          'That is not an image file.';
+        return;
+      }
+
+      currentName = f.name.replace(/\.[^.]+$/, '') || 'photo';
+      document.getElementById('file-info').textContent =
+        f.name + ' — ' + human(f.size) + ', read on this device only.';
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var isJpeg = /jpe?g/i.test(f.type);
+        var found = null;
+        try { found = readExif(reader.result); } catch (e) { found = null; }
+        showFound(found, isJpeg);
+
+        var blob = new Blob([reader.result], { type: f.type });
+        var url = URL.createObjectURL(blob);
+        var img = new Image();
+        img.onload = function () {
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          var ctx = canvas.getContext('2d');
+          /* A white base, so a transparent PNG saved as JPEG does not come
+             out with a black background. */
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(url);
+          document.getElementById('out-panel').hidden = false;
+          refresh(f.size, img.naturalWidth, img.naturalHeight);
+        };
+        img.onerror = function () {
+          URL.revokeObjectURL(url);
+          document.getElementById('file-info').textContent =
+            'That image could not be opened.';
+        };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(f);
+    }
+
+    function currentType() { return document.getElementById('format').value; }
+
+    function currentQuality() {
+      return parseInt(document.getElementById('quality').value, 10) / 100;
+    }
+
+    function refresh(originalSize, w, h) {
+      document.getElementById('quality-field').hidden = currentType() === 'image/png';
+      var url = canvas.toDataURL(currentType(), currentQuality());
+      document.getElementById('preview').src = url;
+
+      /* A data URL is base64, so roughly four characters per three bytes. */
+      var approx = Math.round((url.length - url.indexOf(',') - 1) * 3 / 4);
+      document.getElementById('size-note').textContent =
+        w + ' × ' + h + ' pixels, about ' + human(approx) +
+        (originalSize ? ' (the original was ' + human(originalSize) + ')' : '');
+    }
+
+    var drop = document.getElementById('drop');
+    var fileInput = document.getElementById('file');
+
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { load(this.files[0]); });
+
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) load(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById('format').addEventListener('change', function () {
+      refresh(0, canvas.width, canvas.height);
+    });
+    document.getElementById('quality').addEventListener('input', function () {
+      document.getElementById('quality-val').textContent = this.value;
+      refresh(0, canvas.width, canvas.height);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      if (!canvas.width) { CT.toast('Choose a photo first'); return; }
+      var ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[currentType()];
+      var a = document.createElement('a');
+      a.href = canvas.toDataURL(currentType(), currentQuality());
+      a.download = currentName + '-clean.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+  })();
+  </script>
+</body>
+</html>

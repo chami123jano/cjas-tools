@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Secure Key Generator — Cja's Tools</title>
+<meta name="description" content="Generate random API keys, tokens, secrets and UUIDs using your browser's secure randomness. Nothing is sent anywhere. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .keyrow {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px;
+    align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .keyrow:last-child { border-bottom: none; }
+  .keyrow .val {
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    word-break: break-all; line-height: 1.5;
+  }
+  .keyrow button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .keyrow button:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="key-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=security">Security</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Secure Key Generator</h1>
+        <p>Made on your device with real randomness, not a shuffled word list.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="format">Format</label>
+            <select id="format">
+              <option value="hex">Hexadecimal</option>
+              <option value="base64url">Base64 (URL safe)</option>
+              <option value="alnum">Letters and numbers</option>
+              <option value="uuid">UUID v4</option>
+              <option value="prefixed">Prefixed API key</option>
+            </select>
+          </div>
+          <div class="field" id="bytes-field">
+            <label for="bytes">Strength: <span id="bytes-val">32</span> bytes</label>
+            <input type="range" id="bytes" min="8" max="64" value="32" style="width:100%">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" id="prefix-field" hidden>
+            <label for="prefix">Prefix</label>
+            <input type="text" id="prefix" value="sk_live" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="count">How many</label>
+            <input type="number" id="count" value="5" min="1" max="50" step="1">
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="again">Generate</button>
+          <button class="btn" id="copy-all">Copy all</button>
+        </div>
+        <p class="hint" id="entropy"></p>
+      </div>
+
+      <div class="panel" id="keys"></div>
+
+      <div class="panel">
+        <p class="hint"><b>These are generated fresh in your browser</b> using
+          crypto.getRandomValues, the same source a password manager uses. They
+          are not sent anywhere and nothing is stored, so closing this page loses
+          them &mdash; copy what you need first.
+          <br><br>
+          A prefix like <code>sk_live</code> is only a label to help you spot a
+          key in a log or a config file. It adds no security, and a real secret
+          should never end up in a log in the first place.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+    function randomBytes(n) {
+      var b = new Uint8Array(n);
+      crypto.getRandomValues(b);
+      return b;
+    }
+
+    function toHex(bytes) {
+      return Array.from(bytes).map(function (b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+    }
+
+    function toBase64Url(bytes) {
+      var s = '';
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    /* Rejection sampling, so every character is equally likely. Taking a
+       byte modulo 62 would make the first few characters slightly more
+       common, which is exactly the sort of bias that weakens a key. */
+    function toAlnum(count) {
+      var out = '';
+      var limit = Math.floor(256 / ALNUM.length) * ALNUM.length;
+      while (out.length < count) {
+        var chunk = randomBytes(count);
+        for (var i = 0; i < chunk.length && out.length < count; i++) {
+          if (chunk[i] < limit) out += ALNUM.charAt(chunk[i] % ALNUM.length);
+        }
+      }
+      return out;
+    }
+
+    function uuid() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      /* Same thing by hand, for older webviews: set the version and
+         variant bits that make it a valid v4. */
+      var b = randomBytes(16);
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      var h = toHex(b);
+      return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) +
+             '-' + h.slice(16, 20) + '-' + h.slice(20);
+    }
+
+    function makeOne() {
+      var format = document.getElementById('format').value;
+      var bytes = parseInt(document.getElementById('bytes').value, 10);
+
+      if (format === 'uuid') return uuid();
+      if (format === 'hex') return toHex(randomBytes(bytes));
+      if (format === 'base64url') return toBase64Url(randomBytes(bytes));
+      if (format === 'alnum') return toAlnum(bytes);
+
+      var prefix = document.getElementById('prefix').value.trim().replace(/[^\w-]/g, '');
+      return (prefix ? prefix + '_' : '') + toAlnum(bytes);
+    }
+
+    function generate() {
+      var format = document.getElementById('format').value;
+      var count = Math.min(50, Math.max(1, parseInt(document.getElementById('count').value, 10) || 1));
+      var bytes = parseInt(document.getElementById('bytes').value, 10);
+
+      document.getElementById('bytes-field').hidden = format === 'uuid';
+      document.getElementById('prefix-field').hidden = format !== 'prefixed';
+
+      var keys = [];
+      for (var i = 0; i < count; i++) keys.push(makeOne());
+
+      document.getElementById('keys').innerHTML = keys.map(function (k) {
+        return '<div class="keyrow"><span class="val">' + k +
+               '</span><button data-copy="' + k + '">copy</button></div>';
+      }).join('');
+
+      var bits = format === 'uuid' ? 122
+        : format === 'alnum' || format === 'prefixed'
+          ? Math.round(bytes * Math.log2(ALNUM.length))
+          : bytes * 8;
+
+      document.getElementById('entropy').textContent =
+        'About ' + bits + ' bits of randomness each' +
+        (bits >= 128 ? ' — well beyond anything that can be guessed.'
+                     : bits >= 80 ? ' — fine for most uses.'
+                     : ' — short. Raise the strength for anything that matters.');
+    }
+
+    document.getElementById('keys').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    document.getElementById('copy-all').addEventListener('click', function () {
+      var all = Array.from(document.querySelectorAll('#keys .val'))
+        .map(function (el) { return el.textContent; }).join('\n');
+      if (!all) { CT.toast('Nothing to copy'); return; }
+      CT.copy(all);
+    });
+
+    document.getElementById('bytes').addEventListener('input', function () {
+      document.getElementById('bytes-val').textContent = this.value;
+      generate();
+    });
+
+    ['format', 'count', 'prefix'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', generate);
+      el.addEventListener('change', generate);
+    });
+
+    document.getElementById('again').addEventListener('click', generate);
+
+    generate();
+  })();
+  </script>
+</body>
+</html>

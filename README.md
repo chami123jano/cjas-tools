@@ -23,7 +23,7 @@ Download the latest `.exe` from [Releases](https://github.com/chami123jano/cjas-
 
 In active development. See [PLAN.md](PLAN.md) for the build schedule.
 
-Currently: **54 tools** · target **171 by 29 December 2026**
+Currently: **59 tools** · target **171 by 29 December 2026**
 
 ## Built with
 

@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encrypted Notes — Cja's Tools</title>
+<meta name="description" content="Private notes locked behind a passphrase and stored encrypted on your own device. Nothing is uploaded. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #notes { min-height: 320px; font-size: 15px; line-height: 1.7; }
+  .locked-state { text-align: center; padding: 26px 16px; }
+  .locked-state .lock { font-size: 40px; line-height: 1; margin-bottom: 12px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px;
+    line-height: 1.6; margin-bottom: 14px;
+  }
+  .bar { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+  .bar .dot { width: 7px; height: 7px; border-radius: 50%; background: #27b86a; }
+  .bar .dot.pending { background: #e8a33d; }
+</style>
+</head>
+<body data-page="tool" data-slug="encrypted-notes">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=security">Security</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Encrypted Notes</h1>
+        <p>Stored locked on this device. Unreadable without your passphrase.</p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="lock-panel">
+        <div class="locked-state">
+          <div class="lock" id="lock-icon">&#128274;</div>
+          <p id="lock-text" style="margin:0 0 16px;color:var(--muted)"></p>
+        </div>
+        <div class="field">
+          <label for="pass">Passphrase</label>
+          <input type="password" id="pass" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field" id="confirm-field" hidden>
+          <label for="confirm">Type it again</label>
+          <input type="password" id="confirm" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="unlock">Unlock</button>
+          <button class="btn" id="show">Show</button>
+          <button class="btn" id="wipe" hidden>Forget these notes</button>
+        </div>
+        <p class="hint" id="strength"></p>
+      </div>
+
+      <div class="panel" id="notes-panel" hidden>
+        <textarea id="notes" spellcheck="true" placeholder="Your private notes&hellip;"></textarea>
+        <div class="bar" style="margin-top:10px">
+          <span class="dot" id="dot"></span><span id="status">Saved, encrypted</span>
+          <span style="margin-left:auto" id="counts"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="actions-panel" hidden>
+        <div class="btns">
+          <button class="btn primary" id="lock-now">Lock and close</button>
+          <button class="btn" id="download">Download decrypted copy</button>
+          <button class="btn" id="wipe2">Delete everything</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Forget the passphrase and the notes are gone.</b> There
+          is no reset and no recovery, by design. Nothing is uploaded, so nobody
+          can look them up for you.
+          <br><br>
+          The notes are encrypted before being written to this browser's storage,
+          so someone with access to the machine still cannot read them. They stay
+          on this device only, and clearing browser data erases them.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/crypto.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-encrypted-notes';
+    var passphrase = null;
+    var saveTimer = null;
+
+    var pass = document.getElementById('pass');
+    var confirmEl = document.getElementById('confirm');
+    var notes = document.getElementById('notes');
+
+    function stored() {
+      try { return localStorage.getItem(KEY); } catch (e) { return null; }
+    }
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function isFirstTime() { return !stored(); }
+
+    function paintLockScreen() {
+      var first = isFirstTime();
+      document.getElementById('confirm-field').hidden = !first;
+      document.getElementById('wipe').hidden = first;
+      document.getElementById('unlock').textContent = first ? 'Create' : 'Unlock';
+      document.getElementById('lock-icon').innerHTML = first ? '&#128221;' : '&#128274;';
+      document.getElementById('lock-text').textContent = first
+        ? 'No notes here yet. Choose a passphrase and they will be encrypted with it.'
+        : 'These notes are locked. Enter the passphrase to read them.';
+    }
+
+    function showStrength() {
+      if (!isFirstTime()) {
+        document.getElementById('strength').textContent = '';
+        return;
+      }
+      var s = CJA_CRYPTO.strength(pass.value);
+      document.getElementById('strength').textContent =
+        pass.value ? s.label + ' — ' + s.note : '';
+    }
+
+    function openNotes(text) {
+      notes.value = text;
+      document.getElementById('lock-panel').hidden = true;
+      document.getElementById('notes-panel').hidden = false;
+      document.getElementById('actions-panel').hidden = false;
+      error('');
+      counts();
+      notes.focus();
+    }
+
+    function closeNotes() {
+      passphrase = null;
+      notes.value = '';
+      pass.value = '';
+      confirmEl.value = '';
+      document.getElementById('lock-panel').hidden = false;
+      document.getElementById('notes-panel').hidden = true;
+      document.getElementById('actions-panel').hidden = true;
+      paintLockScreen();
+      showStrength();
+    }
+
+    function counts() {
+      var t = notes.value;
+      var w = t.trim() ? t.trim().split(/\s+/).length : 0;
+      document.getElementById('counts').textContent =
+        w.toLocaleString() + ' words';
+    }
+
+    function save() {
+      if (passphrase === null) return;
+      document.getElementById('dot').classList.add('pending');
+      document.getElementById('status').textContent = 'Encrypting…';
+
+      CJA_CRYPTO.encrypt(notes.value, passphrase).then(function (blob) {
+        try {
+          localStorage.setItem(KEY, blob);
+          document.getElementById('dot').classList.remove('pending');
+          document.getElementById('status').textContent = 'Saved, encrypted';
+        } catch (e) {
+          document.getElementById('status').textContent =
+            'Could not save — download a copy';
+        }
+      }).catch(function () {
+        document.getElementById('status').textContent = 'Could not encrypt';
+      });
+    }
+
+    document.getElementById('unlock').addEventListener('click', function () {
+      error('');
+
+      if (!CJA_CRYPTO.available()) {
+        error('Encryption needs the browser’s crypto support, which is not ' +
+              'available here. On the website this only works over https.');
+        return;
+      }
+      if (!pass.value) {
+        error('Enter a passphrase.');
+        pass.focus();
+        return;
+      }
+
+      if (isFirstTime()) {
+        if (pass.value !== confirmEl.value) {
+          error('The two passphrases do not match.');
+          confirmEl.focus();
+          return;
+        }
+        if (pass.value.length < 8) {
+          error('Use at least 8 characters. There is no way to recover these ' +
+                'notes if the passphrase is guessed or forgotten.');
+          return;
+        }
+        passphrase = pass.value;
+        openNotes('');
+        save();
+        return;
+      }
+
+      var attempt = pass.value;
+      CJA_CRYPTO.decrypt(stored(), attempt).then(function (text) {
+        passphrase = attempt;
+        openNotes(text);
+      }).catch(function (e) {
+        error(e.message === 'not-a-blob'
+          ? 'The saved notes look damaged and cannot be read.'
+          : 'Wrong passphrase.');
+        pass.select();
+      });
+    });
+
+    notes.addEventListener('input', function () {
+      counts();
+      clearTimeout(saveTimer);
+      document.getElementById('dot').classList.add('pending');
+      document.getElementById('status').textContent = 'Typing…';
+      /* Encrypting on every keystroke would run the key derivation
+         constantly, which is deliberately slow. A pause is enough. */
+      saveTimer = setTimeout(save, 700);
+    });
+
+    document.getElementById('lock-now').addEventListener('click', function () {
+      clearTimeout(saveTimer);
+      save();
+      setTimeout(closeNotes, 60);
+    });
+
+    document.getElementById('show').addEventListener('click', function () {
+      var hidden = pass.type === 'password';
+      pass.type = hidden ? 'text' : 'password';
+      confirmEl.type = hidden ? 'text' : 'password';
+      this.textContent = hidden ? 'Hide' : 'Show';
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      if (!notes.value) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([notes.value], { type: 'text/plain;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'notes.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      CT.toast('Downloaded unencrypted — keep it safe');
+    });
+
+    function wipe() {
+      if (!window.confirm('Delete the encrypted notes from this device? ' +
+          'This cannot be undone.')) return;
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      closeNotes();
+      error('');
+    }
+
+    document.getElementById('wipe').addEventListener('click', wipe);
+    document.getElementById('wipe2').addEventListener('click', wipe);
+
+    pass.addEventListener('input', showStrength);
+    [pass, confirmEl].forEach(function (el) {
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('unlock').click();
+        }
+      });
+    });
+
+    paintLockScreen();
+    showStrength();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hash Generator — Cja's Tools</title>
+<meta name="description" content="Work out the SHA hash of text or a file on your own device, to check a download or fingerprint a document. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .hrow {
+    display: grid; grid-template-columns: 96px 1fr auto; gap: 10px;
+    align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .hrow:last-child { border-bottom: none; }
+  .hrow .name { font-size: 13px; color: var(--muted); }
+  .hrow .val {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+    word-break: break-all; line-height: 1.5;
+  }
+  .hrow button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .hrow button:hover { color: var(--accent); }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 28px 16px; text-align: center; color: var(--muted);
+    font-size: 14px; cursor: pointer;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+  .match { padding: 12px 15px; border-radius: var(--radius); font-size: 14px; font-weight: 550; }
+  .match.yes { background: #dcf5e7; color: #146b3c; border: 1px solid #27b86a; }
+  .match.no { background: rgba(212,72,59,.1); color: var(--danger); border: 1px solid var(--danger); }
+</style>
+</head>
+<body data-page="tool" data-slug="hash-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=security">Security</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Hash Generator</h1>
+        <p>A fingerprint of some text or a file. Nothing is uploaded.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns" style="margin-bottom:14px">
+          <button class="btn primary" id="tab-text">Text</button>
+          <button class="btn" id="tab-file">File</button>
+        </div>
+
+        <div id="pane-text">
+          <div class="field">
+            <label for="in">Text to hash</label>
+            <textarea id="in" spellcheck="false" placeholder="Type or paste anything&hellip;"></textarea>
+          </div>
+        </div>
+
+        <div id="pane-file" hidden>
+          <div class="drop-zone" id="drop">
+            <input type="file" id="file" hidden>
+            Click to choose a file, or drag one here
+          </div>
+          <p class="hint" id="file-info"></p>
+        </div>
+      </div>
+
+      <div class="panel" id="results"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="check">Compare against a known hash</label>
+          <input type="text" id="check" spellcheck="false" autocomplete="off"
+                 placeholder="Paste the hash you were given">
+        </div>
+        <div id="check-result"></div>
+        <p class="hint">Useful for checking a download arrived intact. Paste the
+          hash the publisher gives and see whether it matches.</p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>MD5 is not here on purpose.</b> It is broken &mdash; two
+          different files can be made to share an MD5 hash, so it proves nothing
+          about authenticity. SHA-1 is included because old systems still use it,
+          but it is also weak. Use SHA-256 unless something forces you not to.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var ALGOS = ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'];
+    var current = {};
+    var mode = 'text';
+
+    function hex(buffer) {
+      return Array.from(new Uint8Array(buffer)).map(function (b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+    }
+
+    function supported() {
+      return typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest;
+    }
+
+    function render(pending) {
+      var host = document.getElementById('results');
+
+      if (!supported()) {
+        host.innerHTML = '<p class="hint" style="margin:0">Hashing needs the ' +
+          'browser’s crypto support, which is not available here. On the ' +
+          'website this only works over https.</p>';
+        return;
+      }
+
+      host.innerHTML = ALGOS.map(function (a) {
+        var v = current[a];
+        return '<div class="hrow">' +
+          '<span class="name">' + a + '</span>' +
+          '<span class="val">' + (pending ? 'working…' : (v || '—')) + '</span>' +
+          (v ? '<button data-copy="' + v + '">copy</button>' : '<span></span>') +
+        '</div>';
+      }).join('');
+
+      compare();
+    }
+
+    function compare() {
+      var want = document.getElementById('check').value.trim().toLowerCase();
+      var slot = document.getElementById('check-result');
+      if (!want) { slot.innerHTML = ''; return; }
+
+      var hit = null;
+      Object.keys(current).forEach(function (a) {
+        if (current[a] && current[a].toLowerCase() === want) hit = a;
+      });
+
+      slot.innerHTML = hit
+        ? '<div class="match yes">It matches the ' + hit + ' hash.</div>'
+        : '<div class="match no">No match. Either the content differs, or that ' +
+          'hash uses an algorithm not listed above.</div>';
+    }
+
+    function hashBuffer(buffer) {
+      if (!supported()) { render(false); return; }
+      current = {};
+      render(true);
+      ALGOS.forEach(function (a) {
+        crypto.subtle.digest(a, buffer).then(function (out) {
+          current[a] = hex(out);
+          render(false);
+        }).catch(function () {
+          current[a] = null;
+          render(false);
+        });
+      });
+    }
+
+    function hashText() {
+      var text = document.getElementById('in').value;
+      if (!text) {
+        current = {};
+        render(false);
+        return;
+      }
+      hashBuffer(new TextEncoder().encode(text));
+    }
+
+    document.getElementById('in').addEventListener('input', hashText);
+    document.getElementById('check').addEventListener('input', compare);
+
+    document.getElementById('results').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    /* ---------- file mode ---------- */
+
+    function readFile(f) {
+      if (!f) return;
+      document.getElementById('file-info').textContent =
+        f.name + ' — ' + (f.size < 1024 ? f.size + ' B'
+          : f.size < 1048576 ? (f.size / 1024).toFixed(1) + ' KB'
+          : (f.size / 1048576).toFixed(2) + ' MB') + ', reading…';
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        document.getElementById('file-info').textContent =
+          f.name + ' — hashed on this device, never uploaded.';
+        hashBuffer(reader.result);
+      };
+      reader.onerror = function () {
+        document.getElementById('file-info').textContent = 'Could not read that file.';
+      };
+      reader.readAsArrayBuffer(f);
+    }
+
+    var drop = document.getElementById('drop');
+    var fileInput = document.getElementById('file');
+
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { readFile(this.files[0]); });
+
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) {
+        e.preventDefault();
+        drop.classList.add('over');
+      });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) {
+        e.preventDefault();
+        drop.classList.remove('over');
+      });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) readFile(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById('tab-text').addEventListener('click', function () {
+      mode = 'text';
+      document.getElementById('pane-text').hidden = false;
+      document.getElementById('pane-file').hidden = true;
+      this.classList.add('primary');
+      document.getElementById('tab-file').classList.remove('primary');
+      hashText();
+    });
+
+    document.getElementById('tab-file').addEventListener('click', function () {
+      mode = 'file';
+      document.getElementById('pane-text').hidden = true;
+      document.getElementById('pane-file').hidden = false;
+      this.classList.add('primary');
+      document.getElementById('tab-text').classList.remove('primary');
+    });
+
+    render(false);
+  })();
+  </script>
+</body>
+</html>

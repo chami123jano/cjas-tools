@@ -38,6 +38,20 @@ function loadTool(slug, opts = {}) {
       // the state these tools have to cope with anyway.
       window.fetch = opts.fetch || (() => Promise.reject(new Error('offline')));
 
+      // jsdom ships getRandomValues but no crypto.subtle, so the hashing and
+      // encryption tools would report themselves unsupported and never run.
+      // Node's own WebCrypto is the same implementation a browser exposes,
+      // so the round trips below are real, not simulated.
+      const { webcrypto } = require('node:crypto');
+      Object.defineProperty(window, 'crypto', {
+        value: webcrypto, configurable: true, writable: true
+      });
+      if (typeof window.TextEncoder === 'undefined') {
+        const { TextEncoder, TextDecoder } = require('node:util');
+        window.TextEncoder = TextEncoder;
+        window.TextDecoder = TextDecoder;
+      }
+
       // jsdom has no canvas, and getContext returns null, so any drawing
       // tool would throw on load. This stub records the calls instead of
       // rendering: enough to prove the code runs and computes the right

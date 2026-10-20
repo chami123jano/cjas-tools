@@ -400,6 +400,41 @@ const TOOLS = [
     category: 'money',
     desc: 'A small cash book for income and expenses, saved on this device.',
     keywords: ['bookkeeping', 'ledger', 'accounts', 'income', 'expenses', 'business', 'cash book']
+  },
+  {
+    slug: 'hash-generator',
+    name: 'Hash Generator',
+    category: 'security',
+    desc: 'SHA hashes of text or a file, worked out on your own device.',
+    keywords: ['hash', 'sha256', 'sha1', 'checksum', 'fingerprint', 'verify', 'digest']
+  },
+  {
+    slug: 'text-encryption',
+    name: 'Text Encryption',
+    category: 'security',
+    desc: 'Lock a message with a passphrase so only someone with it can read it.',
+    keywords: ['encrypt', 'decrypt', 'password', 'secret', 'aes', 'cipher', 'private']
+  },
+  {
+    slug: 'key-generator',
+    name: 'Secure Key Generator',
+    category: 'security',
+    desc: 'Random API keys, tokens and secrets of any length, made on your device.',
+    keywords: ['key', 'secret', 'token', 'api key', 'random', 'hex', 'base64']
+  },
+  {
+    slug: 'encrypted-notes',
+    name: 'Encrypted Notes',
+    category: 'security',
+    desc: 'Private notes locked behind a passphrase and kept only on this device.',
+    keywords: ['encrypted', 'notes', 'private', 'secret', 'password', 'diary', 'vault']
+  },
+  {
+    slug: 'metadata-remover',
+    name: 'Photo Metadata Remover',
+    category: 'security',
+    desc: 'Strip the location and camera details hidden inside a photo before you share it.',
+    keywords: ['metadata', 'exif', 'gps', 'location', 'photo', 'privacy', 'strip']
   }
 ];
 

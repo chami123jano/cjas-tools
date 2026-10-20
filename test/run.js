@@ -941,6 +941,143 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- security
+
+(function sharedCrypto() {
+  // A real encrypt/decrypt round trip using Node's WebCrypto, which is the
+  // same implementation the browser uses.
+  const { webcrypto } = require('node:crypto');
+  const { TextEncoder, TextDecoder } = require('node:util');
+  const sandbox = {
+    crypto: webcrypto, TextEncoder, TextDecoder,
+    btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+    atob: (s) => Buffer.from(s, 'base64').toString('binary')
+  };
+  const code = fs.readFileSync(path.join(SRC, 'assets/crypto.js'), 'utf8');
+  const C = new Function('crypto', 'TextEncoder', 'TextDecoder', 'btoa', 'atob',
+    code + '; return CJA_CRYPTO;')(
+    sandbox.crypto, sandbox.TextEncoder, sandbox.TextDecoder, sandbox.btoa, sandbox.atob);
+
+  ok(C.available(), 'crypto reports itself available');
+  ok(C.iterations >= 210000, 'PBKDF2 iterations meet current guidance',
+     'got ' + C.iterations);
+
+  pending.push(async () => {
+    const blob = await C.encrypt('ayubowan, this is secret', 'correct horse battery');
+    ok(typeof blob === 'string' && blob.length > 20, 'encrypting produces a blob');
+    ok(blob.indexOf('secret') === -1, 'the plaintext is not visible in the output');
+
+    const back = await C.decrypt(blob, 'correct horse battery');
+    ok(back === 'ayubowan, this is secret', 'the right passphrase round-trips',
+       'got ' + back);
+
+    // the same text encrypted twice must not produce the same blob, or the
+    // salt and iv are not being randomised
+    const blob2 = await C.encrypt('ayubowan, this is secret', 'correct horse battery');
+    ok(blob !== blob2, 'a fresh salt and iv are used every time');
+
+    await C.decrypt(blob, 'wrong passphrase').then(
+      () => ok(false, 'a wrong passphrase must fail'),
+      (e) => ok(e.message === 'wrong-passphrase', 'a wrong passphrase is rejected',
+                'got ' + e.message)
+    );
+
+    await C.decrypt('this is not a blob at all', 'x').then(
+      () => ok(false, 'rubbish input must fail'),
+      (e) => ok(e.message === 'not-a-blob', 'rubbish is told apart from a bad passphrase',
+                'got ' + e.message)
+    );
+
+    // AES-GCM authenticates, so a tampered blob must not decrypt
+    const bytes = Buffer.from(blob, 'base64');
+    bytes[bytes.length - 3] ^= 0xFF;
+    await C.decrypt(bytes.toString('base64'), 'correct horse battery').then(
+      () => ok(false, 'an edited blob must not decrypt'),
+      () => ok(true, 'an edited message is detected and refused')
+    );
+
+    ok(C.strength('abc').label === 'Weak', 'a short passphrase reads as weak');
+    ok(C.strength('correct horse battery staple!').label === 'Very strong',
+       'a long passphrase reads as strong');
+  });
+
+  // both tools must use the shared file rather than their own copy
+  ['text-encryption', 'encrypted-notes'].forEach((slug) => {
+    const s = fs.readFileSync(path.join(SRC, 'tools/' + slug + '.html'), 'utf8');
+    ok(s.indexOf('crypto.js') !== -1, slug + ' loads the shared crypto');
+    // the word PBKDF2 legitimately appears in the page's explanation, so
+    // look for an actual implementation instead of a mention of one
+    ok(s.indexOf('deriveKey') === -1 && s.indexOf('subtle.encrypt') === -1,
+       slug + ' does not implement its own key derivation');
+  });
+})();
+
+(function hashGenerator() {
+  const t = loadTool('hash-generator');
+  t.set('in', 'abc');
+  pending.push(() => new Promise((resolve) => setTimeout(() => {
+    // the published SHA-256 of "abc"
+    has(t.text('results'),
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        'SHA-256 of "abc" matches the known value');
+    has(t.text('results'), 'a9993e364706816aba3e25717850c26c9cd0d89d',
+        'SHA-1 of "abc" matches too');
+
+    t.set('check', 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    has(t.text('check-result'), 'matches the SHA-256', 'comparing a known hash works');
+    t.set('check', 'deadbeef');
+    has(t.text('check-result'), 'No match', 'a wrong hash is reported');
+    t.close();
+    resolve();
+  }, 60)));
+})();
+
+(function keyGenerator() {
+  const t = loadTool('key-generator');
+  t.set('format', 'hex').set('bytes', 32).set('count', 5);
+  const vals = () => [...t.document.querySelectorAll('#keys .val')].map((e) => e.textContent);
+  ok(vals().length === 5, 'five keys generated', 'got ' + vals().length);
+  ok(vals().every((v) => /^[0-9a-f]{64}$/.test(v)),
+     '32 bytes of hex is 64 characters', 'got ' + vals()[0]);
+  ok(new Set(vals()).size === 5, 'the keys are all different');
+
+  t.set('format', 'uuid');
+  ok(vals().every((v) =>
+     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v)),
+     'UUIDs have the right version and variant bits', 'got ' + vals()[0]);
+
+  t.set('format', 'prefixed').set('prefix', 'sk_live').set('bytes', 24);
+  ok(vals().every((v) => v.indexOf('sk_live_') === 0), 'the prefix is applied');
+  t.close();
+})();
+
+(function encryptedNotes() {
+  const t = loadTool('encrypted-notes');
+  // nothing stored yet, so it should offer to create rather than unlock
+  has(t.text('lock-text'), 'No notes here yet', 'a first visit offers to create');
+  ok(!t.byId('confirm-field').hidden, 'and asks for the passphrase twice');
+
+  // mismatched passphrases must be refused
+  t.set('pass', 'longenoughpass').set('confirm', 'somethingelse');
+  t.click('unlock');
+  has(t.text('err-slot'), 'do not match', 'mismatched passphrases are refused');
+
+  // too short must be refused
+  t.set('pass', 'short').set('confirm', 'short');
+  t.click('unlock');
+  has(t.text('err-slot'), 'at least 8', 'a short passphrase is refused');
+  t.close();
+})();
+
+(function metadataRemover() {
+  // The EXIF parser is the part worth testing; the stripping is a canvas
+  // redraw, which the stub cannot verify.
+  const t = loadTool('metadata-remover');
+  ok(t.byId('drop') !== null, 'the drop zone renders');
+  ok(t.byId('out-panel').hidden, 'the output stays hidden until a photo is chosen');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

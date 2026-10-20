@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text Encryption — Cja's Tools</title>
+<meta name="description" content="Lock a message with a passphrase so only someone who knows it can read it. Encrypted on your own device with AES-GCM. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-size: 14px; }
+  #out { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .ok {
+    padding: 12px 15px; border: 1px solid #27b86a;
+    border-radius: var(--radius); color: #146b3c; background: #dcf5e7;
+    font-size: 13.5px;
+  }
+  html:not([data-theme="light"]) .ok { background: #17402c; color: #6fdca2; }
+  :root[data-theme="dark"] .ok { background: #17402c; color: #6fdca2; }
+</style>
+</head>
+<body data-page="tool" data-slug="text-encryption">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=security">Security</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Text Encryption</h1>
+        <p>Locked and unlocked on your device. The passphrase never leaves it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-lock">Lock a message</button>
+          <button class="btn" id="tab-unlock">Unlock a message</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in" id="in-label">Message to lock</label>
+          <textarea id="in" spellcheck="false" placeholder="Type your message&hellip;"></textarea>
+        </div>
+        <div class="field">
+          <label for="pass">Passphrase</label>
+          <input type="password" id="pass" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="btns">
+          <button class="btn" id="show">Show passphrase</button>
+          <button class="btn primary" id="go">Lock it</button>
+        </div>
+        <p class="hint" id="strength"></p>
+      </div>
+
+      <div id="msg-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out" id="out-label">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="swap">Send it back to the top</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>There is no way back without the passphrase.</b> Not for
+          you, not for me, not for anyone. If you forget it the message is gone
+          permanently &mdash; that is the whole point, but it does mean writing the
+          passphrase down somewhere safe matters.
+          <br><br>
+          Uses AES-GCM with a key stretched from your passphrase using
+          <span id="iters"></span> rounds of PBKDF2. The encrypted text also
+          carries a check, so an edited message fails to unlock instead of
+          quietly producing something wrong.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/crypto.js"></script>
+  <script>
+  (function () {
+    var locking = true;
+    var input = document.getElementById('in');
+    var pass = document.getElementById('pass');
+    var output = document.getElementById('out');
+    var slot = document.getElementById('msg-slot');
+
+    document.getElementById('iters').textContent =
+      CJA_CRYPTO.iterations.toLocaleString();
+
+    function message(html, kind) {
+      slot.innerHTML = html
+        ? '<div class="panel"><div class="' + kind + '">' + html + '</div></div>'
+        : '';
+    }
+
+    function setMode(lock) {
+      locking = lock;
+      document.getElementById('in-label').textContent =
+        lock ? 'Message to lock' : 'Encrypted message to unlock';
+      document.getElementById('out-label').textContent =
+        lock ? 'Encrypted message' : 'The original message';
+      document.getElementById('go').textContent = lock ? 'Lock it' : 'Unlock it';
+      input.placeholder = lock ? 'Type your message…' : 'Paste the encrypted text…';
+      document.getElementById('tab-lock').classList.toggle('primary', lock);
+      document.getElementById('tab-unlock').classList.toggle('primary', !lock);
+      output.value = '';
+      message('');
+    }
+
+    function showStrength() {
+      if (!locking) {
+        document.getElementById('strength').textContent = '';
+        return;
+      }
+      var s = CJA_CRYPTO.strength(pass.value);
+      document.getElementById('strength').textContent =
+        pass.value ? s.label + ' — ' + s.note : '';
+    }
+
+    function run() {
+      var text = input.value;
+      var phrase = pass.value;
+
+      if (!CJA_CRYPTO.available()) {
+        message('Encryption needs the browser’s crypto support, which is not ' +
+                'available here. On the website this only works over https.', 'err');
+        return;
+      }
+      if (!text.trim()) {
+        message('There is nothing to ' + (locking ? 'lock' : 'unlock') + '.', 'err');
+        return;
+      }
+      if (!phrase) {
+        message('Enter a passphrase first.', 'err');
+        pass.focus();
+        return;
+      }
+
+      message('Working…', 'ok');
+
+      var job = locking
+        ? CJA_CRYPTO.encrypt(text, phrase)
+        : CJA_CRYPTO.decrypt(text, phrase);
+
+      job.then(function (result) {
+        output.value = result;
+        message(locking
+          ? 'Locked. Copy the text below and send it. The person receiving it ' +
+            'needs the same passphrase, sent some other way.'
+          : 'Unlocked successfully.', 'ok');
+      }).catch(function (e) {
+        output.value = '';
+        var why = {
+          'not-a-blob': 'That does not look like a message locked by this tool. ' +
+                        'Check you pasted the whole thing, including the start.',
+          'wrong-passphrase': 'That did not unlock. Either the passphrase is wrong, ' +
+                              'or the message was altered after it was locked. ' +
+                              'There is no way to tell which.',
+          'no-passphrase': 'Enter a passphrase first.',
+          'unsupported': 'Encryption is not available in this browser.'
+        }[e.message] || 'Something went wrong.';
+        message(why, 'err');
+      });
+    }
+
+    document.getElementById('tab-lock').addEventListener('click', function () {
+      setMode(true);
+      showStrength();
+    });
+    document.getElementById('tab-unlock').addEventListener('click', function () {
+      setMode(false);
+      showStrength();
+    });
+
+    document.getElementById('go').addEventListener('click', run);
+    pass.addEventListener('input', showStrength);
+
+    document.getElementById('show').addEventListener('click', function () {
+      var hidden = pass.type === 'password';
+      pass.type = hidden ? 'text' : 'password';
+      this.textContent = hidden ? 'Hide passphrase' : 'Show passphrase';
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    /* Locking then immediately unlocking is the natural way to check a
+       passphrase, so the result moves up into the input and the mode flips.
+       setMode clears the output itself, so the carried text is held first. */
+    document.getElementById('swap').addEventListener('click', function () {
+      if (!output.value) return;
+      var carried = output.value;
+      setMode(!locking);
+      input.value = carried;
+    });
+
+    /* Enter in the passphrase box should just do it. */
+    pass.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); run(); }
+    });
+
+    setMode(true);
+  })();
+  </script>
+</body>
+</html>
