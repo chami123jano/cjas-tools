@@ -1078,6 +1078,159 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- developers
+
+(function base64Tool() {
+  const t = loadTool('base64');
+  t.set('in', 'Hello');
+  ok(t.byId('out').value === 'SGVsbG8=', 'plain text encodes',
+     'got ' + t.byId('out').value);
+
+  // the whole point of going through UTF-8: btoa alone throws on these
+  t.set('in', 'අයුබෝවන්');
+  const sinhala = t.byId('out').value;
+  ok(sinhala.length > 0, 'Sinhala text encodes instead of throwing');
+
+  t.click('tab-decode');
+  t.set('in', sinhala);
+  ok(t.byId('out').value === 'අයුබෝවන්',
+     'and decodes back to the same Sinhala', 'got ' + t.byId('out').value);
+
+  // missing padding is common in the wild and should still decode
+  t.set('in', 'SGVsbG8');
+  ok(t.byId('out').value === 'Hello', 'Base64 without padding still decodes');
+
+  t.set('in', 'not valid base64!!!');
+  has(t.text('err-slot'), 'not valid Base64', 'rubbish is reported');
+  t.close();
+})();
+
+(function uuidTool() {
+  const t = loadTool('uuid-generator');
+  t.set('version', '4').set('count', 20);
+  const vals = () => [...t.document.querySelectorAll('#list span')].map((e) => e.textContent);
+  ok(vals().length === 20, 'twenty generated');
+  ok(vals().every((v) =>
+     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v)),
+     'v4 has the right version and variant bits', 'got ' + vals()[0]);
+  ok(new Set(vals()).size === 20, 'all twenty are different');
+
+  t.set('version', '7');
+  const v7s = vals();
+  ok(v7s.every((v) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v)),
+     'v7 sets version 7 and a valid variant', 'got ' + v7s[0]);
+  // the point of v7 is that they sort in creation order
+  ok(v7s.slice().sort().join() === v7s.join(),
+     'v7 values come out already in sorted order');
+
+  t.set('version', '4');
+  const opt = (name) => [...t.document.querySelectorAll('#opts .btn')]
+    .find((b) => b.dataset.opt === name);
+  opt('nodash').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(vals()[0].indexOf('-') === -1, 'dashes can be removed');
+  opt('upper').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(vals()[0] === vals()[0].toUpperCase(), 'and uppercased');
+  t.close();
+})();
+
+(function jwtDecoder() {
+  const t = loadTool('jwt-decoder');
+  t.click('sample');
+  has(t.text('payload'), 'Chamindu', 'the payload is decoded');
+  has(t.text('header'), 'HS256', 'the header is decoded');
+  has(t.text('claims'), 'Subject', 'standard claims are explained');
+
+  // a token with three parts but rubbish inside
+  t.set('token', 'aaa.bbb.ccc');
+  has(t.text('status-slot'), 'not readable', 'an undecodable header is reported');
+
+  // wrong number of parts
+  t.set('token', 'onlyonepart');
+  has(t.text('status-slot'), 'three parts', 'a malformed token is explained');
+
+  // alg none is a genuine security problem and must be called out
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+    .toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ sub: '1', exp: 4102444800 }))
+    .toString('base64url');
+
+  // an alg of "none" means anyone can forge the token, so it must be called out
+  t.set('token', header + '.' + payload + '.');
+  has(t.text('status-slot'), 'none', 'the none algorithm is flagged');
+  has(t.text('payload'), 'sub', 'and an empty signature segment still decodes');
+
+  // an expired token
+  const expired = Buffer.from(JSON.stringify({ sub: '1', exp: 1000000 }))
+    .toString('base64url');
+  t.set('token', Buffer.from(JSON.stringify({ alg: 'HS256' })).toString('base64url') +
+    '.' + expired + '.x');
+  has(t.text('status-slot'), 'Expired', 'an expired token is flagged');
+  t.close();
+})();
+
+(function urlEncoder() {
+  const t = loadTool('url-encoder');
+  t.set('in', 'a b&c=d');
+  ok(t.byId('out').value === 'a%20b%26c%3Dd', 'component encoding escapes & and =',
+     'got ' + t.byId('out').value);
+
+  t.set('strength', 'uri');
+  ok(t.byId('out').value === 'a%20b&c=d', 'uri encoding leaves the structure alone',
+     'got ' + t.byId('out').value);
+
+  t.click('tab-decode');
+  t.set('in', 'hello+world%21');
+  ok(t.byId('out').value === 'hello world!', 'a plus decodes as a space');
+
+  // the classic failure people come here to debug
+  t.set('in', '100%');
+  has(t.text('err-slot'), 'two hex digits', 'a lone percent sign is explained');
+
+  t.click('tab-parse');
+  t.set('in', 'https://example.com:8080/a/b?x=1&y=hello%20there#frag');
+  has(t.text('parts'), 'example.com', 'the host is pulled out');
+  has(t.text('parts'), '8080', 'and the port');
+  has(t.text('query'), 'hello there', 'query values are decoded');
+  t.close();
+})();
+
+(function cronBuilder() {
+  const t = loadTool('cron-builder');
+  t.set('expr', '0 9 * * 1-5');
+  has(t.text('plain'), '09:00', 'the time is described');
+  has(t.text('plain'), 'Monday', 'and the weekdays');
+  ok(t.document.querySelectorAll('#next div').length === 5, 'five next runs shown');
+
+  t.set('expr', '*/15 * * * *');
+  has(t.text('plain'), 'Every 15 minutes', 'a regular interval reads as an interval');
+  t.set('expr', '0 */6 * * *');
+  has(t.text('plain'), 'Every 6 hours', 'stepped hours read the same way');
+  t.set('expr', '0,15,40 * * * *');
+  has(t.text('plain'), 'minute 40', 'an irregular list is still listed out');
+
+  // the day-of-month and day-of-week OR trap
+  t.set('expr', '0 0 1 * 1');
+  has(t.text('plain'), 'either, not both', 'the OR trap is called out');
+
+  // bad input must be explained, not crash
+  t.set('expr', '0 9 * *');
+  has(t.text('plain'), 'five fields', 'too few fields is explained');
+  t.set('expr', '99 9 * * *');
+  has(t.text('err-slot'), 'outside the range', 'an out-of-range value is explained');
+  t.set('expr', 'abc 9 * * *');
+  has(t.text('err-slot'), 'not a number', 'nonsense is explained');
+
+  // named months and days should work
+  t.set('expr', '0 0 * jan mon');
+  has(t.text('plain'), 'Monday', 'named weekdays are understood');
+  has(t.text('plain'), 'January', 'named months too');
+
+  // sunday is both 0 and 7
+  t.set('expr', '0 0 * * 7');
+  has(t.text('plain'), 'Sunday', 'day 7 is read as Sunday');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

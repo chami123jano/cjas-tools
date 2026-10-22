@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Base64 Encoder — Cja's Tools</title>
+<meta name="description" content="Encode and decode Base64, including files and data URLs. Handles accented and Sinhala text correctly. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 26px 16px; text-align: center; color: var(--muted);
+    font-size: 14px; cursor: pointer;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+</style>
+</head>
+<body data-page="tool" data-slug="base64">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Base64 Encoder</h1>
+        <p>Text or files, both directions.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-encode">Encode</button>
+          <button class="btn" id="tab-decode">Decode</button>
+          <button class="btn" id="tab-file">File to Base64</button>
+        </div>
+      </div>
+
+      <div class="panel" id="pane-text">
+        <div class="field">
+          <label for="in" id="in-label">Text to encode</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="urlSafe">URL-safe characters</button>
+          <button class="btn" data-opt="noPad">No padding</button>
+          <button class="btn" data-opt="wrap">Wrap at 76 characters</button>
+        </div>
+      </div>
+
+      <div class="panel" id="pane-file" hidden>
+        <div class="drop-zone" id="drop">
+          <input type="file" id="file" hidden>
+          Click to choose a file, or drag one here
+        </div>
+        <p class="hint" id="file-info"></p>
+        <div class="field" style="margin-top:12px">
+          <label>
+            <input type="checkbox" id="as-data-url" checked style="width:auto;margin-right:7px">
+            Make it a data URL, ready to paste into HTML or CSS
+          </label>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out" id="out-label">Base64</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="swap">Use as input</button>
+        </div>
+        <p class="hint" id="sizes"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Base64 is not encryption.</b> Anyone can decode it in a
+          second. It exists to carry binary data through places that only accept
+          text, such as an email attachment or a data URL. Never put a password
+          or a key in it and think it is hidden.
+          <br><br>
+          Accented letters, Sinhala and emoji are handled properly &mdash; the
+          plain browser functions mangle anything outside basic Latin, so the
+          text is converted through UTF-8 first.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var mode = 'encode';
+    var opts = { urlSafe: false, noPad: false, wrap: false };
+
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    /* btoa only understands characters below 256, so anything else throws.
+       Going through UTF-8 bytes first is what makes Sinhala and emoji work. */
+    function encode(text) {
+      var bytes = new TextEncoder().encode(text);
+      var binary = '';
+      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary);
+    }
+
+    function decode(b64) {
+      var clean = b64.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      /* Padding is optional in a lot of places, so it is put back rather
+         than rejecting input that is perfectly decodable. */
+      while (clean.length % 4) clean += '=';
+      var binary = atob(clean);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    function applyOpts(b64) {
+      var s = b64;
+      if (opts.urlSafe) s = s.replace(/\+/g, '-').replace(/\//g, '_');
+      if (opts.noPad) s = s.replace(/=+$/, '');
+      if (opts.wrap) s = s.replace(/(.{76})/g, '$1\n');
+      return s;
+    }
+
+    function human(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1048576).toFixed(2) + ' MB';
+    }
+
+    function run() {
+      error('');
+      var text = input.value;
+
+      if (!text) {
+        output.value = '';
+        document.getElementById('sizes').textContent = '';
+        return;
+      }
+
+      try {
+        if (mode === 'encode') {
+          var b64 = applyOpts(encode(text));
+          output.value = b64;
+          var inBytes = new TextEncoder().encode(text).length;
+          document.getElementById('sizes').textContent =
+            human(inBytes) + ' in, ' + human(b64.length) +
+            ' out — Base64 always grows data by about a third.';
+        } else {
+          output.value = decode(text);
+          document.getElementById('sizes').textContent =
+            human(text.replace(/\s+/g, '').length) + ' in, ' +
+            human(new TextEncoder().encode(output.value).length) + ' out.';
+        }
+      } catch (e) {
+        output.value = '';
+        document.getElementById('sizes').textContent = '';
+        error(mode === 'decode'
+          ? 'That is not valid Base64. Check for stray characters, or that you ' +
+            'have the whole string. Base64 uses A to Z, a to z, 0 to 9, + and /.'
+          : 'That text could not be encoded.');
+      }
+    }
+
+    function setMode(m) {
+      mode = m;
+      var isFile = m === 'file';
+      document.getElementById('pane-text').hidden = isFile;
+      document.getElementById('pane-file').hidden = !isFile;
+      document.getElementById('in-label').textContent =
+        m === 'encode' ? 'Text to encode' : 'Base64 to decode';
+      document.getElementById('out-label').textContent =
+        m === 'encode' ? 'Base64' : m === 'decode' ? 'Decoded text' : 'Base64';
+
+      ['encode', 'decode', 'file'].forEach(function (x) {
+        document.getElementById('tab-' + x).classList.toggle('primary', x === m);
+      });
+
+      output.value = '';
+      error('');
+      document.getElementById('sizes').textContent = '';
+      if (!isFile) run();
+    }
+
+    ['encode', 'decode', 'file'].forEach(function (m) {
+      document.getElementById('tab-' + m).addEventListener('click', function () {
+        setMode(m);
+      });
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    input.addEventListener('input', run);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      if (!output.value) return;
+      var carried = output.value;
+      setMode(mode === 'encode' ? 'decode' : 'encode');
+      input.value = carried;
+      run();
+    });
+
+    /* ---------- file mode ---------- */
+
+    function loadFile(f) {
+      if (!f) return;
+      document.getElementById('file-info').textContent =
+        f.name + ' — ' + human(f.size) + ', reading…';
+
+      var reader = new FileReader();
+      reader.onload = function () {
+        var bytes = new Uint8Array(reader.result);
+        var binary = '';
+        /* Chunked, because spreading a large array into fromCharCode
+           overflows the argument limit on anything sizeable. */
+        var CHUNK = 0x8000;
+        for (var i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        var b64 = btoa(binary);
+        var asData = document.getElementById('as-data-url').checked;
+        output.value = asData
+          ? 'data:' + (f.type || 'application/octet-stream') + ';base64,' + b64
+          : applyOpts(b64);
+
+        document.getElementById('file-info').textContent =
+          f.name + ' — ' + human(f.size) + ', encoded on this device.';
+        document.getElementById('sizes').textContent =
+          human(f.size) + ' in, ' + human(output.value.length) + ' out.';
+      };
+      reader.onerror = function () {
+        document.getElementById('file-info').textContent = 'Could not read that file.';
+      };
+      reader.readAsArrayBuffer(f);
+    }
+
+    var drop = document.getElementById('drop');
+    var fileInput = document.getElementById('file');
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { loadFile(this.files[0]); });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) loadFile(e.dataTransfer.files[0]);
+    });
+    document.getElementById('as-data-url').addEventListener('change', function () {
+      if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
+    });
+
+    setMode('encode');
+  })();
+  </script>
+</body>
+</html>

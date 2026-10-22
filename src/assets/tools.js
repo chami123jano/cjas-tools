@@ -435,6 +435,41 @@ const TOOLS = [
     category: 'security',
     desc: 'Strip the location and camera details hidden inside a photo before you share it.',
     keywords: ['metadata', 'exif', 'gps', 'location', 'photo', 'privacy', 'strip']
+  },
+  {
+    slug: 'base64',
+    name: 'Base64 Encoder',
+    category: 'developers',
+    desc: 'Encode and decode Base64, including files and data URLs.',
+    keywords: ['base64', 'encode', 'decode', 'data url', 'binary', 'atob', 'btoa']
+  },
+  {
+    slug: 'uuid-generator',
+    name: 'UUID Generator',
+    category: 'developers',
+    desc: 'Generate v4 or time-ordered v7 UUIDs in bulk, in any format you need.',
+    keywords: ['uuid', 'guid', 'unique', 'identifier', 'v4', 'v7', 'random']
+  },
+  {
+    slug: 'jwt-decoder',
+    name: 'JWT Decoder',
+    category: 'developers',
+    desc: 'Read what is inside a token, including when it expires.',
+    keywords: ['jwt', 'token', 'json web token', 'decode', 'bearer', 'auth', 'claims']
+  },
+  {
+    slug: 'url-encoder',
+    name: 'URL Encoder',
+    category: 'developers',
+    desc: 'Encode and decode URLs, and pull a messy query string apart.',
+    keywords: ['url', 'encode', 'decode', 'percent', 'query string', 'uri', 'escape']
+  },
+  {
+    slug: 'cron-builder',
+    name: 'Cron Expression Builder',
+    category: 'developers',
+    desc: 'Build a schedule in plain words and see the next times it runs.',
+    keywords: ['cron', 'crontab', 'schedule', 'job', 'timer', 'expression', 'recurring']
   }
 ];
 

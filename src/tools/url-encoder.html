@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>URL Encoder — Cja's Tools</title>
+<meta name="description" content="Encode and decode URLs, and pull a messy query string apart into readable pieces. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .parts { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .parts td { padding: 8px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .parts tr:last-child td { border-bottom: none; }
+  .parts td:first-child { width: 110px; color: var(--muted); font-size: 12.5px; }
+  .parts td:last-child { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="url-encoder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>URL Encoder</h1>
+        <p>Encode, decode, or take a long link apart.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-encode">Encode</button>
+          <button class="btn" id="tab-decode">Decode</button>
+          <button class="btn" id="tab-parse">Take a link apart</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in" id="in-label">Text to encode</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="field" id="strength-field">
+          <label for="strength">How much to encode</label>
+          <select id="strength">
+            <option value="component" selected>Everything unsafe — for one value</option>
+            <option value="uri">Leave the URL structure alone — for a whole link</option>
+          </select>
+        </div>
+        <p class="hint" id="mode-note"></p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="out-panel">
+        <div class="field">
+          <label for="out" id="out-label">Result</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy result</button>
+          <button class="btn" id="swap">Use as input</button>
+        </div>
+      </div>
+
+      <div class="panel" id="parts-panel" hidden>
+        <label style="margin-bottom:8px">The pieces</label>
+        <table class="parts"><tbody id="parts"></tbody></table>
+      </div>
+
+      <div class="panel" id="query-panel" hidden>
+        <label style="margin-bottom:8px">Query values, decoded</label>
+        <table class="parts"><tbody id="query"></tbody></table>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var mode = 'encode';
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    var NOTES = {
+      component: 'Encodes & = ? / # and everything else, so the result is safe ' +
+                 'to drop into a single query value.',
+      uri: 'Leaves : / ? # & = alone so a whole address still works. Use this ' +
+           'for a complete link, not for one value inside it.'
+    };
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function parseLink(text) {
+      document.getElementById('out-panel').hidden = true;
+      document.getElementById('parts-panel').hidden = false;
+
+      var url;
+      try {
+        /* A bare "example.com/x" is what people usually paste, so a scheme
+           is assumed rather than rejecting it outright. */
+        url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : 'https://' + text);
+      } catch (e) {
+        error('That is not a link this can take apart. Check for spaces or ' +
+              'missing pieces.');
+        document.getElementById('parts-panel').hidden = true;
+        document.getElementById('query-panel').hidden = true;
+        return;
+      }
+
+      var rows = [
+        ['Scheme', url.protocol.replace(':', '')],
+        ['Host', url.hostname],
+        ['Port', url.port || '(default)'],
+        ['Path', url.pathname],
+        ['Query', url.search || '(none)'],
+        ['Fragment', url.hash || '(none)']
+      ];
+
+      document.getElementById('parts').innerHTML = rows.map(function (r) {
+        return '<tr><td>' + r[0] + '</td><td>' + escapeHtml(r[1]) + '</td></tr>';
+      }).join('');
+
+      var params = Array.from(url.searchParams.entries());
+      document.getElementById('query-panel').hidden = params.length === 0;
+      document.getElementById('query').innerHTML = params.map(function (p) {
+        return '<tr><td>' + escapeHtml(p[0]) + '</td><td>' +
+          escapeHtml(p[1] || '(empty)') + '</td></tr>';
+      }).join('');
+    }
+
+    function run() {
+      error('');
+      var text = input.value;
+
+      if (mode === 'parse') {
+        if (!text.trim()) {
+          document.getElementById('parts-panel').hidden = true;
+          document.getElementById('query-panel').hidden = true;
+          return;
+        }
+        parseLink(text.trim());
+        return;
+      }
+
+      document.getElementById('out-panel').hidden = false;
+      document.getElementById('parts-panel').hidden = true;
+      document.getElementById('query-panel').hidden = true;
+
+      if (!text) { output.value = ''; return; }
+
+      try {
+        if (mode === 'encode') {
+          output.value = document.getElementById('strength').value === 'uri'
+            ? encodeURI(text)
+            : encodeURIComponent(text);
+        } else {
+          /* decodeURIComponent throws on a stray percent sign, which is
+             exactly the case someone is usually trying to debug. */
+          output.value = decodeURIComponent(text.replace(/\+/g, ' '));
+        }
+      } catch (e) {
+        output.value = '';
+        error('That could not be decoded. A percent sign must be followed by two ' +
+              'hex digits, so a lone % or something like %zz will fail. If the ' +
+              'text contains a real percent sign it should be written %25.');
+      }
+    }
+
+    function setMode(m) {
+      mode = m;
+      ['encode', 'decode', 'parse'].forEach(function (x) {
+        document.getElementById('tab-' + x).classList.toggle('primary', x === m);
+      });
+      document.getElementById('in-label').textContent =
+        m === 'encode' ? 'Text to encode'
+        : m === 'decode' ? 'Encoded text to decode'
+        : 'Link to take apart';
+      document.getElementById('out-label').textContent =
+        m === 'encode' ? 'Encoded' : 'Decoded';
+      document.getElementById('strength-field').hidden = m !== 'encode';
+      document.getElementById('mode-note').textContent =
+        m === 'encode' ? NOTES[document.getElementById('strength').value]
+        : m === 'decode' ? 'A plus sign is treated as a space, the way a form sends it.'
+        : 'Paste a full link to see its pieces and every query value decoded.';
+      output.value = '';
+      error('');
+      run();
+    }
+
+    ['encode', 'decode', 'parse'].forEach(function (m) {
+      document.getElementById('tab-' + m).addEventListener('click', function () { setMode(m); });
+    });
+
+    document.getElementById('strength').addEventListener('change', function () {
+      document.getElementById('mode-note').textContent = NOTES[this.value];
+      run();
+    });
+
+    input.addEventListener('input', run);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      if (!output.value) return;
+      var carried = output.value;
+      setMode(mode === 'encode' ? 'decode' : 'encode');
+      input.value = carried;
+      run();
+    });
+
+    setMode('encode');
+  })();
+  </script>
+</body>
+</html>

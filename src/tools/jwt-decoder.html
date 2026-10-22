@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JWT Decoder — Cja's Tools</title>
+<meta name="description" content="Read what is inside a JSON Web Token, including when it expires. Decoded on your own device, never sent anywhere.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #token { font-family: ui-monospace, Consolas, monospace; font-size: 13px; min-height: 120px; }
+  .part { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+  .seg-h { color: #c0392b; }
+  .seg-p { color: #8e44ad; }
+  .seg-s { color: #1f9d55; }
+  html:not([data-theme="light"]) .seg-h { color:#ff8a7a; }
+  html:not([data-theme="light"]) .seg-p { color:#c79cff; }
+  html:not([data-theme="light"]) .seg-s { color:#6fdca2; }
+  :root[data-theme="dark"] .seg-h { color:#ff8a7a; }
+  :root[data-theme="dark"] .seg-p { color:#c79cff; }
+  :root[data-theme="dark"] .seg-s { color:#6fdca2; }
+  .claims { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .claims td { padding: 8px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .claims tr:last-child td { border-bottom: none; }
+  .claims td:first-child { width: 110px; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .claims td:last-child { color: var(--muted); font-size: 12.5px; }
+  .status { padding: 12px 15px; border-radius: var(--radius); font-size: 14px; font-weight: 550; }
+  .status.ok { background:#dcf5e7; color:#146b3c; border:1px solid #27b86a; }
+  .status.bad { background:rgba(212,72,59,.1); color:var(--danger); border:1px solid var(--danger); }
+  .status.warn { background:rgba(232,163,61,.12); color:#7a4d06; border:1px solid #e8a33d; }
+  html:not([data-theme="light"]) .status.ok { background:#17402c; color:#6fdca2; }
+  html:not([data-theme="light"]) .status.warn { color:#f0c96a; }
+  :root[data-theme="dark"] .status.ok { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .status.warn { color:#f0c96a; }
+</style>
+</head>
+<body data-page="tool" data-slug="jwt-decoder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>JWT Decoder</h1>
+        <p>Decoded here on your device. The token is never sent anywhere.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="token">Paste a token</label>
+          <textarea id="token" spellcheck="false" placeholder="eyJhbGciOi&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint" id="coloured"></p>
+      </div>
+
+      <div id="status-slot"></div>
+
+      <div class="panel" id="header-panel" hidden>
+        <label style="margin-bottom:8px">Header</label>
+        <div class="part" id="header"></div>
+      </div>
+
+      <div class="panel" id="payload-panel" hidden>
+        <label style="margin-bottom:8px">Payload</label>
+        <div class="part" id="payload"></div>
+      </div>
+
+      <div class="panel" id="claims-panel" hidden>
+        <label style="margin-bottom:8px">What the standard claims mean</label>
+        <table class="claims"><tbody id="claims"></tbody></table>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This does not check the signature.</b> Decoding a token
+          and verifying it are different things &mdash; verifying needs the secret
+          or public key the server signed it with, and that key should never be
+          pasted into a web page. So treat what you see here as what the token
+          <i>claims</i>, not as proof of anything.
+          <br><br>
+          <b>A token is not encrypted.</b> The payload is Base64, which anyone
+          holding the token can read. Never put anything private in one.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' +
+      'eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkNoYW1pbmR1IiwiaWF0IjoxNzY5OTA0MDAwLCJleHAiOjE4MDE0NDAwMDAsInJvbGUiOiJhZG1pbiJ9.' +
+      'c2lnbmF0dXJlLWlzLW5vdC1jaGVja2VkLWhlcmU';
+
+    var MEANING = {
+      iss: 'Issuer — who made the token',
+      sub: 'Subject — who or what it is about',
+      aud: 'Audience — who it is meant for',
+      exp: 'Expires at',
+      nbf: 'Not valid before',
+      iat: 'Issued at',
+      jti: 'Token id, for revoking a single token',
+      scope: 'What the token is allowed to do',
+      role: 'Role claimed by the token'
+    };
+
+    var TIME_CLAIMS = ['exp', 'nbf', 'iat', 'auth_time', 'updated_at'];
+
+    function b64urlDecode(seg) {
+      var s = seg.replace(/-/g, '+').replace(/_/g, '/');
+      while (s.length % 4) s += '=';
+      var binary = atob(s);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    function status(kind, html) {
+      document.getElementById('status-slot').innerHTML =
+        html ? '<div class="panel"><div class="status ' + kind + '">' + html + '</div></div>' : '';
+    }
+
+    function hide() {
+      ['header-panel', 'payload-panel', 'claims-panel'].forEach(function (id) {
+        document.getElementById(id).hidden = true;
+      });
+    }
+
+    function when(seconds) {
+      var d = new Date(seconds * 1000);
+      if (isNaN(d.getTime())) return 'not a valid time';
+      return d.toLocaleString('en-GB', {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function relative(seconds) {
+      var diff = seconds * 1000 - Date.now();
+      var abs = Math.abs(diff);
+      var mins = Math.round(abs / 60000);
+      var text;
+      if (mins < 1) text = 'less than a minute';
+      else if (mins < 60) text = mins + ' minute' + (mins === 1 ? '' : 's');
+      else if (mins < 1440) {
+        var h = Math.round(mins / 60);
+        text = h + ' hour' + (h === 1 ? '' : 's');
+      } else {
+        var d = Math.round(mins / 1440);
+        text = d + ' day' + (d === 1 ? '' : 's');
+      }
+      return diff > 0 ? 'in ' + text : text + ' ago';
+    }
+
+    function run() {
+      var raw = document.getElementById('token').value.trim()
+        .replace(/^Bearer\s+/i, '');
+
+      document.getElementById('coloured').innerHTML = '';
+
+      if (!raw) {
+        status('', '');
+        hide();
+        return;
+      }
+
+      var parts = raw.split('.');
+      if (parts.length !== 3) {
+        status('bad', 'A token has three parts separated by full stops. This has ' +
+          parts.length + '. Check you copied the whole thing.');
+        hide();
+        return;
+      }
+
+      document.getElementById('coloured').innerHTML =
+        '<span class="seg-h">header</span>.<span class="seg-p">payload</span>.' +
+        '<span class="seg-s">signature</span> — ' +
+        parts[0].length + ', ' + parts[1].length + ' and ' + parts[2].length +
+        ' characters';
+
+      var header, payload;
+      try {
+        header = JSON.parse(b64urlDecode(parts[0]));
+      } catch (e) {
+        status('bad', 'The header is not readable. This may not be a JWT.');
+        hide();
+        return;
+      }
+      try {
+        payload = JSON.parse(b64urlDecode(parts[1]));
+      } catch (e) {
+        status('bad', 'The header decoded, but the payload did not. The token may ' +
+          'be truncated, or encrypted rather than merely signed.');
+        hide();
+        return;
+      }
+
+      document.getElementById('header').textContent = JSON.stringify(header, null, 2);
+      document.getElementById('payload').textContent = JSON.stringify(payload, null, 2);
+      document.getElementById('header-panel').hidden = false;
+      document.getElementById('payload-panel').hidden = false;
+
+      var now = Date.now() / 1000;
+      var messages = [];
+      var kind = 'ok';
+
+      if (typeof payload.exp === 'number') {
+        if (payload.exp < now) {
+          kind = 'bad';
+          messages.push('<b>Expired</b> ' + relative(payload.exp) + ', on ' + when(payload.exp) + '.');
+        } else {
+          messages.push('Expires ' + relative(payload.exp) + ', on ' + when(payload.exp) + '.');
+        }
+      } else {
+        kind = 'warn';
+        messages.push('<b>No expiry.</b> This token never stops being valid, which ' +
+          'is usually a mistake.');
+      }
+
+      if (typeof payload.nbf === 'number' && payload.nbf > now) {
+        kind = 'bad';
+        messages.push('Not valid yet — it starts ' + relative(payload.nbf) + '.');
+      }
+
+      if (header.alg === 'none') {
+        kind = 'bad';
+        messages.push('<b>The algorithm is "none",</b> meaning it is unsigned. ' +
+          'Any server accepting this is accepting a token anyone can forge.');
+      }
+
+      status(kind, messages.join('<br>'));
+
+      var rows = Object.keys(payload).map(function (k) {
+        var v = payload[k];
+        var shown = TIME_CLAIMS.indexOf(k) !== -1 && typeof v === 'number'
+          ? when(v) + ' (' + relative(v) + ')'
+          : typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return '<tr><td>' + k + '</td><td>' +
+          String(shown).replace(/[<>&]/g, '') + '</td><td>' +
+          (MEANING[k] || '') + '</td></tr>';
+      }).join('');
+
+      document.getElementById('claims').innerHTML = rows;
+      document.getElementById('claims-panel').hidden = false;
+    }
+
+    document.getElementById('token').addEventListener('input', run);
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('token').value = SAMPLE;
+      run();
+    });
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('token').value = '';
+      run();
+      document.getElementById('token').focus();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

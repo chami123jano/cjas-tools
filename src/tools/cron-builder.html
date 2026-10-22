@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cron Expression Builder — Cja's Tools</title>
+<meta name="description" content="Build a cron schedule in plain words, read one in plain English, and see the next times it would actually run. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #expr {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 21px; text-align: center; letter-spacing: 3px;
+  }
+  .fields { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; text-align: center; }
+  .fields .f {
+    padding: 9px 4px; border: 1px solid var(--border);
+    border-radius: 9px; font-size: 11px; color: var(--muted);
+  }
+  .fields .f b {
+    display: block; font-family: ui-monospace, Consolas, monospace;
+    font-size: 15px; color: var(--text); margin-bottom: 3px;
+  }
+  .next { font-family: ui-monospace, Consolas, monospace; font-size: 13.5px; line-height: 2; }
+  .next div { border-bottom: 1px solid var(--border); padding: 3px 0; }
+  .next div:last-child { border-bottom: none; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="cron-builder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Cron Expression Builder</h1>
+        <p>Write it or read it, and check when it actually runs.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="expr">Cron expression</label>
+          <input type="text" id="expr" value="0 9 * * 1-5" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="fields">
+          <div class="f"><b id="f0">0</b>minute</div>
+          <div class="f"><b id="f1">9</b>hour</div>
+          <div class="f"><b id="f2">*</b>day of month</div>
+          <div class="f"><b id="f3">*</b>month</div>
+          <div class="f"><b id="f4">1-5</b>day of week</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Common schedules</label>
+        <div class="btns" id="presets">
+          <button class="btn" data-e="* * * * *">Every minute</button>
+          <button class="btn" data-e="*/15 * * * *">Every 15 minutes</button>
+          <button class="btn" data-e="0 * * * *">Hourly</button>
+          <button class="btn" data-e="0 0 * * *">Daily at midnight</button>
+          <button class="btn" data-e="0 9 * * 1-5">Weekdays at 9am</button>
+          <button class="btn" data-e="0 0 * * 0">Weekly on Sunday</button>
+          <button class="btn" data-e="0 0 1 * *">Monthly on the 1st</button>
+          <button class="btn" data-e="30 2 1 1 *">Yearly on 1 January</button>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="result" id="plain">&mdash;</div>
+      </div>
+
+      <div class="panel" id="next-panel" hidden>
+        <label style="margin-bottom:8px">The next five times it runs</label>
+        <div class="next" id="next"></div>
+        <p class="hint">Worked out in your computer's own time zone.</p>
+      </div>
+
+      <div class="panel">
+        <p class="hint">Five fields: minute, hour, day of month, month, day of
+          week. Use <code>*</code> for every value, <code>*/5</code> for every
+          fifth, <code>1-5</code> for a range and <code>1,3,5</code> for a list.
+          <br><br>
+          <b>One trap worth knowing.</b> If you set both day of month and day of
+          week, cron runs when <i>either</i> matches, not both. So
+          <code>0 0 1 * 1</code> runs on the 1st <i>and</i> every Monday, which
+          is rarely what people mean.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var RANGES = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
+    var NAMES = ['minute', 'hour', 'day of month', 'month', 'day of week'];
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
+    var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    var WORD_MONTH = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+    var WORD_DAY = { sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6 };
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    /* Expands one field into the set of values it matches, so the schedule
+       can be both described and simulated from the same data. */
+    function expand(field, index) {
+      var lo = RANGES[index][0], hi = RANGES[index][1];
+      var out = [];
+
+      field.split(',').forEach(function (chunk) {
+        var step = 1;
+        var body = chunk;
+        var slash = chunk.indexOf('/');
+        if (slash !== -1) {
+          body = chunk.slice(0, slash);
+          step = parseInt(chunk.slice(slash + 1), 10);
+          if (!isFinite(step) || step < 1) throw new Error('"' + chunk + '" has a bad step');
+        }
+
+        var from, to;
+        if (body === '*' || body === '') {
+          from = lo; to = hi;
+        } else if (body.indexOf('-') !== -1) {
+          var bits = body.split('-');
+          from = value(bits[0], index);
+          to = value(bits[1], index);
+        } else {
+          from = value(body, index);
+          to = slash !== -1 ? hi : from;
+        }
+
+        if (from < lo || to > hi || from > to) {
+          throw new Error('"' + chunk + '" is outside the range for ' +
+            NAMES[index] + ' (' + lo + ' to ' + hi + ')');
+        }
+        for (var v = from; v <= to; v += step) out.push(v);
+      });
+
+      return out.filter(function (v, i, a) { return a.indexOf(v) === i; })
+                .sort(function (a, b) { return a - b; });
+    }
+
+    function value(token, index) {
+      var t = String(token).trim().toLowerCase();
+      if (index === 3 && WORD_MONTH[t.slice(0, 3)]) return WORD_MONTH[t.slice(0, 3)];
+      if (index === 4 && WORD_DAY[t.slice(0, 3)] !== undefined) return WORD_DAY[t.slice(0, 3)];
+      var n = parseInt(t, 10);
+      if (!isFinite(n)) throw new Error('"' + token + '" is not a number');
+      /* Sunday is both 0 and 7 in every cron implementation. */
+      if (index === 4 && n === 7) return 0;
+      return n;
+    }
+
+    function list(values, names) {
+      var parts = values.map(function (v) { return names ? names[v] : v; });
+      if (parts.length === 1) return String(parts[0]);
+      if (parts.length === 2) return parts[0] + ' and ' + parts[1];
+      return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+    }
+
+    /* If a field is a regular interval covering its whole range, saying
+       "every 15 minutes" reads far better than listing 0, 15, 30 and 45. */
+    function stepOf(values, lo, hi) {
+      if (values.length < 2 || values[0] !== lo) return null;
+      var step = values[1] - values[0];
+      for (var i = 1; i < values.length; i++) {
+        if (values[i] - values[i - 1] !== step) return null;
+      }
+      /* The last value must be the final one that fits, otherwise this is
+         a range like 0-30/15 rather than a whole-range interval. */
+      if (values[values.length - 1] + step <= hi) return null;
+      return step;
+    }
+
+    function describe(sets, raw) {
+      var everyMinute = sets[0].length === 60;
+      var everyHour = sets[1].length === 24;
+      var everyDom = sets[2].length === 31;
+      var everyMonth = sets[3].length === 12;
+      var everyDow = sets[4].length === 7;
+
+      var minuteStep = stepOf(sets[0], 0, 59);
+      var hourStep = stepOf(sets[1], 0, 23);
+
+      var time;
+      if (everyMinute && everyHour) time = 'Every minute';
+      else if (everyMinute) time = 'Every minute during ' +
+        list(sets[1].map(function (h) { return pad(h) + ':00'; }));
+      else if (everyHour && minuteStep) {
+        time = minuteStep === 1 ? 'Every minute'
+          : 'Every ' + minuteStep + ' minutes';
+      } else if (sets[0].length === 1 && hourStep) {
+        time = 'Every ' + (hourStep === 1 ? 'hour' : hourStep + ' hours') +
+          ', at ' + pad(sets[0][0]) + ' minutes past';
+      } else if (everyHour) time = 'At ' + list(sets[0].map(function (m) {
+        return 'minute ' + m;
+      })) + ' of every hour';
+      else {
+        var times = [];
+        sets[1].forEach(function (h) {
+          sets[0].forEach(function (m) { times.push(pad(h) + ':' + pad(m)); });
+        });
+        time = times.length <= 6 ? 'At ' + list(times)
+          : 'At ' + times.length + ' times a day, starting ' + times[0];
+      }
+
+      var when = '';
+      if (!everyDom && !everyDow) {
+        when = ' on day ' + list(sets[2]) + ' of the month, and on ' +
+               list(sets[4], DAYS) + ' — cron matches either, not both';
+      } else if (!everyDom) {
+        when = ' on day ' + list(sets[2]) + ' of the month';
+      } else if (!everyDow) {
+        when = ' on ' + list(sets[4], DAYS);
+      } else {
+        when = ' every day';
+      }
+
+      if (!everyMonth) when += ', in ' + list(sets[3].map(function (m) {
+        return m - 1;
+      }), MONTHS);
+
+      return time + when + '.';
+    }
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    /* Steps forward a minute at a time. Slow in principle, but the next five
+       runs of any sane schedule are close by, and the cap stops a schedule
+       like "29 February on a Monday" hanging the page. */
+    function nextRuns(sets, count) {
+      var out = [];
+      var d = new Date();
+      d.setSeconds(0, 0);
+      d.setMinutes(d.getMinutes() + 1);
+
+      var guard = 0;
+      var LIMIT = 60 * 24 * 366 * 5;
+
+      while (out.length < count && guard < LIMIT) {
+        guard++;
+        var dowMatch = sets[4].indexOf(d.getDay()) !== -1;
+        var domMatch = sets[2].indexOf(d.getDate()) !== -1;
+        var everyDom = sets[2].length === 31;
+        var everyDow = sets[4].length === 7;
+
+        /* When both day fields are restricted, cron runs if either matches. */
+        var dayOk = (everyDom && everyDow) ? true
+          : everyDow ? domMatch
+          : everyDom ? dowMatch
+          : (domMatch || dowMatch);
+
+        if (sets[0].indexOf(d.getMinutes()) !== -1 &&
+            sets[1].indexOf(d.getHours()) !== -1 &&
+            sets[3].indexOf(d.getMonth() + 1) !== -1 &&
+            dayOk) {
+          out.push(new Date(d.getTime()));
+        }
+        d.setMinutes(d.getMinutes() + 1);
+      }
+      return out;
+    }
+
+    function run() {
+      var raw = document.getElementById('expr').value.trim().replace(/\s+/g, ' ');
+      var fields = raw ? raw.split(' ') : [];
+
+      for (var i = 0; i < 5; i++) {
+        document.getElementById('f' + i).textContent = fields[i] || '—';
+      }
+
+      error('');
+
+      if (fields.length !== 5) {
+        document.getElementById('plain').innerHTML = '&mdash;<small>' +
+          (fields.length ? 'A cron expression has five fields, this has ' +
+            fields.length : 'Enter an expression') + '</small>';
+        document.getElementById('next-panel').hidden = true;
+        return;
+      }
+
+      var sets;
+      try {
+        sets = fields.map(expand);
+      } catch (e) {
+        error(e.message + '.');
+        document.getElementById('plain').innerHTML = '&mdash;';
+        document.getElementById('next-panel').hidden = true;
+        return;
+      }
+
+      if (sets.some(function (s) { return !s.length; })) {
+        error('That expression matches nothing at all.');
+        document.getElementById('plain').innerHTML = '&mdash;';
+        document.getElementById('next-panel').hidden = true;
+        return;
+      }
+
+      document.getElementById('plain').innerHTML = describe(sets, raw);
+
+      var runs = nextRuns(sets, 5);
+      document.getElementById('next-panel').hidden = false;
+      document.getElementById('next').innerHTML = runs.length
+        ? runs.map(function (r) {
+            return '<div>' + r.toLocaleString('en-GB', {
+              weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+              hour: '2-digit', minute: '2-digit'
+            }) + '</div>';
+          }).join('')
+        : '<div>No run found in the next five years. Check the day and month ' +
+          'fields are not contradicting each other.</div>';
+    }
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-e]');
+      if (!b) return;
+      document.getElementById('expr').value = b.dataset.e;
+      run();
+    });
+
+    document.getElementById('expr').addEventListener('input', run);
+    run();
+  })();
+  </script>
+</body>
+</html>
