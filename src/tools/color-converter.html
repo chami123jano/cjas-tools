@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour Converter — Cja's Tools</title>
+<meta name="description" content="Convert a colour between hex, RGB, HSL and CSS names, with a readability contrast check. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .swatch {
+    height: 96px; border-radius: var(--radius);
+    border: 1px solid var(--border); margin-bottom: 14px;
+  }
+  .frow {
+    display: grid; grid-template-columns: 84px 1fr auto; gap: 10px;
+    align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .frow:last-child { border-bottom: none; }
+  .frow .name { font-size: 12.5px; color: var(--muted); }
+  .frow .val { font-family: ui-monospace, Consolas, monospace; font-size: 13.5px; word-break: break-all; }
+  .frow button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .frow button:hover { color: var(--accent); }
+  .shades { display: grid; grid-template-columns: repeat(11, 1fr); gap: 3px; }
+  .shades i { display: block; height: 42px; border-radius: 5px; cursor: pointer; }
+  .contrast { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .cbox { padding: 14px; border-radius: var(--radius); text-align: center; font-size: 14px; }
+  .grade { font-size: 11.5px; margin-top: 5px; opacity: .85; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="color-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Colour Converter</h1>
+        <p>Type any format. Everything else follows.</p>
+      </div>
+
+      <div class="panel">
+        <div class="swatch" id="swatch"></div>
+        <div class="row">
+          <div class="field">
+            <label for="input">Colour</label>
+            <input type="text" id="input" value="#2f6df6" spellcheck="false" autocomplete="off"
+                   placeholder="#2f6df6, rgb(47 109 246), hsl(219 92% 57%), or a name">
+          </div>
+          <div class="field" style="max-width:110px">
+            <label for="picker">Or pick</label>
+            <input type="color" id="picker" value="#2f6df6" style="height:40px;padding:3px">
+          </div>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="formats-panel">
+        <div id="formats"></div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Lighter and darker</label>
+        <div class="shades" id="shades"></div>
+        <p class="hint">Click any shade to use it. Built by moving the lightness
+          in HSL, which keeps the hue steady.</p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Readability</label>
+        <div class="contrast" id="contrast"></div>
+        <p class="hint">Contrast ratios follow WCAG. Normal text needs 4.5 to pass
+          AA and 7 to pass AAA; large text needs 3 and 4.5. Below 3 is hard to
+          read for many people, not just a style preference.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var NAMES = {
+      black: '#000000', white: '#ffffff', red: '#ff0000', lime: '#00ff00',
+      blue: '#0000ff', yellow: '#ffff00', cyan: '#00ffff', magenta: '#ff00ff',
+      silver: '#c0c0c0', gray: '#808080', grey: '#808080', maroon: '#800000',
+      olive: '#808000', green: '#008000', purple: '#800080', teal: '#008080',
+      navy: '#000080', orange: '#ffa500', pink: '#ffc0cb', brown: '#a52a2a',
+      gold: '#ffd700', indigo: '#4b0082', violet: '#ee82ee', tan: '#d2b48c',
+      salmon: '#fa8072', crimson: '#dc143c', coral: '#ff7f50',
+      turquoise: '#40e0d0', beige: '#f5f5dc', ivory: '#fffff0',
+      khaki: '#f0e68c', lavender: '#e6e6fa', plum: '#dda0dd',
+      orchid: '#da70d6', sienna: '#a0522d', chocolate: '#d2691e',
+      tomato: '#ff6347', wheat: '#f5deb3', azure: '#f0ffff', mint: '#f5fffa'
+    };
+
+    var current = { r: 47, g: 109, b: 246 };
+
+    function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+    function parse(text) {
+      var s = String(text).trim().toLowerCase();
+      if (!s) return null;
+
+      if (NAMES[s]) s = NAMES[s];
+
+      /* #rgb, #rgba, #rrggbb and #rrggbbaa are all in the wild. */
+      var hex = s.replace(/^#/, '');
+      if (/^[0-9a-f]{3}$/.test(hex)) {
+        return { r: parseInt(hex[0] + hex[0], 16), g: parseInt(hex[1] + hex[1], 16),
+                 b: parseInt(hex[2] + hex[2], 16) };
+      }
+      if (/^[0-9a-f]{4}$/.test(hex)) {
+        return { r: parseInt(hex[0] + hex[0], 16), g: parseInt(hex[1] + hex[1], 16),
+                 b: parseInt(hex[2] + hex[2], 16),
+                 a: parseInt(hex[3] + hex[3], 16) / 255 };
+      }
+      if (/^[0-9a-f]{6}$/.test(hex)) {
+        return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16),
+                 b: parseInt(hex.slice(4, 6), 16) };
+      }
+      if (/^[0-9a-f]{8}$/.test(hex)) {
+        return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16),
+                 b: parseInt(hex.slice(4, 6), 16),
+                 a: parseInt(hex.slice(6, 8), 16) / 255 };
+      }
+
+      /* Both the old comma form and the modern space form are accepted. */
+      var rgb = s.match(/^rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)(?:[\s,/]+([\d.]+%?))?\s*\)$/);
+      if (rgb) {
+        var num = function (t) {
+          return t.indexOf('%') !== -1 ? parseFloat(t) * 2.55 : parseFloat(t);
+        };
+        var out = { r: clamp(Math.round(num(rgb[1])), 0, 255),
+                    g: clamp(Math.round(num(rgb[2])), 0, 255),
+                    b: clamp(Math.round(num(rgb[3])), 0, 255) };
+        if (rgb[4] !== undefined) {
+          out.a = clamp(rgb[4].indexOf('%') !== -1
+            ? parseFloat(rgb[4]) / 100 : parseFloat(rgb[4]), 0, 1);
+        }
+        return out;
+      }
+
+      var hsl = s.match(/^hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%(?:[\s,/]+([\d.]+%?))?\s*\)$/);
+      if (hsl) {
+        var c = hslToRgb(parseFloat(hsl[1]), parseFloat(hsl[2]), parseFloat(hsl[3]));
+        if (hsl[4] !== undefined) {
+          c.a = clamp(hsl[4].indexOf('%') !== -1
+            ? parseFloat(hsl[4]) / 100 : parseFloat(hsl[4]), 0, 1);
+        }
+        return c;
+      }
+
+      return null;
+    }
+
+    function rgbToHsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      var max = Math.max(r, g, b), min = Math.min(r, g, b);
+      var h = 0, s = 0, l = (max + min) / 2;
+      if (max !== min) {
+        var d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+      }
+      return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+    }
+
+    function hslToRgb(h, s, l) {
+      h = ((h % 360) + 360) % 360;
+      s = clamp(s, 0, 100) / 100;
+      l = clamp(l, 0, 100) / 100;
+      var c = (1 - Math.abs(2 * l - 1)) * s;
+      var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      var m = l - c / 2;
+      var rgb;
+      if (h < 60) rgb = [c, x, 0];
+      else if (h < 120) rgb = [x, c, 0];
+      else if (h < 180) rgb = [0, c, x];
+      else if (h < 240) rgb = [0, x, c];
+      else if (h < 300) rgb = [x, 0, c];
+      else rgb = [c, 0, x];
+      return {
+        r: Math.round((rgb[0] + m) * 255),
+        g: Math.round((rgb[1] + m) * 255),
+        b: Math.round((rgb[2] + m) * 255)
+      };
+    }
+
+    function toHex(c) {
+      return '#' + [c.r, c.g, c.b].map(function (v) {
+        return v.toString(16).padStart(2, '0');
+      }).join('');
+    }
+
+    /* WCAG relative luminance. Each channel gets an inverse-gamma step before
+       weighting, which is why this is not just an average of r, g and b. */
+    function luminance(c) {
+      var f = [c.r, c.g, c.b].map(function (v) {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+    }
+
+    function contrast(a, b) {
+      var la = luminance(a), lb = luminance(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    }
+
+    function nearestName(c) {
+      var best = null, bestDist = Infinity;
+      Object.keys(NAMES).forEach(function (n) {
+        var p = parse(NAMES[n]);
+        var d = Math.pow(p.r - c.r, 2) + Math.pow(p.g - c.g, 2) + Math.pow(p.b - c.b, 2);
+        if (d < bestDist) { bestDist = d; best = n; }
+      });
+      return { name: best, exact: bestDist === 0 };
+    }
+
+    function render(c) {
+      current = c;
+      var hsl = rgbToHsl(c.r, c.g, c.b);
+      var hex = toHex(c);
+      var alpha = c.a === undefined ? 1 : c.a;
+
+      document.getElementById('swatch').style.background =
+        alpha < 1 ? 'rgb(' + c.r + ' ' + c.g + ' ' + c.b + ' / ' + alpha + ')' : hex;
+      document.getElementById('picker').value = hex;
+
+      var near = nearestName(c);
+      var rows = [
+        ['Hex', hex],
+        ['Hex short', /^#(.)\1(.)\2(.)\3$/.test(hex)
+          ? '#' + hex[1] + hex[3] + hex[5] : '(not shortenable)'],
+        ['RGB', 'rgb(' + c.r + ' ' + c.g + ' ' + c.b + ')'],
+        ['RGB legacy', 'rgb(' + c.r + ', ' + c.g + ', ' + c.b + ')'],
+        ['HSL', 'hsl(' + hsl.h + ' ' + hsl.s + '% ' + hsl.l + '%)'],
+        ['CSS name', near.exact ? near.name : 'closest is ' + near.name]
+      ];
+      if (alpha < 1) {
+        rows.splice(4, 0, ['RGBA', 'rgb(' + c.r + ' ' + c.g + ' ' + c.b +
+          ' / ' + Math.round(alpha * 100) + '%)']);
+      }
+
+      document.getElementById('formats').innerHTML = rows.map(function (r) {
+        var copyable = r[1].indexOf('(not') !== 0 && r[1].indexOf('closest') !== 0;
+        return '<div class="frow"><span class="name">' + r[0] + '</span>' +
+          '<span class="val">' + r[1] + '</span>' +
+          (copyable ? '<button data-copy="' + r[1] + '">copy</button>' : '<span></span>') +
+        '</div>';
+      }).join('');
+
+      var shades = '';
+      for (var l = 95; l >= 5; l -= 9) {
+        var sc = hslToRgb(hsl.h, hsl.s, l);
+        shades += '<i data-hex="' + toHex(sc) + '" style="background:' + toHex(sc) +
+                  '" title="' + toHex(sc) + ' — lightness ' + l + '%"></i>';
+      }
+      document.getElementById('shades').innerHTML = shades;
+
+      var white = { r: 255, g: 255, b: 255 };
+      var black = { r: 0, g: 0, b: 0 };
+      var pairs = [
+        ['White text on this', white, c],
+        ['Black text on this', black, c],
+        ['This on white', c, white],
+        ['This on black', c, black]
+      ];
+
+      document.getElementById('contrast').innerHTML = pairs.map(function (p) {
+        var ratio = contrast(p[1], p[2]);
+        var grade = ratio >= 7 ? 'AAA' : ratio >= 4.5 ? 'AA'
+          : ratio >= 3 ? 'AA large text only' : 'fails';
+        return '<div class="cbox" style="background:' + toHex(p[2]) +
+          ';color:' + toHex(p[1]) + '">' +
+          p[0].split(' ')[0] + ' text' +
+          '<div class="grade">' + ratio.toFixed(2) + ':1 — ' + grade + '</div></div>';
+      }).join('');
+    }
+
+    function fromInput() {
+      var c = parse(document.getElementById('input').value);
+      if (!c) {
+        document.getElementById('err-slot').innerHTML =
+          '<div class="panel"><div class="err">That is not a colour this ' +
+          'understands. Try #2f6df6, rgb(47 109 246), hsl(219 92% 57%), or a ' +
+          'name like teal.</div></div>';
+        return;
+      }
+      document.getElementById('err-slot').innerHTML = '';
+      render(c);
+    }
+
+    document.getElementById('input').addEventListener('input', fromInput);
+
+    document.getElementById('picker').addEventListener('input', function () {
+      document.getElementById('input').value = this.value;
+      fromInput();
+    });
+
+    document.getElementById('formats').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    document.getElementById('shades').addEventListener('click', function (e) {
+      var i = e.target.closest('[data-hex]');
+      if (!i) return;
+      document.getElementById('input').value = i.dataset.hex;
+      fromInput();
+    });
+
+    fromInput();
+  })();
+  </script>
+</body>
+</html>

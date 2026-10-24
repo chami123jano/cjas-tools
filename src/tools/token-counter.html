@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Counter — Cja's Tools</title>
+<meta name="description" content="Estimate how many tokens a prompt is, how much of the context window it uses, and what it would cost to run. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .track { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+  .track i { display: block; height: 100%; }
+  .costs { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .costs th, .costs td { padding: 8px 4px; text-align: right; }
+  .costs th:first-child, .costs td:first-child { text-align: left; }
+  .costs thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .costs tbody tr { border-bottom: 1px solid var(--border); }
+  .costs tbody tr:last-child { border-bottom: none; }
+  .costs tbody tr.on { background: var(--accent-soft); }
+  .note {
+    font-size: 12.5px; color: var(--muted); line-height: 1.6;
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--surface);
+  }
+  .note b { color: var(--text); }
+  .note code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+</style>
+</head>
+<body data-page="tool" data-slug="token-counter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Token Counter</h1>
+        <p>A rough token estimate and what it would cost to send.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your prompt</label>
+          <textarea id="in" spellcheck="false" placeholder="Paste the text you want to measure&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="out">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-chars">0</b><span>Characters</span></div>
+          <div class="stat"><b id="s-words">0</b><span>Words</span></div>
+          <div class="stat"><b id="s-low">0</b><span>Low estimate</span></div>
+          <div class="stat"><b id="s-high">0</b><span>High estimate</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="output-tokens">Expected reply length (tokens)</label>
+            <input type="number" id="output-tokens" value="1000" min="0" step="100">
+          </div>
+          <div class="field">
+            <label for="calls">How many times you will run it</label>
+            <input type="number" id="calls" value="1" min="1" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Estimated cost</label>
+        <div style="overflow-x:auto">
+          <table class="costs">
+            <thead>
+              <tr><th>Model</th><th>Input</th><th>Output</th><th>Total</th><th>Context used</th></tr>
+            </thead>
+            <tbody id="costs"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Or price it yourself</label>
+        <div class="row">
+          <div class="field">
+            <label for="custom-in">Input $ per million</label>
+            <input type="number" id="custom-in" value="3" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="custom-out">Output $ per million</label>
+            <input type="number" id="custom-out" value="15" step="any" min="0">
+          </div>
+          <div class="field">
+            <label for="custom-ctx">Context window (tokens)</label>
+            <input type="number" id="custom-ctx" value="200000" step="1000" min="1000">
+          </div>
+        </div>
+        <div class="result" id="custom-out-result" style="margin-top:6px">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="note">
+          <b>This is an estimate, and it cannot be exact.</b> Real token counts come
+          from the model's own tokeniser, which differs between model families and
+          is not something a page can carry offline. The figure here is worked out
+          from character and word counts, and the low and high numbers above show
+          the range you should expect. Treat it as a guide for budgeting, not as a
+          number to invoice against.
+          <br><br>
+          <b>For an exact count</b>, the Claude API has a
+          <code>count_tokens</code> endpoint that returns the real number without
+          running the model, and every response reports its actual usage. Use those
+          when the number has to be right.
+          <br><br>
+          <b>What pushes the estimate up:</b> code, JSON and unusual names split
+          into more tokens than plain prose. Sinhala, Tamil and other non-Latin
+          scripts cost considerably more tokens per character than English, so
+          the high estimate is the one to trust for those.
+          <br><br>
+          <b>Prices are the published list rates as of June 2026</b> and are for
+          comparison only. They change, and they do not include prompt caching or
+          batch discounts, both of which cut real costs substantially. Check the
+          current rates before committing to anything.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Published list prices in US dollars per million tokens, and the context
+       window in tokens. Kept as plain data with a stated date, because a price
+       baked into an app goes stale quietly. */
+    var PRICES_AS_OF = 'June 2026';
+
+    var MODELS = [
+      { name: 'Claude Haiku 4.5', input: 1.00, output: 5.00, context: 200000 },
+      { name: 'Claude Sonnet 5', input: 2.00, output: 10.00, context: 1000000 },
+      { name: 'Claude Opus 5.5', input: 4.00, output: 20.00, context: 1000000 },
+      { name: 'Claude Opus 5', input: 5.00, output: 25.00, context: 1000000 },
+      { name: 'Claude Fable 5.1', input: 10.00, output: 50.00, context: 1000000 }
+    ];
+
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : 0;
+    }
+
+    /* Three signals, because none is reliable alone. Prose runs about four
+       characters per token; word count is a better guide for plain English;
+       and anything outside basic Latin, or heavy punctuation, splits into far
+       more tokens per character. The spread between low and high is the
+       honest uncertainty, and it is shown rather than hidden. */
+    function estimate(text) {
+      if (!text) return { low: 0, mid: 0, high: 0, chars: 0, words: 0 };
+
+      var chars = text.length;
+      var words = text.trim() ? text.trim().split(/\s+/).length : 0;
+
+      var nonLatin = (text.match(/[^\u0000-ɏ]/g) || []).length;
+      var punctuation = (text.match(/[{}\[\]()<>;:,."'`=+\-*/\\|@#$%^&~]/g) || []).length;
+
+      var latinChars = chars - nonLatin;
+
+      /* Latin text: roughly 3.5 to 4.5 characters per token. Non-Latin
+         scripts commonly land near one token per character or worse. */
+      var lowLatin = latinChars / 4.5;
+      var highLatin = latinChars / 3.2;
+
+      var lowNonLatin = nonLatin / 1.4;
+      var highNonLatin = nonLatin * 1.1;
+
+      /* Dense punctuation means more token boundaries than prose. */
+      var punctuationBump = punctuation * 0.12;
+
+      var low = Math.round(lowLatin + lowNonLatin);
+      var high = Math.round(highLatin + highNonLatin + punctuationBump);
+
+      /* Word count is a strong signal for ordinary English, so the middle
+         estimate leans on it where the text is mostly Latin. */
+      var byWords = words * 1.33;
+      var mid = nonLatin > chars * 0.2
+        ? Math.round((low + high) / 2)
+        : Math.round((byWords + (low + high) / 2) / 2);
+
+      return {
+        low: low, mid: Math.max(low, Math.min(high, mid)), high: high,
+        chars: chars, words: words
+      };
+    }
+
+    function money(v) {
+      if (v === 0) return '$0.00';
+      if (v < 0.01) return '$' + v.toFixed(5);
+      if (v < 1) return '$' + v.toFixed(4);
+      return '$' + v.toLocaleString('en-US',
+        { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function run() {
+      var text = document.getElementById('in').value;
+      var est = estimate(text);
+      var outputTokens = Math.max(0, n('output-tokens'));
+      var calls = Math.max(1, Math.round(n('calls')) || 1);
+
+      document.getElementById('s-chars').textContent = est.chars.toLocaleString();
+      document.getElementById('s-words').textContent = est.words.toLocaleString();
+      document.getElementById('s-low').textContent = est.low.toLocaleString();
+      document.getElementById('s-high').textContent = est.high.toLocaleString();
+
+      document.getElementById('out').innerHTML = est.mid
+        ? '~' + est.mid.toLocaleString() + ' tokens' +
+          '<small>somewhere between ' + est.low.toLocaleString() + ' and ' +
+          est.high.toLocaleString() + ' — see the note below on why</small>'
+        : '&mdash;<small>Paste some text above</small>';
+
+      document.getElementById('costs').innerHTML = MODELS.map(function (m) {
+        var inCost = est.mid / 1000000 * m.input * calls;
+        var outCost = outputTokens / 1000000 * m.output * calls;
+        var used = (est.mid + outputTokens) / m.context * 100;
+        return '<tr><td>' + m.name + '</td>' +
+          '<td>' + money(inCost) + '</td>' +
+          '<td>' + money(outCost) + '</td>' +
+          '<td><b>' + money(inCost + outCost) + '</b></td>' +
+          '<td>' + (used < 0.1 && used > 0 ? '<0.1' : CT.num(used, 1)) + '%' +
+          (used > 100 ? ' — too long' : '') + '</td></tr>';
+      }).join('');
+
+      var ci = n('custom-in'), co = n('custom-out'), cc = Math.max(1, n('custom-ctx'));
+      var customTotal = (est.mid / 1000000 * ci + outputTokens / 1000000 * co) * calls;
+      var customUsed = (est.mid + outputTokens) / cc * 100;
+
+      document.getElementById('custom-out-result').innerHTML = est.mid
+        ? money(customTotal) +
+          '<small>' + (calls > 1 ? 'across ' + calls.toLocaleString() + ' runs, ' : '') +
+          'using ' + CT.num(customUsed, 1) + '% of a ' +
+          cc.toLocaleString() + ' token window' +
+          (customUsed > 100 ? ' — this will not fit' : '') + '</small>'
+        : '&mdash;';
+    }
+
+    ['in', 'output-tokens', 'calls', 'custom-in', 'custom-out', 'custom-ctx']
+      .forEach(function (id) {
+        document.getElementById(id).addEventListener('input', run);
+      });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

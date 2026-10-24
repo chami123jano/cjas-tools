@@ -470,6 +470,48 @@ const TOOLS = [
     category: 'developers',
     desc: 'Build a schedule in plain words and see the next times it runs.',
     keywords: ['cron', 'crontab', 'schedule', 'job', 'timer', 'expression', 'recurring']
+  },
+  {
+    slug: 'regex-tester',
+    name: 'Regex Tester',
+    category: 'developers',
+    desc: 'Test a pattern against your text and see every match and group as you type.',
+    keywords: ['regex', 'regular expression', 'pattern', 'match', 'test', 'capture']
+  },
+  {
+    slug: 'color-converter',
+    name: 'Colour Converter',
+    category: 'developers',
+    desc: 'Convert between hex, RGB, HSL and named colours, with a contrast check.',
+    keywords: ['colour', 'color', 'hex', 'rgb', 'hsl', 'contrast', 'palette', 'css']
+  },
+  {
+    slug: 'json-to-typescript',
+    name: 'JSON to TypeScript',
+    category: 'developers',
+    desc: 'Turn a JSON sample into TypeScript interfaces you can paste into code.',
+    keywords: ['json', 'typescript', 'interface', 'types', 'convert', 'schema', 'dto']
+  },
+  {
+    slug: 'minify-beautify',
+    name: 'Minify and Beautify',
+    category: 'developers',
+    desc: 'Shrink or tidy up CSS, JSON and HTML, and see how much you saved.',
+    keywords: ['minify', 'beautify', 'format', 'css', 'html', 'compress', 'pretty']
+  },
+  {
+    slug: 'jsonl-viewer',
+    name: 'JSONL Viewer',
+    category: 'developers',
+    desc: 'Read and check a JSON Lines file line by line, and find the broken one.',
+    keywords: ['jsonl', 'ndjson', 'json lines', 'log', 'validate', 'dataset', 'view']
+  },
+  {
+    slug: 'token-counter',
+    name: 'Token Counter',
+    category: 'developers',
+    desc: 'Estimate how many tokens a prompt is and what it would cost to run.',
+    keywords: ['token', 'count', 'cost', 'llm', 'prompt', 'estimate', 'context window']
   }
 ];
 

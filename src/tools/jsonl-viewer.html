@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSONL Viewer — Cja's Tools</title>
+<meta name="description" content="Read and check a JSON Lines file line by line and find the broken record. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; min-height: 150px; }
+  .rec { border-bottom: 1px solid var(--border); }
+  .rec:last-child { border-bottom: none; }
+  .rec summary {
+    padding: 9px 4px; cursor: pointer; font-size: 13px;
+    font-family: ui-monospace, Consolas, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .rec summary::marker { color: var(--muted); }
+  .rec.bad summary { color: var(--danger); }
+  .rec .body {
+    padding: 4px 4px 12px 22px; font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+  .rec .ln { color: var(--muted); margin-right: 9px; }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 22px 16px; text-align: center; color: var(--muted);
+    font-size: 14px; cursor: pointer;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+  .keys { font-size: 12.5px; line-height: 2; }
+  .keys code {
+    background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; margin-right: 5px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="jsonl-viewer">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>JSONL Viewer</h1>
+        <p>One JSON object per line. Find the one that is broken.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop">
+          <input type="file" id="file" accept=".jsonl,.ndjson,.json,.txt" hidden>
+          Click to choose a .jsonl file, or drag one here
+        </div>
+        <p class="hint" id="file-info"></p>
+        <div class="field" style="margin-top:12px">
+          <label for="in">Or paste it</label>
+          <textarea id="in" spellcheck="false" placeholder='{"id":1,"name":"first"}&#10;{"id":2,"name":"second"}'></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-total">0</b><span>Records</span></div>
+          <div class="stat"><b id="s-bad">0</b><span>Broken lines</span></div>
+          <div class="stat"><b id="s-keys">0</b><span>Distinct keys</span></div>
+          <div class="stat"><b id="s-size">0</b><span>Size</span></div>
+        </div>
+        <div class="result" id="verdict" style="margin-top:14px">&mdash;</div>
+      </div>
+
+      <div class="panel" id="keys-panel" hidden>
+        <label style="margin-bottom:8px">Keys seen, and how often</label>
+        <div class="keys" id="keys"></div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="filter">Show</label>
+            <select id="filter">
+              <option value="all">All records</option>
+              <option value="bad">Broken lines only</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="search">Containing</label>
+            <input type="text" id="search" placeholder="filter by text" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <div id="records"></div>
+        <p class="hint" id="shown-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="to-json">Download as a JSON array</button>
+          <button class="btn" id="drop-bad">Download without the broken lines</button>
+        </div>
+        <p class="hint">JSON Lines is one complete JSON value per line, with no
+          commas between them and no brackets around the whole file. It suits logs
+          and datasets because a program can read one record at a time, and one
+          corrupt line does not spoil the rest.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = [
+      '{"id":1,"user":"chamindu","action":"login","ok":true}',
+      '{"id":2,"user":"nimali","action":"purchase","total":2500,"items":["tea","sugar"]}',
+      '{"id":3,"user":"perera","action":"logout"',
+      '{"id":4,"user":"nimali","action":"refund","total":-990,"note":null}'
+    ].join('\n');
+
+    var records = [];
+
+    function human(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1048576).toFixed(2) + ' MB';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function parse(text) {
+      /* Blank lines are normal at the end of a file and between blocks, so
+         they are skipped rather than reported as broken. The line number is
+         kept from the original file so an error points at the right place. */
+      var lines = text.split('\n');
+      var out = [];
+      lines.forEach(function (line, i) {
+        if (!line.trim()) return;
+        var rec = { line: i + 1, raw: line };
+        try {
+          rec.value = JSON.parse(line);
+          rec.ok = true;
+        } catch (e) {
+          rec.ok = false;
+          rec.error = e.message;
+        }
+        out.push(rec);
+      });
+      return out;
+    }
+
+    function render() {
+      var filter = document.getElementById('filter').value;
+      var search = document.getElementById('search').value.trim().toLowerCase();
+
+      var shown = records.filter(function (r) {
+        if (filter === 'bad' && r.ok) return false;
+        if (search && r.raw.toLowerCase().indexOf(search) === -1) return false;
+        return true;
+      });
+
+      var LIMIT = 300;
+      document.getElementById('records').innerHTML = shown.length
+        ? shown.slice(0, LIMIT).map(function (r) {
+            var summary = r.ok
+              ? escapeHtml(r.raw.length > 120 ? r.raw.slice(0, 120) + '…' : r.raw)
+              : 'broken — ' + escapeHtml(r.error);
+            var body = r.ok
+              ? escapeHtml(JSON.stringify(r.value, null, 2))
+              : escapeHtml(r.raw) + '\n\n' + escapeHtml(r.error);
+            return '<details class="rec' + (r.ok ? '' : ' bad') + '">' +
+              '<summary><span class="ln">' + r.line + '</span>' + summary + '</summary>' +
+              '<div class="body">' + body + '</div></details>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Nothing matches.</p>';
+
+      document.getElementById('shown-note').textContent = shown.length > LIMIT
+        ? 'Showing the first ' + LIMIT + ' of ' + shown.length + ' matching records.'
+        : shown.length ? shown.length + ' shown.' : '';
+    }
+
+    function run(text) {
+      records = parse(text);
+
+      var bad = records.filter(function (r) { return !r.ok; });
+      var keyCounts = {};
+      records.forEach(function (r) {
+        if (r.ok && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
+          Object.keys(r.value).forEach(function (k) {
+            keyCounts[k] = (keyCounts[k] || 0) + 1;
+          });
+        }
+      });
+      var keys = Object.keys(keyCounts);
+
+      document.getElementById('s-total').textContent = records.length.toLocaleString();
+      document.getElementById('s-bad').textContent = bad.length.toLocaleString();
+      document.getElementById('s-keys').textContent = keys.length;
+      document.getElementById('s-size').textContent = human(text.length);
+
+      var verdict = document.getElementById('verdict');
+      if (!records.length) {
+        verdict.innerHTML = '&mdash;<small>Paste or choose a file</small>';
+      } else if (!bad.length) {
+        verdict.innerHTML = 'Every line is valid' +
+          '<small>' + records.length + ' record' + (records.length === 1 ? '' : 's') +
+          ', no problems found</small>';
+      } else {
+        verdict.innerHTML = bad.length + ' broken line' + (bad.length === 1 ? '' : 's') +
+          '<small>first problem on line ' + bad[0].line + ' — ' +
+          escapeHtml(bad[0].error) + '</small>';
+      }
+
+      document.getElementById('keys-panel').hidden = keys.length === 0;
+      var goodCount = records.length - bad.length;
+      document.getElementById('keys').innerHTML = keys
+        .sort(function (a, b) { return keyCounts[b] - keyCounts[a]; })
+        .map(function (k) {
+          var all = keyCounts[k] === goodCount;
+          return '<code title="' + keyCounts[k] + ' of ' + goodCount + ' records">' +
+            escapeHtml(k) + ' ' + (all ? '✓' : keyCounts[k] + '/' + goodCount) +
+            '</code>';
+        }).join('');
+
+      render();
+    }
+
+    function fromTextarea() { run(document.getElementById('in').value); }
+
+    function loadFile(f) {
+      if (!f) return;
+      document.getElementById('file-info').textContent =
+        f.name + ' — ' + human(f.size) + ', reading on this device…';
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = String(reader.result);
+        /* A big dataset would freeze the textarea, so only a preview goes in
+           it while the analysis still covers the whole file. */
+        var PREVIEW = 200000;
+        document.getElementById('in').value = text.length > PREVIEW
+          ? text.slice(0, PREVIEW)
+          : text;
+        document.getElementById('file-info').textContent =
+          f.name + ' — ' + human(f.size) +
+          (text.length > PREVIEW
+            ? '. The box below shows the first part only; the counts cover the whole file.'
+            : '. Read on this device, never uploaded.');
+        run(text);
+      };
+      reader.onerror = function () {
+        document.getElementById('file-info').textContent = 'Could not read that file.';
+      };
+      reader.readAsText(f);
+    }
+
+    var drop = document.getElementById('drop');
+    var fileInput = document.getElementById('file');
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { loadFile(this.files[0]); });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) loadFile(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById('in').addEventListener('input', fromTextarea);
+    ['filter', 'search'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = SAMPLE;
+      fromTextarea();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      document.getElementById('file-info').textContent = '';
+      fromTextarea();
+    });
+
+    function download(text, name, type) {
+      var blob = new Blob([text], { type: type });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.getElementById('to-json').addEventListener('click', function () {
+      var good = records.filter(function (r) { return r.ok; });
+      if (!good.length) { CT.toast('Nothing valid to export'); return; }
+      download(JSON.stringify(good.map(function (r) { return r.value; }), null, 2),
+        'records.json', 'application/json');
+    });
+
+    document.getElementById('drop-bad').addEventListener('click', function () {
+      var good = records.filter(function (r) { return r.ok; });
+      if (!good.length) { CT.toast('Nothing valid to export'); return; }
+      var bad = records.length - good.length;
+      download(good.map(function (r) { return JSON.stringify(r.value); }).join('\n') + '\n',
+        'clean.jsonl', 'application/x-ndjson');
+      CT.toast(bad ? bad + ' broken line' + (bad === 1 ? '' : 's') + ' left out' : 'Nothing was broken');
+    });
+
+    document.getElementById('in').value = SAMPLE;
+    fromTextarea();
+  })();
+  </script>
+</body>
+</html>

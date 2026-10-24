@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regex Tester — Cja's Tools</title>
+<meta name="description" content="Test a regular expression against your text and see every match and capture group as you type. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #pattern, #flags { font-family: ui-monospace, Consolas, monospace; font-size: 14.5px; }
+  .preview {
+    padding: 13px 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+    font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+    line-height: 1.9; white-space: pre-wrap; word-break: break-word;
+    max-height: 300px; overflow: auto;
+  }
+  .preview mark { background: #ffe08a; color: #4a3200; border-radius: 3px; padding: 0 2px; }
+  .preview mark.alt { background: #b8e0ff; color: #0b3550; }
+  html:not([data-theme="light"]) .preview mark { background:#6b5518; color:#ffe9b0; }
+  html:not([data-theme="light"]) .preview mark.alt { background:#1d4a6b; color:#bfe4ff; }
+  :root[data-theme="dark"] .preview mark { background:#6b5518; color:#ffe9b0; }
+  :root[data-theme="dark"] .preview mark.alt { background:#1d4a6b; color:#bfe4ff; }
+  .matches { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .matches th, .matches td { padding: 7px 5px; text-align: left; }
+  .matches thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .matches tbody tr { border-bottom: 1px solid var(--border); }
+  .matches td { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+  .matches td:first-child { color: var(--muted); width: 42px; font-family: inherit; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .cheat { font-size: 12.5px; line-height: 2; color: var(--muted); }
+  .cheat code {
+    background: var(--surface-2); padding: 1px 5px; border-radius: 4px;
+    color: var(--text); font-size: 12px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="regex-tester">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Regex Tester</h1>
+        <p>Matches update as you type. Nothing is sent anywhere.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="pattern">Pattern</label>
+            <input type="text" id="pattern" value="(\w+)@(\w+\.\w+)" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="field" style="max-width:140px">
+            <label for="flags">Flags</label>
+            <input type="text" id="flags" value="g" spellcheck="false" autocomplete="off" maxlength="8">
+          </div>
+        </div>
+        <div class="btns" id="flag-btns">
+          <button class="btn primary" data-flag="g">g global</button>
+          <button class="btn" data-flag="i">i ignore case</button>
+          <button class="btn" data-flag="m">m multiline</button>
+          <button class="btn" data-flag="s">s dot matches newline</button>
+          <button class="btn" data-flag="u">u unicode</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="text">Text to test against</label>
+          <textarea id="text" spellcheck="false">Contact chamindu@example.com or sales@cjatools.lk before Friday.
+Old address was info@oldsite.org which no longer works.</textarea>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="result" id="count">&mdash;</div>
+        <div class="preview" id="preview" style="margin-top:14px"></div>
+      </div>
+
+      <div class="panel" id="matches-panel" hidden>
+        <label style="margin-bottom:8px">Every match</label>
+        <div style="overflow-x:auto">
+          <table class="matches">
+            <thead><tr><th>#</th><th>Match</th><th>At</th><th>Groups</th></tr></thead>
+            <tbody id="matches"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Quick reference</label>
+        <div class="cheat">
+          <code>.</code> any character &nbsp;
+          <code>\d</code> digit &nbsp;
+          <code>\w</code> letter, digit or underscore &nbsp;
+          <code>\s</code> space &nbsp;
+          <code>[abc]</code> one of these &nbsp;
+          <code>[^abc]</code> not these &nbsp;
+          <code>a*</code> none or more &nbsp;
+          <code>a+</code> one or more &nbsp;
+          <code>a?</code> optional &nbsp;
+          <code>a{2,4}</code> two to four &nbsp;
+          <code>^</code> start &nbsp;
+          <code>$</code> end &nbsp;
+          <code>\b</code> word edge &nbsp;
+          <code>(abc)</code> capture &nbsp;
+          <code>(?:abc)</code> group without capturing &nbsp;
+          <code>(?&lt;name&gt;abc)</code> named capture &nbsp;
+          <code>a|b</code> either
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var patternEl = document.getElementById('pattern');
+    var flagsEl = document.getElementById('flags');
+    var textEl = document.getElementById('text');
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function paintFlagButtons() {
+      var flags = flagsEl.value;
+      document.querySelectorAll('#flag-btns .btn').forEach(function (b) {
+        b.classList.toggle('primary', flags.indexOf(b.dataset.flag) !== -1);
+      });
+    }
+
+    function run() {
+      error('');
+      var pattern = patternEl.value;
+      var flags = flagsEl.value.replace(/[^gimsuyd]/g, '');
+      flagsEl.value = flags;
+      paintFlagButtons();
+
+      var text = textEl.value;
+      var preview = document.getElementById('preview');
+      var count = document.getElementById('count');
+
+      if (!pattern) {
+        count.innerHTML = '&mdash;<small>Enter a pattern</small>';
+        preview.innerHTML = escapeHtml(text);
+        document.getElementById('matches-panel').hidden = true;
+        return;
+      }
+
+      var re;
+      try {
+        re = new RegExp(pattern, flags);
+      } catch (e) {
+        error('That pattern is not valid: ' + e.message);
+        count.innerHTML = '&mdash;';
+        preview.innerHTML = escapeHtml(text);
+        document.getElementById('matches-panel').hidden = true;
+        return;
+      }
+
+      /* Without the global flag only the first match exists, which is
+         confusing when the highlight shows one hit in a page of candidates.
+         A global copy is used for finding them all, and the note explains it. */
+      var global = flags.indexOf('g') !== -1;
+      var scan = new RegExp(pattern, flags.indexOf('g') === -1 ? flags + 'g' : flags);
+
+      var found = [];
+      var guard = 0;
+      var m;
+      while ((m = scan.exec(text)) !== null && guard < 10000) {
+        guard++;
+        found.push({ text: m[0], index: m.index, groups: m.slice(1), named: m.groups });
+        /* A pattern that can match nothing would loop forever on the same
+           position, so the cursor is nudged along by hand. */
+        if (m[0] === '') scan.lastIndex++;
+        if (!global) break;
+      }
+
+      count.innerHTML = found.length
+        ? found.length + ' match' + (found.length === 1 ? '' : 'es') +
+          '<small>' + (global ? '' : 'without the g flag only the first is used by replace — ') +
+          (found.some(function (f) { return f.text === ''; })
+            ? 'some matches are empty, which means the pattern can match nothing'
+            : 'across ' + text.split('\n').length + ' lines') + '</small>'
+        : 'No matches<small>the pattern does not appear in this text</small>';
+
+      /* Built by walking the matches in order rather than with replace, so
+         the original text is never altered and overlapping is impossible. */
+      var html = '';
+      var cursor = 0;
+      found.forEach(function (f, i) {
+        html += escapeHtml(text.slice(cursor, f.index));
+        html += '<mark class="' + (i % 2 ? 'alt' : '') + '">' +
+          (f.text === '' ? '‹›' : escapeHtml(f.text)) + '</mark>';
+        cursor = f.index + f.text.length;
+      });
+      html += escapeHtml(text.slice(cursor));
+      preview.innerHTML = html || '<span style="color:var(--muted)">Nothing here yet</span>';
+
+      document.getElementById('matches-panel').hidden = found.length === 0;
+      document.getElementById('matches').innerHTML = found.slice(0, 200).map(function (f, i) {
+        var groups = '';
+        if (f.named && Object.keys(f.named).length) {
+          groups = Object.keys(f.named).map(function (k) {
+            return k + ': ' + (f.named[k] === undefined ? '(none)' : f.named[k]);
+          }).join('<br>');
+        } else if (f.groups.length) {
+          groups = f.groups.map(function (g, gi) {
+            return (gi + 1) + ': ' + (g === undefined ? '(none)' : g);
+          }).join('<br>');
+        } else {
+          groups = '<span style="color:var(--muted)">none</span>';
+        }
+        return '<tr><td>' + (i + 1) + '</td><td>' +
+          (f.text === '' ? '<i>empty</i>' : escapeHtml(f.text)) + '</td><td>' +
+          f.index + '</td><td>' + groups + '</td></tr>';
+      }).join('');
+    }
+
+    document.getElementById('flag-btns').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-flag]');
+      if (!b) return;
+      var f = b.dataset.flag;
+      var flags = flagsEl.value;
+      flagsEl.value = flags.indexOf(f) !== -1
+        ? flags.replace(f, '')
+        : flags + f;
+      run();
+    });
+
+    [patternEl, flagsEl, textEl].forEach(function (el) {
+      el.addEventListener('input', run);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

@@ -1231,6 +1231,178 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- developers, part 2
+
+(function regexTester() {
+  const t = loadTool('regex-tester');
+  t.set('pattern', '(\\w+)@(\\w+\\.\\w+)').set('flags', 'g');
+  t.set('text', 'a@b.com and c@d.lk');
+  has(t.text('count'), '2 matches', 'both addresses found');
+  has(t.text('matches'), 'a@b.com', 'the match is listed');
+  has(t.text('matches'), '1: a', 'capture groups are shown');
+
+  // an invalid pattern must be explained, not thrown
+  t.set('pattern', '([unclosed');
+  has(t.text('err-slot'), 'not valid', 'a broken pattern is reported');
+
+  // a pattern that can match nothing would loop forever without a guard
+  t.set('pattern', 'a*').set('text', 'bbb');
+  ok(t.text('count').indexOf('match') !== -1,
+     'an empty-match pattern terminates instead of hanging');
+  has(t.text('count'), 'empty', 'and says the matches are empty');
+
+  // named groups
+  t.set('pattern', '(?<year>\\d{4})-(?<month>\\d{2})').set('text', '2026-10');
+  has(t.text('matches'), 'year: 2026', 'named groups are labelled');
+  t.close();
+})();
+
+(function colorConverter() {
+  const t = loadTool('color-converter');
+  t.set('input', '#2f6df6');
+  has(t.text('formats'), 'rgb(47 109 246)', 'hex to rgb');
+  has(t.text('formats'), 'hsl(221 92% 57%)', 'hex to hsl');
+
+  // short hex, rgb and hsl input should all resolve to the same colour
+  t.set('input', '#fff');
+  has(t.text('formats'), '#ffffff', 'three-digit hex expands');
+  t.set('input', 'rgb(255, 0, 0)');
+  has(t.text('formats'), '#ff0000', 'legacy comma rgb parses');
+  t.set('input', 'hsl(120 100% 50%)');
+  has(t.text('formats'), '#00ff00', 'hsl parses');
+  t.set('input', 'teal');
+  has(t.text('formats'), '#008080', 'a css name parses');
+
+  // contrast: black on white is the maximum 21:1
+  t.set('input', '#ffffff');
+  has(t.text('contrast'), '21.00:1', 'black on white is 21:1');
+  has(t.text('contrast'), 'AAA', 'and grades AAA');
+
+  t.set('input', 'not a colour');
+  has(t.text('err-slot'), 'not a colour', 'rubbish is reported');
+  t.close();
+})();
+
+(function jsonToTypescript() {
+  const t = loadTool('json-to-typescript');
+  t.set('in', '{"id":1,"name":"x","active":true}');
+  const out = () => t.byId('out').value;
+  has(out(), 'interface Root', 'an interface is produced');
+  has(out(), 'id: number', 'numbers typed');
+  has(out(), 'name: string', 'strings typed');
+  has(out(), 'active: boolean', 'booleans typed');
+
+  // a nested object becomes its own interface
+  t.set('in', '{"user":{"city":"Colombo"}}');
+  has(out(), 'interface User', 'nested objects get their own interface');
+
+  // an always-null field cannot be typed, and must say so rather than guess
+  t.set('in', '{"note":null}');
+  has(out(), 'unknown', 'an always-null field is unknown, not null');
+  has(out(), 'always null', 'and it explains why');
+
+  // an empty array says nothing about its contents
+  t.set('in', '{"items":[]}');
+  has(out(), 'unknown[]', 'an empty array is unknown[]');
+
+  // objects in an array with differing keys merge, missing ones optional
+  t.set('in', '[{"a":1},{"a":1,"b":2}]');
+  has(out(), 'b?:', 'a key missing from some records becomes optional');
+
+  // a key that is not a valid identifier must be quoted
+  t.set('in', '{"my-key":1}');
+  has(out(), '"my-key"', 'an awkward key is quoted');
+
+  t.set('in', '{bad json');
+  has(t.text('err-slot'), 'not valid JSON', 'broken JSON is reported');
+  t.close();
+})();
+
+(function minifyBeautify() {
+  const t = loadTool('minify-beautify');
+  t.set('lang', 'json').set('action', 'minify');
+  t.set('in', '{ "a" : 1 , "b" : [ 1 , 2 ] }');
+  ok(t.byId('out').value === '{"a":1,"b":[1,2]}', 'JSON minifies',
+     'got ' + t.byId('out').value);
+
+  t.set('lang', 'css').set('action', 'minify');
+  t.set('in', '/* note */\n.a {\n  color : red ;\n}\n');
+  ok(t.byId('out').value === '.a{color:red}', 'CSS minifies and drops the comment',
+     'got ' + t.byId('out').value);
+
+  // a semicolon or brace inside a quoted value must not be treated as syntax
+  t.set('in', '.a { content: "a; b {c}" ; color : red }');
+  ok(t.byId('out').value.indexOf('"a; b {c}"') !== -1,
+     'a quoted value survives minifying intact', 'got ' + t.byId('out').value);
+
+  t.set('lang', 'html').set('action', 'minify');
+  t.set('in', '<!-- c -->\n<div>  <p>a   b</p>  </div>');
+  ok(t.byId('out').value === '<div><p>a b</p></div>', 'HTML minifies',
+     'got ' + t.byId('out').value);
+
+  // pre contents must be left exactly alone
+  t.set('in', '<div>  <pre>  keep   this  </pre>  </div>');
+  ok(t.byId('out').value.indexOf('  keep   this  ') !== -1,
+     'pre contents are preserved exactly', 'got ' + t.byId('out').value);
+
+  t.set('lang', 'json').set('in', '{bad');
+  has(t.text('err-slot'), 'not valid JSON', 'broken JSON is reported');
+  t.close();
+})();
+
+(function jsonlViewer() {
+  const t = loadTool('jsonl-viewer');
+  t.set('in', '{"a":1}\n{"a":2,"b":3}\n{"a":3');
+  has(t.text('s-total'), '3', 'three records counted');
+  has(t.text('s-bad'), '1', 'one broken line found');
+  has(t.text('verdict'), 'line 3', 'and it names the line');
+  has(t.text('s-keys'), '2', 'distinct keys counted');
+
+  // blank lines are normal and must not count as broken
+  t.set('in', '{"a":1}\n\n{"a":2}\n');
+  has(t.text('s-bad'), '0', 'blank lines are not treated as errors');
+  has(t.text('s-total'), '2', 'and are not counted as records');
+  has(t.text('verdict'), 'Every line is valid', 'a clean file says so');
+
+  // key coverage should show which keys are on every record
+  t.set('in', '{"a":1,"b":1}\n{"a":2}');
+  has(t.text('keys'), '1/2', 'a key missing from some records is marked');
+  t.close();
+})();
+
+(function tokenCounter() {
+  const t = loadTool('token-counter');
+  t.set('in', 'The quick brown fox jumps over the lazy dog.');
+  has(t.text('s-chars'), '44', 'characters counted');
+  has(t.text('s-words'), '9', 'words counted');
+
+  const low = parseInt(t.text('s-low').replace(/,/g, ''), 10);
+  const high = parseInt(t.text('s-high').replace(/,/g, ''), 10);
+  ok(low > 0 && high >= low, 'a sensible range is produced',
+     'got ' + low + ' to ' + high);
+  // 43 characters of plain English should land in single or low double digits
+  ok(high < 40, 'plain English is not wildly over-estimated', 'high was ' + high);
+
+  // non-Latin script costs far more tokens per character - the estimate
+  // must reflect that rather than treating all characters alike
+  t.set('in', 'aaaaaaaaaa');
+  const latinHigh = parseInt(t.text('s-high').replace(/,/g, ''), 10);
+  t.set('in', 'අයුබෝවන්අය');
+  const sinhalaHigh = parseInt(t.text('s-high').replace(/,/g, ''), 10);
+  ok(sinhalaHigh > latinHigh,
+     'Sinhala is estimated higher per character than Latin',
+     'latin ' + latinHigh + ' vs sinhala ' + sinhalaHigh);
+
+  // cost table should price every model and respect the call multiplier
+  t.set('in', 'hello world').set('output-tokens', 1000).set('calls', 1);
+  has(t.text('costs'), 'Claude Opus 5', 'models are listed');
+  has(t.text('costs'), 'Claude Haiku 4.5', 'including the cheaper one');
+
+  t.set('in', '');
+  has(t.text('out'), 'Paste some text', 'empty input is handled');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {
