@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSON Schema Builder — Cja's Tools</title>
+<meta name="description" content="Build a JSON Schema from a sample, then check other data against it. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #sample, #schema, #validate { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  #schema { min-height: 240px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .ok {
+    padding: 12px 15px; border: 1px solid #27b86a; background: #dcf5e7; color: #146b3c;
+    border-radius: var(--radius); font-size: 13.5px;
+  }
+  html:not([data-theme="light"]) .ok { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .ok { background:#17402c; color:#6fdca2; }
+  .problems { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+  .problems li {
+    padding: 8px 4px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 10px;
+  }
+  .problems li:last-child { border-bottom: none; }
+  .problems code {
+    background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; flex: none;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="json-schema-builder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>JSON Schema Builder</h1>
+        <p>Build a schema from real data, then test other data against it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="sample">A sample of your data</label>
+          <textarea id="sample" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="load-sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="title">Schema title</label>
+            <input type="text" id="title" value="Record" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="draft">Draft</label>
+            <select id="draft">
+              <option value="2020-12" selected>2020-12</option>
+              <option value="07">draft-07</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="required">Mark fields required</button>
+          <button class="btn" data-opt="strict">No extra properties</button>
+          <button class="btn" data-opt="examples">Include examples</button>
+          <button class="btn" data-opt="enums">Guess enums from repeats</button>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="schema">JSON Schema</label>
+          <textarea id="schema" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy schema</button>
+          <button class="btn" id="download">Download</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Check some other data against it</label>
+        <div class="field">
+          <textarea id="validate" spellcheck="false" placeholder='{"id": "not a number"}'></textarea>
+        </div>
+        <div id="result-slot"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A schema from one sample is a starting point, not a
+          specification.</b> Fields that happen to be absent look optional,
+          fields that happen to be null get no type, and a number that happens
+          to be whole looks like an integer. Read it through before using it as
+          an API contract.
+          <br><br>
+          The checker here covers types, required fields, enums, array items and
+          nested objects &mdash; enough to catch real mistakes. It is not a full
+          JSON Schema implementation, so it does not do <code>$ref</code>,
+          <code>allOf</code> or pattern matching.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { required: true, strict: false, examples: false, enums: false };
+
+    var EXAMPLE = JSON.stringify([
+      { id: 1, name: "Nimali", role: "admin", active: true, score: 92.5, tags: ["tea"] },
+      { id: 2, name: "Perera", role: "staff", active: false, score: 71, tags: [] },
+      { id: 3, name: "Fernando", role: "staff", active: true, score: 88.25, tags: ["sugar", "rice"] }
+    ], null, 2);
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function typeOf(v) {
+      if (v === null) return 'null';
+      if (Array.isArray(v)) return 'array';
+      if (typeof v === 'number') return Number.isInteger(v) ? 'integer' : 'number';
+      if (typeof v === 'boolean') return 'boolean';
+      if (typeof v === 'object') return 'object';
+      return 'string';
+    }
+
+    /* Several samples of the same thing are merged rather than taking the
+       first: that is how a field only sometimes present gets recognised as
+       optional, and how a field with mixed types gets a type union. */
+    function infer(samples, name) {
+      var types = {};
+      samples.forEach(function (s) { types[typeOf(s)] = true; });
+      var kinds = Object.keys(types);
+
+      /* A field that is sometimes whole and sometimes not is a number, not
+         an integer - otherwise the schema rejects half the real data. */
+      if (kinds.indexOf('integer') !== -1 && kinds.indexOf('number') !== -1) {
+        delete types.integer;
+        kinds = Object.keys(types);
+      }
+
+      var schema = {};
+
+      if (kinds.length === 1) schema.type = kinds[0];
+      else schema.type = kinds;
+
+      if (types.object) {
+        var objects = samples.filter(function (s) {
+          return s && typeof s === 'object' && !Array.isArray(s);
+        });
+        var keys = [];
+        objects.forEach(function (o) {
+          Object.keys(o).forEach(function (k) {
+            if (keys.indexOf(k) === -1) keys.push(k);
+          });
+        });
+
+        schema.properties = {};
+        var required = [];
+        keys.forEach(function (k) {
+          var present = objects.filter(function (o) {
+            return Object.prototype.hasOwnProperty.call(o, k);
+          });
+          schema.properties[k] = infer(present.map(function (o) { return o[k]; }), k);
+          if (present.length === objects.length) required.push(k);
+        });
+
+        if (opts.required && required.length) schema.required = required;
+        if (opts.strict) schema.additionalProperties = false;
+      }
+
+      if (types.array) {
+        var items = [];
+        samples.forEach(function (s) {
+          if (Array.isArray(s)) items = items.concat(s);
+        });
+        /* An array that is empty in every sample says nothing about what it
+           holds, so no claim is made rather than a wrong one. */
+        schema.items = items.length ? infer(items, name) : {};
+      }
+
+      if (types.string && kinds.length === 1) {
+        var strings = samples.filter(function (s) { return typeof s === 'string'; });
+        var unique = strings.filter(function (v, i, a) { return a.indexOf(v) === i; });
+
+        /* A short set of repeated values is usually a fixed vocabulary, but
+           only if it actually repeats - three samples with three different
+           values tells us nothing. */
+        if (opts.enums && unique.length > 1 && unique.length <= 8 &&
+            strings.length >= unique.length * 2) {
+          schema.enum = unique;
+        }
+
+        var first = strings[0] || '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(first) &&
+            strings.every(function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(s); })) {
+          schema.format = 'date';
+        } else if (/^\d{4}-\d{2}-\d{2}T/.test(first)) {
+          schema.format = 'date-time';
+        } else if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(first) &&
+            strings.every(function (s) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s); })) {
+          schema.format = 'email';
+        } else if (/^https?:\/\//.test(first)) {
+          schema.format = 'uri';
+        }
+      }
+
+      if (opts.examples && samples.length && typeof samples[0] !== 'object') {
+        schema.examples = samples.filter(function (v, i, a) {
+          return a.indexOf(v) === i;
+        }).slice(0, 3);
+      }
+
+      return schema;
+    }
+
+    function build() {
+      error('');
+      var text = document.getElementById('sample').value.trim();
+      var out = document.getElementById('schema');
+
+      if (!text) {
+        out.value = '';
+        document.getElementById('result-slot').innerHTML = '';
+        return null;
+      }
+
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        out.value = '';
+        error('That sample is not valid JSON. ' + e.message);
+        return null;
+      }
+
+      var draft = document.getElementById('draft').value === '07'
+        ? 'http://json-schema.org/draft-07/schema#'
+        : 'https://json-schema.org/draft/2020-12/schema';
+
+      var body;
+      if (Array.isArray(parsed)) {
+        /* A top-level array of records is the common case, and every record
+           contributes to the shape rather than just the first. */
+        body = { type: 'array', items: parsed.length ? infer(parsed, 'item') : {} };
+      } else {
+        body = infer([parsed], 'root');
+      }
+
+      var schema = Object.assign({
+        $schema: draft,
+        title: document.getElementById('title').value.trim() || 'Record'
+      }, body);
+
+      out.value = JSON.stringify(schema, null, 2);
+      validate();
+      return schema;
+    }
+
+    /* A deliberately small checker: types, required, enum, items and nested
+       objects. Enough to catch real mistakes, and it says plainly in the page
+       that it is not a full implementation. */
+    function check(value, schema, path, problems) {
+      if (!schema || typeof schema !== 'object') return;
+
+      if (schema.type) {
+        var allowed = Array.isArray(schema.type) ? schema.type : [schema.type];
+        var actual = typeOf(value);
+        /* An integer satisfies a number, but not the other way round. */
+        var ok = allowed.indexOf(actual) !== -1 ||
+                 (actual === 'integer' && allowed.indexOf('number') !== -1);
+        if (!ok) {
+          problems.push({ path: path || '(root)',
+            msg: 'should be ' + allowed.join(' or ') + ', but is ' + actual });
+          return;
+        }
+      }
+
+      if (schema.enum && schema.enum.indexOf(value) === -1) {
+        problems.push({ path: path || '(root)',
+          msg: 'should be one of ' + schema.enum.map(function (v) {
+            return JSON.stringify(v);
+          }).join(', ') });
+      }
+
+      if (schema.properties && value && typeof value === 'object' && !Array.isArray(value)) {
+        (schema.required || []).forEach(function (k) {
+          if (!Object.prototype.hasOwnProperty.call(value, k)) {
+            problems.push({ path: path ? path + '.' + k : k, msg: 'is required but missing' });
+          }
+        });
+        Object.keys(value).forEach(function (k) {
+          if (schema.properties[k]) {
+            check(value[k], schema.properties[k], path ? path + '.' + k : k, problems);
+          } else if (schema.additionalProperties === false) {
+            problems.push({ path: path ? path + '.' + k : k,
+              msg: 'is not allowed by this schema' });
+          }
+        });
+      }
+
+      if (schema.items && Array.isArray(value)) {
+        value.forEach(function (v, i) {
+          check(v, schema.items, (path || '') + '[' + i + ']', problems);
+        });
+      }
+    }
+
+    function validate() {
+      var slot = document.getElementById('result-slot');
+      var text = document.getElementById('validate').value.trim();
+      var schemaText = document.getElementById('schema').value;
+
+      if (!text || !schemaText) { slot.innerHTML = ''; return; }
+
+      var schema, data;
+      try { schema = JSON.parse(schemaText); } catch (e) { slot.innerHTML = ''; return; }
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        slot.innerHTML = '<div class="err">That data is not valid JSON. ' +
+          e.message + '</div>';
+        return;
+      }
+
+      var problems = [];
+      check(data, schema, '', problems);
+
+      slot.innerHTML = problems.length
+        ? '<div class="err" style="margin-bottom:12px">' + problems.length +
+          ' problem' + (problems.length === 1 ? '' : 's') + ' found</div>' +
+          '<ul class="problems">' + problems.slice(0, 50).map(function (p) {
+            return '<li><code>' + p.path.replace(/[<>&]/g, '') + '</code><span>' +
+              p.msg.replace(/[<>&]/g, '') + '</span></li>';
+          }).join('') + '</ul>'
+        : '<div class="ok">That data matches the schema.</div>';
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      build();
+    });
+
+    ['sample', 'title', 'draft'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    document.getElementById('validate').addEventListener('input', validate);
+
+    document.getElementById('load-sample').addEventListener('click', function () {
+      document.getElementById('sample').value = EXAMPLE;
+      document.getElementById('validate').value =
+        '{"id": "two", "name": "Kamal", "active": true, "score": 50, "tags": []}';
+      build();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('sample').value = '';
+      document.getElementById('validate').value = '';
+      build();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('schema').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      var v = document.getElementById('schema').value;
+      if (!v) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([v], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'schema.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('sample').value = EXAMPLE;
+    build();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt Cleaner — Cja's Tools</title>
+<meta name="description" content="Strip smart quotes, invisible characters and stray formatting out of text pasted from Word, a PDF or a web page. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-size: 14px; }
+  .found { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+  .found li {
+    display: flex; justify-content: space-between; gap: 12px;
+    padding: 8px 4px; border-bottom: 1px solid var(--border);
+  }
+  .found li:last-child { border-bottom: none; }
+  .found b { font-variant-numeric: tabular-nums; }
+  .found .ch {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    background: var(--surface-2); padding: 1px 6px; border-radius: 4px;
+  }
+  .clean {
+    padding: 12px 15px; border: 1px solid #27b86a; background: #dcf5e7; color: #146b3c;
+    border-radius: var(--radius); font-size: 13.5px;
+  }
+  html:not([data-theme="light"]) .clean { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .clean { background:#17402c; color:#6fdca2; }
+</style>
+</head>
+<body data-page="tool" data-slug="prompt-cleaner">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Prompt Cleaner</h1>
+        <p>For text pasted out of Word, a PDF or a web page.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Paste your text</label>
+          <textarea id="in" spellcheck="false" placeholder="Paste here&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load a messy example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">What to fix</label>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="quotes">Curly quotes &rarr; straight</button>
+          <button class="btn primary" data-opt="dashes">Fancy dashes &rarr; plain</button>
+          <button class="btn primary" data-opt="invisible">Invisible characters</button>
+          <button class="btn primary" data-opt="spaces">Odd spaces &rarr; normal</button>
+          <button class="btn" data-opt="ellipsis">Ellipsis &rarr; three dots</button>
+          <button class="btn" data-opt="bullets">Bullets &rarr; hyphens</button>
+          <button class="btn" data-opt="blank">Collapse blank lines</button>
+          <button class="btn" data-opt="trailing">Trim line ends</button>
+          <button class="btn" data-opt="lineNumbers">Strip leading line numbers</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="report"></div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Cleaned</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy cleaned text</button>
+          <button class="btn" id="apply">Use as input</button>
+        </div>
+        <p class="hint" id="sizes"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why this matters for a prompt.</b> A curly quote is a
+          different character from a straight one, so a model reading your text
+          as code or JSON sees something subtly wrong. Zero-width characters are
+          worse: they are completely invisible, they survive copying, and they
+          break string comparisons and search with no visible cause.
+          <br><br>
+          Everything here is a plain substitution, so your actual words are
+          untouched &mdash; only the characters around them change.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = {
+      quotes: true, dashes: true, invisible: true, spaces: true,
+      ellipsis: false, bullets: false, blank: false, trailing: false,
+      lineNumbers: false
+    };
+
+    /* Built from code points at runtime. A literal U+2028 or U+2029 in a
+       regex in the source is a line terminator to the JavaScript parser and
+       silently breaks the file - which happened once already in this project. */
+    function cls(codes) {
+      return new RegExp('[' + codes.map(function (c) {
+        return '\\u' + c.toString(16).toUpperCase().padStart(4, '0');
+      }).join('') + ']', 'g');
+    }
+
+    var GROUPS = [
+      { key: 'quotes', name: 'Curly quotes',
+        codes: [0x2018, 0x2019, 0x201A, 0x201B, 0x201C, 0x201D, 0x201E, 0x201F,
+                0x2032, 0x2033, 0x00AB, 0x00BB],
+        fix: function (t) {
+          return t.replace(/[‘’‚‛′]/g, "'")
+                  .replace(/[“”„‟″]/g, '"')
+                  .replace(/«/g, '"').replace(/»/g, '"');
+        } },
+
+      { key: 'dashes', name: 'Fancy dashes',
+        codes: [0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212],
+        fix: function (t) {
+          return t.replace(/[‐‑‒−]/g, '-')
+                  .replace(/[–—―]/g, '--');
+        } },
+
+      { key: 'invisible', name: 'Invisible characters',
+        codes: [0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060, 0x2061, 0x2062,
+                0x2063, 0x2064, 0xFEFF, 0x00AD, 0x180E],
+        fix: function (t) {
+          return t.replace(cls([0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x2060,
+                                0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF, 0x00AD,
+                                0x180E]), '');
+        } },
+
+      { key: 'spaces', name: 'Odd spaces',
+        codes: [0x00A0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005,
+                0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x202F, 0x205F, 0x3000],
+        fix: function (t) {
+          /* These become an ordinary space rather than vanishing, so words
+             are not glued together. */
+          return t.replace(cls([0x00A0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003,
+                                0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009,
+                                0x200A, 0x202F, 0x205F, 0x3000]), ' ');
+        } },
+
+      { key: 'ellipsis', name: 'Ellipsis characters',
+        codes: [0x2026],
+        fix: function (t) { return t.replace(/…/g, '...'); } },
+
+      { key: 'bullets', name: 'Bullet characters',
+        codes: [0x2022, 0x25CF, 0x25E6, 0x2023, 0x2043, 0x00B7],
+        fix: function (t) {
+          return t.replace(/^[ \t]*[•●◦‣⁃·][ \t]*/gm, '- ')
+                  .replace(cls([0x2022, 0x25CF, 0x25E6, 0x2023, 0x2043, 0x00B7]), '-');
+        } }
+    ];
+
+    /* Line separators are handled on their own, because they need turning
+       into a real newline rather than removing. */
+    var LINE_SEP = cls([0x2028, 0x2029]);
+
+    var input = document.getElementById('in');
+    var output = document.getElementById('out');
+
+    function human(n) {
+      return n.toLocaleString() + ' character' + (n === 1 ? '' : 's');
+    }
+
+    function run() {
+      var text = input.value;
+      var before = text.length;
+
+      /* Counted on the original text, so the report says what was actually
+         in the paste rather than what is left afterwards. */
+      var counts = GROUPS.map(function (g) {
+        var re = cls(g.codes);
+        return { name: g.name, key: g.key, n: (text.match(re) || []).length };
+      });
+      var lineSepCount = (text.match(LINE_SEP) || []).length;
+      if (lineSepCount) {
+        counts.push({ name: 'Line separators', key: 'invisible', n: lineSepCount });
+      }
+
+      GROUPS.forEach(function (g) {
+        if (opts[g.key]) text = g.fix(text);
+      });
+
+      if (opts.invisible) text = text.replace(LINE_SEP, '\n');
+      if (opts.lineNumbers) {
+        /* Code copied from a docs page or a PDF often carries its line
+           numbers. Only a number followed by a separator is stripped, so a
+           numbered list like "1. Do this" survives. */
+        text = text.replace(/^[ \t]*\d{1,4}[ \t]*[|:\t][ \t]?/gm, '');
+      }
+      if (opts.trailing) {
+        text = text.split('\n').map(function (l) {
+          return l.replace(/[ \t]+$/, '');
+        }).join('\n');
+      }
+      if (opts.blank) text = text.replace(/\n{3,}/g, '\n\n');
+
+      output.value = text;
+
+      var found = counts.filter(function (c) { return c.n > 0; });
+      var report = document.getElementById('report');
+
+      if (!before) {
+        report.innerHTML = '<p class="hint" style="margin:0">Paste some text above.</p>';
+        document.getElementById('sizes').textContent = '';
+        return;
+      }
+
+      report.innerHTML = found.length
+        ? '<label style="margin-bottom:8px">What was in the paste</label>' +
+          '<ul class="found">' + found.map(function (c) {
+            return '<li><span>' + c.name +
+              (opts[c.key] ? '' : ' <span class="ch">left alone</span>') +
+              '</span><b>' + c.n + '</b></li>';
+          }).join('') + '</ul>'
+        : '<div class="clean">Nothing needed fixing — this text is already ' +
+          'plain. Any changes below are from the formatting options only.</div>';
+
+      var after = text.length;
+      document.getElementById('sizes').textContent =
+        human(before) + ' in, ' + human(after) + ' out' +
+        (before === after ? '' : ' (' + (after < before ? '-' : '+') +
+          Math.abs(before - after) + ')');
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    input.addEventListener('input', run);
+
+    document.getElementById('sample').addEventListener('click', function () {
+      /* Assembled from code points so the file itself stays plain ASCII. */
+      var curlyOpen = String.fromCharCode(0x201C), curlyClose = String.fromCharCode(0x201D);
+      var apostrophe = String.fromCharCode(0x2019);
+      var emDash = String.fromCharCode(0x2014);
+      var nbsp = String.fromCharCode(0x00A0);
+      var zwsp = String.fromCharCode(0x200B);
+      var ellipsis = String.fromCharCode(0x2026);
+      var bullet = String.fromCharCode(0x2022);
+
+      input.value =
+        'Here' + apostrophe + 's a paste from Word' + emDash + 'note the ' +
+        curlyOpen + 'smart quotes' + curlyClose + ' and the' + nbsp +
+        'non-breaking space.\n\n' +
+        bullet + ' A bullet point\n' +
+        bullet + ' Another one' + ellipsis + '\n\n' +
+        'This line has an invisible' + zwsp + 'character inside the word.   \n';
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      input.value = '';
+      run();
+      input.focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!output.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(output.value);
+    });
+
+    document.getElementById('apply').addEventListener('click', function () {
+      if (!output.value) return;
+      input.value = output.value;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

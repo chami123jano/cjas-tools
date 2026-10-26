@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timestamp Converter — Cja's Tools</title>
+<meta name="description" content="Convert a Unix timestamp to a real date and back, in any time zone. Handles seconds, milliseconds and microseconds. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #stamp { font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: 1px; }
+  .orow {
+    display: grid; grid-template-columns: 136px 1fr auto; gap: 10px;
+    align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .orow:last-child { border-bottom: none; }
+  .orow .name { font-size: 12.5px; color: var(--muted); }
+  .orow .val { font-family: ui-monospace, Consolas, monospace; font-size: 13.5px; word-break: break-all; }
+  .orow button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .orow button:hover { color: var(--accent); }
+  .live {
+    font-family: ui-monospace, Consolas, monospace; font-size: 15px;
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .live span { color: var(--muted); font-size: 12.5px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="timestamp-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Timestamp Converter</h1>
+        <p>Both directions. Seconds, milliseconds or microseconds, worked out for you.</p>
+      </div>
+
+      <div class="panel">
+        <div class="live">
+          <b id="now-s">&mdash;</b><span>seconds now</span>
+          <b id="now-ms">&mdash;</b><span>milliseconds now</span>
+          <button class="btn" id="use-now" style="padding:5px 11px;font-size:13px">Use now</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="stamp">Timestamp or a date</label>
+          <input type="text" id="stamp" spellcheck="false" autocomplete="off"
+                 placeholder="1761500000, 2026-10-26T14:30, or 26 Oct 2026">
+        </div>
+        <div class="field">
+          <label for="zone">Show in</label>
+          <select id="zone"></select>
+        </div>
+        <p class="hint" id="detected"></p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="out-panel">
+        <div class="result" id="out">&mdash;</div>
+        <div id="formats" style="margin-top:14px"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>How the unit is guessed.</b> A Unix timestamp in seconds
+          for any date near today is ten digits; in milliseconds it is thirteen.
+          So the length of the number decides, and the guess is stated above so
+          you can see what it assumed. Thirteen digits read as seconds would put
+          you in the year 400,000 &mdash; which is exactly the bug this avoids.
+          <br><br>
+          <b>Second 0 is 1 January 1970, UTC.</b> Negative numbers are earlier
+          than that and work fine here.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var ZONES = [
+      ['local', 'This computer'],
+      ['UTC', 'UTC'],
+      ['Asia/Colombo', 'Colombo'],
+      ['Asia/Kolkata', 'Mumbai / Delhi'],
+      ['Asia/Dubai', 'Dubai'],
+      ['Asia/Singapore', 'Singapore'],
+      ['Asia/Tokyo', 'Tokyo'],
+      ['Europe/London', 'London'],
+      ['Europe/Berlin', 'Berlin'],
+      ['America/New_York', 'New York'],
+      ['America/Los_Angeles', 'Los Angeles'],
+      ['Australia/Sydney', 'Sydney']
+    ];
+
+    var zoneSel = document.getElementById('zone');
+    zoneSel.innerHTML = ZONES.map(function (z) {
+      return '<option value="' + z[0] + '">' + z[1] + '</option>';
+    }).join('');
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+      document.getElementById('out-panel').hidden = !!msg;
+    }
+
+    /* The unit has to be guessed from the magnitude, because the number
+       itself carries no clue. Ten digits is seconds for any date in living
+       memory; thirteen is milliseconds; sixteen is microseconds. */
+    function parseStamp(text) {
+      var s = text.trim();
+      if (!s) return null;
+
+      if (/^-?\d+$/.test(s)) {
+        var digits = s.replace('-', '').length;
+        var n = parseInt(s, 10);
+        var unit, ms;
+        if (digits >= 16) { unit = 'microseconds'; ms = Math.round(n / 1000); }
+        else if (digits >= 12) { unit = 'milliseconds'; ms = n; }
+        else { unit = 'seconds'; ms = n * 1000; }
+        return { ms: ms, unit: unit, from: 'number' };
+      }
+
+      if (/^-?\d+\.\d+$/.test(s)) {
+        /* A decimal is conventionally seconds with a fraction. */
+        return { ms: Math.round(parseFloat(s) * 1000), unit: 'seconds with a fraction',
+                 from: 'number' };
+      }
+
+      var d = new Date(s);
+      if (!isNaN(d.getTime())) return { ms: d.getTime(), unit: null, from: 'date' };
+
+      /* A bare "YYYY-MM-DD HH:MM" with a space is common and some engines
+         refuse it, so the space is swapped for the T the standard wants. */
+      var retry = new Date(s.replace(' ', 'T'));
+      if (!isNaN(retry.getTime())) return { ms: retry.getTime(), unit: null, from: 'date' };
+
+      return { error: true };
+    }
+
+    function inZone(date, tz, opts) {
+      var o = Object.assign({}, opts);
+      if (tz !== 'local') o.timeZone = tz;
+      return date.toLocaleString('en-GB', o);
+    }
+
+    function offsetLabel(date, tz) {
+      try {
+        var f = new Intl.DateTimeFormat('en-GB', {
+          timeZone: tz === 'local' ? undefined : tz, timeZoneName: 'shortOffset'
+        });
+        var part = f.formatToParts(date).find(function (p) {
+          return p.type === 'timeZoneName';
+        });
+        return part ? part.value : '';
+      } catch (e) { return ''; }
+    }
+
+    function relative(ms) {
+      var diff = ms - Date.now();
+      var abs = Math.abs(diff);
+      var mins = Math.round(abs / 60000);
+      var text;
+      if (abs < 60000) text = Math.round(abs / 1000) + ' second' + (Math.round(abs / 1000) === 1 ? '' : 's');
+      else if (mins < 60) text = mins + ' minute' + (mins === 1 ? '' : 's');
+      else if (mins < 1440) {
+        var h = Math.round(mins / 60);
+        text = h + ' hour' + (h === 1 ? '' : 's');
+      } else if (mins < 525600) {
+        var d = Math.round(mins / 1440);
+        text = d + ' day' + (d === 1 ? '' : 's');
+      } else {
+        var y = (mins / 525600);
+        text = (y < 10 ? y.toFixed(1) : Math.round(y)) + ' years';
+      }
+      return diff > 0 ? 'in ' + text : text + ' ago';
+    }
+
+    function run() {
+      var parsed = parseStamp(document.getElementById('stamp').value);
+      var detected = document.getElementById('detected');
+
+      if (!parsed) {
+        error('');
+        document.getElementById('out').innerHTML =
+          '&mdash;<small>Enter a timestamp or a date</small>';
+        document.getElementById('formats').innerHTML = '';
+        detected.textContent = '';
+        return;
+      }
+
+      if (parsed.error) {
+        error('That is not a timestamp or a date this understands. Try a number ' +
+              'like 1761500000, or a date like 2026-10-26T14:30.');
+        detected.textContent = '';
+        return;
+      }
+
+      var date = new Date(parsed.ms);
+      if (isNaN(date.getTime())) {
+        error('That number is outside the range of dates a computer can hold.');
+        detected.textContent = '';
+        return;
+      }
+
+      error('');
+
+      detected.textContent = parsed.from === 'number'
+        ? 'Read as ' + parsed.unit + ', based on how many digits it has.'
+        : 'Read as a date, then converted to a timestamp.';
+
+      var tz = zoneSel.value;
+
+      document.getElementById('out').innerHTML =
+        inZone(date, tz, {
+          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }) +
+        '<small>' + relative(parsed.ms) + ' · ' +
+        (offsetLabel(date, tz) || tz) + '</small>';
+
+      var seconds = Math.floor(parsed.ms / 1000);
+      var rows = [
+        ['Unix seconds', String(seconds)],
+        ['Unix milliseconds', String(parsed.ms)],
+        ['ISO 8601 (UTC)', date.toISOString()],
+        ['ISO date only', date.toISOString().slice(0, 10)],
+        ['RFC 2822', date.toUTCString()],
+        ['In the chosen zone', inZone(date, tz, {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        })],
+        ['Day of the week', inZone(date, tz, { weekday: 'long' })]
+      ];
+
+      document.getElementById('formats').innerHTML = rows.map(function (r) {
+        return '<div class="orow"><span class="name">' + r[0] + '</span>' +
+          '<span class="val">' + r[1] + '</span>' +
+          '<button data-copy="' + r[1] + '">copy</button></div>';
+      }).join('');
+    }
+
+    document.getElementById('formats').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    document.getElementById('use-now').addEventListener('click', function () {
+      document.getElementById('stamp').value = String(Math.floor(Date.now() / 1000));
+      run();
+    });
+
+    document.getElementById('stamp').addEventListener('input', run);
+    zoneSel.addEventListener('change', run);
+
+    function tick() {
+      var now = Date.now();
+      document.getElementById('now-s').textContent = Math.floor(now / 1000);
+      document.getElementById('now-ms').textContent = now;
+    }
+    setInterval(tick, 1000);
+    tick();
+
+    document.getElementById('stamp').value = String(Math.floor(Date.now() / 1000));
+    run();
+  })();
+  </script>
+</body>
+</html>

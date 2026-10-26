@@ -512,6 +512,41 @@ const TOOLS = [
     category: 'developers',
     desc: 'Estimate how many tokens a prompt is and what it would cost to run.',
     keywords: ['token', 'count', 'cost', 'llm', 'prompt', 'estimate', 'context window']
+  },
+  {
+    slug: 'diff-checker',
+    name: 'Diff Checker',
+    category: 'developers',
+    desc: 'Compare two versions side by side and see what changed within each line.',
+    keywords: ['diff', 'compare', 'changes', 'code', 'merge', 'review', 'version']
+  },
+  {
+    slug: 'timestamp-converter',
+    name: 'Timestamp Converter',
+    category: 'developers',
+    desc: 'Convert a Unix timestamp to a real date and back, in any time zone.',
+    keywords: ['timestamp', 'unix', 'epoch', 'date', 'iso', 'milliseconds', 'convert']
+  },
+  {
+    slug: 'json-schema-builder',
+    name: 'JSON Schema Builder',
+    category: 'developers',
+    desc: 'Build a JSON Schema from a sample, then validate other data against it.',
+    keywords: ['json schema', 'validate', 'schema', 'draft', 'contract', 'api']
+  },
+  {
+    slug: 'curl-converter',
+    name: 'cURL Converter',
+    category: 'developers',
+    desc: 'Turn a cURL command into fetch, axios, Python or Go code.',
+    keywords: ['curl', 'fetch', 'axios', 'python', 'requests', 'http', 'convert']
+  },
+  {
+    slug: 'prompt-cleaner',
+    name: 'Prompt Cleaner',
+    category: 'developers',
+    desc: 'Strip smart quotes, invisible characters and stray formatting out of a prompt.',
+    keywords: ['prompt', 'clean', 'smart quotes', 'invisible', 'llm', 'paste', 'tidy']
   }
 ];
 

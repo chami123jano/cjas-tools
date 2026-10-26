@@ -1403,6 +1403,166 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- developers, part 3
+
+(function diffChecker() {
+  const t = loadTool('diff-checker');
+  t.set('a', 'one\ntwo\nthree').set('b', 'one\ntwo\nthree');
+  has(t.text('verdict'), 'identical', 'matching text is identical');
+
+  // an edited line should read as one change, not an add plus a delete
+  t.set('a', 'const x = 1;').set('b', 'const x = 2;');
+  has(t.text('s-mod'), '1', 'an edited line counts as changed');
+  has(t.text('s-add'), '0', 'not as an addition');
+  has(t.text('s-del'), '0', 'nor a deletion');
+
+  // and the changed word should be picked out inside the line
+  ok(t.document.querySelector('#diff ins') !== null,
+     'the added word is marked inside the line');
+  ok(t.document.querySelector('#diff del') !== null,
+     'and the removed word too');
+
+  // a genuine insertion is still an addition
+  t.set('a', 'a\nc').set('b', 'a\nb\nc');
+  has(t.text('s-add'), '1', 'an inserted line is an addition');
+  has(t.text('s-mod'), '0', 'and not a change');
+  t.close();
+})();
+
+(function timestampConverter() {
+  const t = loadTool('timestamp-converter');
+  t.set('zone', 'UTC');
+
+  // ten digits must read as seconds
+  t.set('stamp', '1000000000');
+  has(t.text('detected'), 'seconds', 'ten digits read as seconds');
+  has(t.text('formats'), '2001-09-09T01:46:40.000Z', 'and convert correctly');
+
+  // thirteen digits must read as milliseconds - read as seconds this would
+  // land in the year 33000, which is the bug being guarded against
+  t.set('stamp', '1761500000000');
+  has(t.text('detected'), 'milliseconds', 'thirteen digits read as milliseconds');
+  has(t.text('formats'), '2025-10-26', 'and give a sane date');
+
+  // a date string should convert the other way
+  t.set('stamp', '2026-01-01T00:00:00Z');
+  has(t.text('formats'), '1767225600', 'a date converts back to a timestamp');
+
+  // epoch zero
+  t.set('stamp', '0');
+  has(t.text('formats'), '1970-01-01T00:00:00.000Z', 'second zero is the epoch');
+
+  // negative timestamps are before 1970 and must work
+  t.set('stamp', '-86400');
+  has(t.text('formats'), '1969-12-31', 'a negative timestamp goes before the epoch');
+
+  t.set('stamp', 'not a date');
+  has(t.text('err-slot'), 'not a timestamp', 'rubbish is reported');
+  t.close();
+})();
+
+(function jsonSchemaBuilder() {
+  const t = loadTool('json-schema-builder');
+  t.set('sample', '{"id":1,"name":"x","active":true}');
+  const schema = () => JSON.parse(t.byId('schema').value);
+  ok(schema().properties.id.type === 'integer', 'a whole number is an integer');
+  ok(schema().properties.name.type === 'string', 'strings typed');
+  ok(schema().required.indexOf('id') !== -1, 'present fields are required');
+
+  // a field that is sometimes whole and sometimes not must be number, or the
+  // schema would reject half the real data
+  t.set('sample', '[{"n":1},{"n":1.5}]');
+  ok(schema().items.properties.n.type === 'number',
+     'mixed whole and decimal becomes number, not integer',
+     'got ' + JSON.stringify(schema().items.properties.n.type));
+
+  // a field missing from some records must not be required
+  t.set('sample', '[{"a":1,"b":2},{"a":1}]');
+  ok((schema().items.required || []).indexOf('b') === -1,
+     'a sometimes-missing field is not required');
+
+  // format detection
+  t.set('sample', '{"when":"2026-10-26","mail":"a@b.com"}');
+  ok(schema().properties.when.format === 'date', 'a date string gets a date format');
+  ok(schema().properties.mail.format === 'email', 'an address gets an email format');
+
+  // the validator should catch a wrong type and a missing required field
+  t.set('sample', '{"id":1,"name":"x"}');
+  t.set('validate', '{"id":"one"}');
+  has(t.text('result-slot'), 'should be integer', 'a wrong type is caught');
+  has(t.text('result-slot'), 'required but missing', 'a missing field is caught');
+
+  t.set('validate', '{"id":2,"name":"y"}');
+  has(t.text('result-slot'), 'matches the schema', 'valid data passes');
+  t.close();
+})();
+
+(function curlConverter() {
+  const t = loadTool('curl-converter');
+  t.set('lang', 'fetch');
+  t.set('in', "curl -X POST 'https://api.example.com/x' -H 'Content-Type: application/json' -d '{\"a\":1}'");
+  const out = () => t.byId('out').value;
+  has(t.text('parsed'), 'POST', 'the method is found');
+  has(t.text('parsed'), 'api.example.com', 'the URL is found');
+  has(out(), "method: 'POST'", 'fetch code has the method');
+  has(out(), 'application/json', 'and the header');
+
+  // -d with no method implies POST
+  t.set('in', "curl https://x.com -d 'a=1'");
+  has(t.text('parsed'), 'POST', 'a body with no -X implies POST');
+  // and cURL would add a content type, so that must be stated not hidden
+  has(t.text('warn-slot'), 'urlencoded', 'the implicit content type is explained');
+
+  // a quoted value containing spaces must survive tokenising
+  t.set('in', "curl https://x.com -H 'User-Agent: My App 1.0'");
+  has(t.text('parsed'), 'My App 1.0', 'a quoted header value keeps its spaces');
+
+  // an unknown flag must be reported, not silently dropped
+  t.set('in', 'curl https://x.com --some-unknown-flag');
+  has(t.text('warn-slot'), 'not understood', 'unknown flags are reported');
+
+  // other languages
+  t.set('in', "curl https://x.com -H 'A: b'");
+  t.set('lang', 'python');
+  has(out(), 'import requests', 'python output');
+  has(out(), 'raise_for_status', 'and it checks the response');
+  t.set('lang', 'go');
+  has(out(), 'net/http', 'go output');
+  t.set('lang', 'axios');
+  has(out(), 'axios', 'axios output');
+
+  t.set('in', 'curl');
+  has(t.text('err-slot'), 'No URL found', 'a command with no URL is reported');
+  t.close();
+})();
+
+(function promptCleaner() {
+  const t = loadTool('prompt-cleaner');
+  const curly = String.fromCharCode(0x201C) + 'hi' + String.fromCharCode(0x201D);
+  t.set('in', curly);
+  ok(t.byId('out').value === '"hi"', 'curly quotes become straight',
+     'got ' + t.byId('out').value);
+
+  // a zero-width space must be removed outright
+  t.set('in', 'we' + String.fromCharCode(0x200B) + 'ird');
+  ok(t.byId('out').value === 'weird', 'a zero-width space is removed');
+  has(t.text('report'), 'Invisible characters', 'and it is reported');
+
+  // a non-breaking space becomes a real space, not nothing
+  t.set('in', 'a' + String.fromCharCode(0x00A0) + 'b');
+  ok(t.byId('out').value === 'a b', 'a non-breaking space becomes an ordinary one');
+
+  // an em dash
+  t.set('in', 'a' + String.fromCharCode(0x2014) + 'b');
+  ok(t.byId('out').value === 'a--b', 'an em dash becomes two hyphens');
+
+  // already-plain text should say so rather than inventing findings
+  t.set('in', 'plain ascii text');
+  has(t.text('report'), 'Nothing needed fixing', 'clean text is recognised');
+  ok(t.byId('out').value === 'plain ascii text', 'and is left untouched');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

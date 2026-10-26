@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cURL Converter — Cja's Tools</title>
+<meta name="description" content="Turn a cURL command into fetch, axios, Python requests or Go code. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  #out { min-height: 260px; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+  .parsed { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .parsed td { padding: 7px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .parsed tr:last-child td { border-bottom: none; }
+  .parsed td:first-child { width: 96px; color: var(--muted); font-size: 12.5px; }
+  .parsed td:last-child { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body data-page="tool" data-slug="curl-converter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>cURL Converter</h1>
+        <p>Paste a command from the docs, get code in your language.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">cURL command</label>
+          <textarea id="in" spellcheck="false" placeholder="curl https://api.example.com/items -H 'Accept: application/json'"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint">Works with a command copied straight out of a browser's
+          network tab, including backslash line breaks.</p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="parsed-panel" hidden>
+        <label style="margin-bottom:8px">What it found</label>
+        <table class="parsed"><tbody id="parsed"></tbody></table>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="lang">Convert to</label>
+          <select id="lang">
+            <option value="fetch" selected>JavaScript — fetch</option>
+            <option value="axios">JavaScript — axios</option>
+            <option value="python">Python — requests</option>
+            <option value="go">Go — net/http</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="out">Code</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy code</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Check it before you run it.</b> cURL has hundreds of
+          flags and this understands the common ones: the URL, method, headers,
+          body, basic auth, cookies, form fields and following redirects.
+          Anything it does not recognise is listed above so you know it was
+          dropped rather than silently ignored.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var EXAMPLE = "curl -X POST 'https://api.example.com/v1/orders' \\\n" +
+      "  -H 'Content-Type: application/json' \\\n" +
+      "  -H 'Authorization: Bearer sk_test_123' \\\n" +
+      "  -d '{\"item\":\"tea\",\"qty\":2}'";
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+      document.getElementById('parsed-panel').hidden = !!msg;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    /* A shell-aware splitter. Quoted strings keep their spaces, a backslash
+       before a newline is a continuation, and inside single quotes a
+       backslash is literal - which is why a naive split on whitespace
+       mangles any real command. */
+    function tokenize(text) {
+      var tokens = [];
+      var cur = '';
+      var i = 0;
+      var started = false;
+
+      while (i < text.length) {
+        var c = text[i];
+
+        if (c === '\\' && text[i + 1] === '\n') { i += 2; continue; }
+        if (c === '\\' && text[i + 1] === '\r') { i += 3; continue; }
+
+        if (c === "'") {
+          started = true;
+          i++;
+          while (i < text.length && text[i] !== "'") { cur += text[i]; i++; }
+          i++;
+          continue;
+        }
+
+        if (c === '"') {
+          started = true;
+          i++;
+          while (i < text.length && text[i] !== '"') {
+            if (text[i] === '\\' && i + 1 < text.length) {
+              var next = text[i + 1];
+              cur += (next === 'n') ? '\n' : (next === 't') ? '\t' : next;
+              i += 2;
+              continue;
+            }
+            cur += text[i];
+            i++;
+          }
+          i++;
+          continue;
+        }
+
+        if (/\s/.test(c)) {
+          if (started || cur) { tokens.push(cur); cur = ''; started = false; }
+          i++;
+          continue;
+        }
+
+        if (c === '\\' && i + 1 < text.length) { cur += text[i + 1]; i += 2; started = true; continue; }
+
+        cur += c;
+        started = true;
+        i++;
+      }
+      if (started || cur) tokens.push(cur);
+      return tokens.filter(function (t, idx) { return t !== '' || idx === 0; });
+    }
+
+    function parse(text) {
+      var tokens = tokenize(text.trim());
+      if (!tokens.length) return null;
+
+      /* Someone may paste with or without the word curl, and some docs put
+         flags before it. Either way the first token is dropped if it is curl. */
+      if (/^curl$/i.test(tokens[0])) tokens.shift();
+      else if (/curl$/i.test(tokens[0]) && tokens[0].indexOf('/') !== -1) tokens.shift();
+
+      var out = {
+        url: '', method: '', headers: [], data: null, auth: null,
+        cookies: null, form: [], followRedirects: false, insecure: false,
+        unknown: []
+      };
+
+      for (var i = 0; i < tokens.length; i++) {
+        var t = tokens[i];
+        var next = function () { return tokens[++i]; };
+
+        if (t === '-X' || t === '--request') { out.method = (next() || '').toUpperCase(); continue; }
+        if (t === '-H' || t === '--header') {
+          var h = next() || '';
+          var colon = h.indexOf(':');
+          if (colon > 0) {
+            out.headers.push([h.slice(0, colon).trim(), h.slice(colon + 1).trim()]);
+          }
+          continue;
+        }
+        if (t === '-d' || t === '--data' || t === '--data-raw' ||
+            t === '--data-binary' || t === '--data-ascii') {
+          var d = next() || '';
+          out.data = out.data === null ? d : out.data + '&' + d;
+          continue;
+        }
+        if (t === '--data-urlencode') { out.data = next() || ''; continue; }
+        if (t === '-F' || t === '--form') {
+          var f = next() || '';
+          var eq = f.indexOf('=');
+          if (eq > 0) out.form.push([f.slice(0, eq), f.slice(eq + 1)]);
+          continue;
+        }
+        if (t === '-u' || t === '--user') { out.auth = next() || ''; continue; }
+        if (t === '-b' || t === '--cookie') { out.cookies = next() || ''; continue; }
+        if (t === '-L' || t === '--location') { out.followRedirects = true; continue; }
+        if (t === '-k' || t === '--insecure') { out.insecure = true; continue; }
+        if (t === '-A' || t === '--user-agent') {
+          out.headers.push(['User-Agent', next() || '']);
+          continue;
+        }
+        if (t === '-e' || t === '--referer') {
+          out.headers.push(['Referer', next() || '']);
+          continue;
+        }
+        if (t === '-G' || t === '--get') { out.method = 'GET'; continue; }
+        /* Flags that only affect cURL's own output are safely ignorable. */
+        if (t === '-s' || t === '--silent' || t === '-S' || t === '--show-error' ||
+            t === '-i' || t === '--include' || t === '-v' || t === '--verbose' ||
+            t === '--compressed' || t === '-f' || t === '--fail') continue;
+
+        if (t[0] === '-') { out.unknown.push(t); continue; }
+        if (!out.url) out.url = t;
+        else out.unknown.push(t);
+      }
+
+      if (!out.url) return { error: 'no-url' };
+
+      if (!/^https?:\/\//i.test(out.url)) out.url = 'https://' + out.url;
+
+      if (!out.method) {
+        out.method = (out.data !== null || out.form.length) ? 'POST' : 'GET';
+      }
+
+      /* cURL adds this itself when -d is used without a content type, and
+         leaving it out is a common cause of a request behaving differently
+         once it is translated into code. */
+      var hasType = out.headers.some(function (h) {
+        return h[0].toLowerCase() === 'content-type';
+      });
+      if (!hasType && out.data !== null && !out.form.length) {
+        out.headers.push(['Content-Type', 'application/x-www-form-urlencoded']);
+        out.addedContentType = true;
+      }
+
+      return out;
+    }
+
+    function q(s) { return "'" + String(s).replace(/'/g, "\\'") + "'"; }
+    function dq(s) { return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'; }
+
+    function headersObject(r, indent, quoteFn) {
+      if (!r.headers.length) return '';
+      return r.headers.map(function (h) {
+        return indent + quoteFn(h[0]) + ': ' + quoteFn(h[1]) + ',';
+      }).join('\n');
+    }
+
+    function toFetch(r) {
+      var lines = [];
+      var init = [];
+      init.push("  method: " + q(r.method) + ",");
+      if (r.headers.length || r.auth || r.cookies) {
+        init.push('  headers: {');
+        r.headers.forEach(function (h) {
+          init.push('    ' + q(h[0]) + ': ' + q(h[1]) + ',');
+        });
+        if (r.auth) init.push("    'Authorization': 'Basic ' + btoa(" + q(r.auth) + "),");
+        if (r.cookies) init.push('    ' + q('Cookie') + ': ' + q(r.cookies) + ',');
+        init.push('  },');
+      }
+      if (r.form.length) {
+        lines.push('const form = new FormData();');
+        r.form.forEach(function (f) {
+          lines.push('form.append(' + q(f[0]) + ', ' + q(f[1]) + ');');
+        });
+        lines.push('');
+        init.push('  body: form,');
+      } else if (r.data !== null) {
+        init.push('  body: ' + q(r.data) + ',');
+      }
+      if (!r.followRedirects) init.push("  redirect: 'manual',");
+
+      lines.push('const response = await fetch(' + q(r.url) + ', {');
+      lines.push(init.join('\n'));
+      lines.push('});');
+      lines.push('');
+      lines.push('if (!response.ok) {');
+      lines.push('  throw new Error(`Request failed: ${response.status}`);');
+      lines.push('}');
+      lines.push('const data = await response.json();');
+      return lines.join('\n');
+    }
+
+    function toAxios(r) {
+      var lines = ["import axios from 'axios';", ''];
+      var cfg = [];
+      cfg.push('  method: ' + q(r.method.toLowerCase()) + ',');
+      cfg.push('  url: ' + q(r.url) + ',');
+      if (r.headers.length || r.cookies) {
+        cfg.push('  headers: {');
+        r.headers.forEach(function (h) {
+          cfg.push('    ' + q(h[0]) + ': ' + q(h[1]) + ',');
+        });
+        if (r.cookies) cfg.push('    ' + q('Cookie') + ': ' + q(r.cookies) + ',');
+        cfg.push('  },');
+      }
+      if (r.auth) {
+        var parts = r.auth.split(':');
+        cfg.push('  auth: { username: ' + q(parts[0]) + ', password: ' +
+          q(parts.slice(1).join(':')) + ' },');
+      }
+      if (r.data !== null) cfg.push('  data: ' + q(r.data) + ',');
+      lines.push('const { data } = await axios({');
+      lines.push(cfg.join('\n'));
+      lines.push('});');
+      return lines.join('\n');
+    }
+
+    function toPython(r) {
+      var lines = ['import requests', ''];
+      if (r.headers.length) {
+        lines.push('headers = {');
+        r.headers.forEach(function (h) {
+          lines.push('    ' + q(h[0]) + ': ' + q(h[1]) + ',');
+        });
+        lines.push('}');
+        lines.push('');
+      }
+      var args = [q(r.url)];
+      if (r.headers.length) args.push('headers=headers');
+      if (r.auth) {
+        var p = r.auth.split(':');
+        args.push('auth=(' + q(p[0]) + ', ' + q(p.slice(1).join(':')) + ')');
+      }
+      if (r.cookies) args.push('cookies=' + q(r.cookies));
+      if (r.form.length) {
+        lines.push('files = {');
+        r.form.forEach(function (f) {
+          lines.push('    ' + q(f[0]) + ': (None, ' + q(f[1]) + '),');
+        });
+        lines.push('}');
+        lines.push('');
+        args.push('files=files');
+      } else if (r.data !== null) {
+        args.push('data=' + q(r.data));
+      }
+      if (!r.followRedirects) args.push('allow_redirects=False');
+      if (r.insecure) args.push('verify=False');
+      args.push('timeout=30');
+
+      lines.push('response = requests.' + r.method.toLowerCase() + '(');
+      lines.push('    ' + args.join(',\n    '));
+      lines.push(')');
+      lines.push('response.raise_for_status()');
+      lines.push('data = response.json()');
+      return lines.join('\n');
+    }
+
+    function toGo(r) {
+      var lines = [
+        'package main', '',
+        'import (',
+        '\t"fmt"',
+        '\t"io"',
+        '\t"net/http"'
+      ];
+      if (r.data !== null) lines.push('\t"strings"');
+      lines.push(')', '');
+      lines.push('func main() {');
+
+      if (r.data !== null) {
+        lines.push('\tbody := strings.NewReader(' + dq(r.data) + ')');
+        lines.push('\treq, err := http.NewRequest(' + dq(r.method) + ', ' +
+          dq(r.url) + ', body)');
+      } else {
+        lines.push('\treq, err := http.NewRequest(' + dq(r.method) + ', ' +
+          dq(r.url) + ', nil)');
+      }
+      lines.push('\tif err != nil {');
+      lines.push('\t\tpanic(err)');
+      lines.push('\t}');
+
+      r.headers.forEach(function (h) {
+        lines.push('\treq.Header.Set(' + dq(h[0]) + ', ' + dq(h[1]) + ')');
+      });
+      if (r.auth) {
+        var p = r.auth.split(':');
+        lines.push('\treq.SetBasicAuth(' + dq(p[0]) + ', ' + dq(p.slice(1).join(':')) + ')');
+      }
+
+      lines.push('');
+      lines.push('\tresp, err := http.DefaultClient.Do(req)');
+      lines.push('\tif err != nil {');
+      lines.push('\t\tpanic(err)');
+      lines.push('\t}');
+      lines.push('\tdefer resp.Body.Close()');
+      lines.push('');
+      lines.push('\tout, err := io.ReadAll(resp.Body)');
+      lines.push('\tif err != nil {');
+      lines.push('\t\tpanic(err)');
+      lines.push('\t}');
+      lines.push('\tfmt.Println(resp.StatusCode, string(out))');
+      lines.push('}');
+      return lines.join('\n');
+    }
+
+    var GENERATORS = { fetch: toFetch, axios: toAxios, python: toPython, go: toGo };
+
+    function run() {
+      error('');
+      document.getElementById('warn-slot').innerHTML = '';
+      var text = document.getElementById('in').value.trim();
+      var out = document.getElementById('out');
+
+      if (!text) {
+        out.value = '';
+        document.getElementById('parsed-panel').hidden = true;
+        return;
+      }
+
+      var r = parse(text);
+      if (!r) { out.value = ''; return; }
+      if (r.error === 'no-url') {
+        out.value = '';
+        error('No URL found in that command. A cURL command needs an address, ' +
+              'for example: curl https://api.example.com/items');
+        return;
+      }
+
+      var rows = [
+        ['Method', r.method],
+        ['URL', r.url],
+        ['Headers', r.headers.length
+          ? r.headers.map(function (h) { return h[0] + ': ' + h[1]; }).join('<br>')
+          : '(none)'],
+        ['Body', r.data !== null ? escapeHtml(r.data) : '(none)']
+      ];
+      if (r.form.length) {
+        rows.push(['Form fields', r.form.map(function (f) {
+          return f[0] + '=' + f[1];
+        }).join('<br>')]);
+      }
+      if (r.auth) rows.push(['Basic auth', escapeHtml(r.auth)]);
+
+      document.getElementById('parsed').innerHTML = rows.map(function (row) {
+        return '<tr><td>' + row[0] + '</td><td>' + row[1] + '</td></tr>';
+      }).join('');
+      document.getElementById('parsed-panel').hidden = false;
+
+      var warnings = [];
+      if (r.unknown.length) {
+        warnings.push('These were not understood and have been left out: <b>' +
+          escapeHtml(r.unknown.join(' ')) + '</b>');
+      }
+      if (r.addedContentType) {
+        warnings.push('cURL sends <b>Content-Type: application/x-www-form-urlencoded</b> ' +
+          'automatically when you use -d without naming a type, so it has been ' +
+          'added explicitly here. If the API expects JSON, change it.');
+      }
+      if (r.insecure) {
+        warnings.push('The command had <b>-k</b>, which skips certificate checks. ' +
+          'That is fine against a local server and a bad idea anywhere else.');
+      }
+      if (warnings.length) {
+        document.getElementById('warn-slot').innerHTML =
+          '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>';
+      }
+
+      out.value = GENERATORS[document.getElementById('lang').value](r);
+    }
+
+    document.getElementById('in').addEventListener('input', run);
+    document.getElementById('lang').addEventListener('change', run);
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = EXAMPLE;
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('in').value = EXAMPLE;
+    run();
+  })();
+  </script>
+</body>
+</html>

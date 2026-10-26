@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diff Checker — Cja's Tools</title>
+<meta name="description" content="Compare two versions side by side and see exactly which words changed within each line. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .diff {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: auto; max-height: 560px; background: var(--bg);
+  }
+  .pair {
+    display: grid; grid-template-columns: 40px 1fr 40px 1fr;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 12.5px; line-height: 1.7;
+  }
+  .pair > span { padding: 1px 7px; }
+  .pair .n {
+    text-align: right; color: var(--muted); font-size: 11px;
+    user-select: none; background: var(--surface);
+  }
+  .pair .t { white-space: pre-wrap; word-break: break-word; }
+  .pair .l-del { background: rgba(212, 72, 59, 0.1); }
+  .pair .r-add { background: rgba(39, 184, 106, 0.1); }
+  .pair .blank { background: var(--surface-2); }
+  .pair ins {
+    background: rgba(39, 184, 106, 0.38); text-decoration: none; border-radius: 2px;
+  }
+  .pair del {
+    background: rgba(212, 72, 59, 0.34); text-decoration: none; border-radius: 2px;
+  }
+  .skip {
+    padding: 5px 10px; font-size: 11.5px; color: var(--muted);
+    background: var(--surface); text-align: center;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  @media (max-width: 760px) {
+    .pair { grid-template-columns: 30px 1fr; }
+    .pair .rn, .pair .rt { display: none; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="diff-checker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Diff Checker</h1>
+        <p>Side by side, with the changed words picked out inside each line.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="a">Before</label>
+            <textarea id="a" spellcheck="false"></textarea>
+          </div>
+          <div class="field">
+            <label for="b">After</label>
+            <textarea id="b" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="ignoreCase">Ignore capitals</button>
+          <button class="btn" data-opt="ignoreSpace">Ignore spacing</button>
+          <button class="btn primary" data-opt="words">Highlight changed words</button>
+          <button class="btn primary" data-opt="collapse">Hide unchanged parts</button>
+          <button class="btn" id="swap">Swap sides</button>
+          <button class="btn" id="sample">Load an example</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="verdict">&mdash;</div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-add">0</b><span>Added</span></div>
+          <div class="stat"><b id="s-del">0</b><span>Removed</span></div>
+          <div class="stat"><b id="s-mod">0</b><span>Changed</span></div>
+          <div class="stat"><b id="s-same">0</b><span>Unchanged</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="diff"><div class="pair" id="diff"></div></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint">A line counted as <b>changed</b> is one that was matched
+          up with a line on the other side but is not identical &mdash; the
+          highlighting shows which words moved. The
+          <a href="text-compare.html">Text Compare</a> tool gives the same
+          comparison as one stacked list, which suits prose better.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { ignoreCase: false, ignoreSpace: false, words: true, collapse: true };
+
+    var SAMPLE_A = [
+      'function greet(name) {',
+      '  const greeting = "Hello";',
+      '  console.log(greeting + " " + name);',
+      '  return true;',
+      '}'
+    ].join('\n');
+
+    var SAMPLE_B = [
+      'function greet(name, polite) {',
+      '  const greeting = polite ? "Good morning" : "Hello";',
+      '  console.log(`${greeting} ${name}`);',
+      '}'
+    ].join('\n');
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function norm(line) {
+      var s = line;
+      if (opts.ignoreSpace) s = s.replace(/\s+/g, ' ').trim();
+      if (opts.ignoreCase) s = s.toLowerCase();
+      return s;
+    }
+
+    /* A generic longest-common-subsequence walk, used twice: once over lines
+       to pair them up, and again over the words of a changed pair. Keeping it
+       in one place means the two levels cannot drift apart. */
+    function lcs(a, b, same) {
+      var n = a.length, m = b.length;
+
+      /* The table is n*m, which is fine for a file but not for two huge
+         ones, so very large inputs fall back to a positional comparison. */
+      if (n * m > 2000000) {
+        var out = [];
+        for (var i = 0; i < Math.max(n, m); i++) {
+          if (i < n && i < m) out.push({ op: same(a[i], b[i]) ? 'same' : 'mod', a: i, b: i });
+          else if (i < n) out.push({ op: 'del', a: i });
+          else out.push({ op: 'add', b: i });
+        }
+        return out;
+      }
+
+      var table = [];
+      for (var r = 0; r <= n; r++) table.push(new Uint32Array(m + 1));
+      for (var i2 = n - 1; i2 >= 0; i2--) {
+        for (var j2 = m - 1; j2 >= 0; j2--) {
+          table[i2][j2] = same(a[i2], b[j2])
+            ? table[i2 + 1][j2 + 1] + 1
+            : Math.max(table[i2 + 1][j2], table[i2][j2 + 1]);
+        }
+      }
+
+      var result = [];
+      var x = 0, y = 0;
+      while (x < n && y < m) {
+        if (same(a[x], b[y])) { result.push({ op: 'same', a: x, b: y }); x++; y++; }
+        else if (table[x + 1][y] >= table[x][y + 1]) { result.push({ op: 'del', a: x }); x++; }
+        else { result.push({ op: 'add', b: y }); y++; }
+      }
+      while (x < n) { result.push({ op: 'del', a: x }); x++; }
+      while (y < m) { result.push({ op: 'add', b: y }); y++; }
+      return result;
+    }
+
+    /* A removal immediately followed by an addition is almost always one line
+       being edited rather than two unrelated changes, so the pair is merged
+       into a single "changed" row and diffed word by word. */
+    function pairUp(ops) {
+      var out = [];
+      for (var i = 0; i < ops.length; i++) {
+        if (ops[i].op === 'del' && ops[i + 1] && ops[i + 1].op === 'add') {
+          out.push({ op: 'mod', a: ops[i].a, b: ops[i + 1].b });
+          i++;
+        } else {
+          out.push(ops[i]);
+        }
+      }
+      return out;
+    }
+
+    /* Splits on word boundaries but keeps the separators, so punctuation and
+       spacing differences show up instead of being invisible. */
+    function words(line) {
+      return line.split(/(\s+|\b)/).filter(function (w) { return w !== ''; });
+    }
+
+    function wordDiff(before, after) {
+      if (!opts.words) {
+        return { left: escapeHtml(before), right: escapeHtml(after) };
+      }
+      var wa = words(before), wb = words(after);
+      var ops = lcs(wa, wb, function (x, y) { return norm(x) === norm(y); });
+
+      var left = '', right = '';
+      ops.forEach(function (o) {
+        if (o.op === 'same') {
+          left += escapeHtml(wa[o.a]);
+          right += escapeHtml(wb[o.b]);
+        } else if (o.op === 'del') {
+          left += '<del>' + escapeHtml(wa[o.a]) + '</del>';
+        } else {
+          right += '<ins>' + escapeHtml(wb[o.b]) + '</ins>';
+        }
+      });
+      return { left: left, right: right };
+    }
+
+    function run() {
+      var aLines = document.getElementById('a').value.split('\n');
+      var bLines = document.getElementById('b').value.split('\n');
+      var host = document.getElementById('diff');
+
+      if (!document.getElementById('a').value && !document.getElementById('b').value) {
+        host.innerHTML = '';
+        document.getElementById('verdict').innerHTML =
+          '&mdash;<small>Paste text into both boxes</small>';
+        ['s-add', 's-del', 's-mod', 's-same'].forEach(function (id) {
+          document.getElementById(id).textContent = '0';
+        });
+        return;
+      }
+
+      var rows = pairUp(lcs(aLines, bLines, function (x, y) {
+        return norm(x) === norm(y);
+      }));
+
+      var counts = { add: 0, del: 0, mod: 0, same: 0 };
+      rows.forEach(function (r) { counts[r.op]++; });
+
+      document.getElementById('s-add').textContent = counts.add;
+      document.getElementById('s-del').textContent = counts.del;
+      document.getElementById('s-mod').textContent = counts.mod;
+      document.getElementById('s-same').textContent = counts.same;
+
+      var changed = counts.add + counts.del + counts.mod;
+      document.getElementById('verdict').innerHTML = changed === 0
+        ? 'The two are identical' +
+          '<small>' + counts.same + ' line' + (counts.same === 1 ? '' : 's') +
+          ', nothing changed</small>'
+        : changed + ' line' + (changed === 1 ? '' : 's') + ' differ' +
+          '<small>' + counts.mod + ' changed, ' + counts.add + ' added, ' +
+          counts.del + ' removed</small>';
+
+      var CONTEXT = 3;
+      var show = rows.map(function () { return !opts.collapse; });
+      if (opts.collapse) {
+        rows.forEach(function (r, i) {
+          if (r.op === 'same') return;
+          for (var k = Math.max(0, i - CONTEXT);
+               k <= Math.min(rows.length - 1, i + CONTEXT); k++) show[k] = true;
+        });
+      }
+
+      var html = '';
+      var hidden = 0;
+
+      function flush() {
+        if (!hidden) return;
+        html += '<span class="skip" style="grid-column:1/-1">' + hidden +
+          ' unchanged line' + (hidden === 1 ? '' : 's') + ' hidden</span>';
+        hidden = 0;
+      }
+
+      rows.forEach(function (r, i) {
+        if (!show[i]) { hidden++; return; }
+        flush();
+
+        var leftNum = r.a !== undefined ? r.a + 1 : '';
+        var rightNum = r.b !== undefined ? r.b + 1 : '';
+        var leftText, rightText, leftClass = 't', rightClass = 't rt';
+
+        if (r.op === 'same') {
+          leftText = escapeHtml(aLines[r.a]);
+          rightText = escapeHtml(bLines[r.b]);
+        } else if (r.op === 'mod') {
+          var d = wordDiff(aLines[r.a], bLines[r.b]);
+          leftText = d.left;
+          rightText = d.right;
+          leftClass += ' l-del';
+          rightClass += ' r-add';
+        } else if (r.op === 'del') {
+          leftText = escapeHtml(aLines[r.a]);
+          rightText = '';
+          leftClass += ' l-del';
+          rightClass += ' blank';
+        } else {
+          leftText = '';
+          rightText = escapeHtml(bLines[r.b]);
+          leftClass += ' blank';
+          rightClass += ' r-add';
+        }
+
+        html += '<span class="n">' + leftNum + '</span>' +
+                '<span class="' + leftClass + '">' + (leftText || '&nbsp;') + '</span>' +
+                '<span class="n rn">' + rightNum + '</span>' +
+                '<span class="' + rightClass + '">' + (rightText || '&nbsp;') + '</span>';
+      });
+      flush();
+
+      host.innerHTML = html;
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var a = document.getElementById('a'), b = document.getElementById('b');
+      var t = a.value; a.value = b.value; b.value = t;
+      run();
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('a').value = SAMPLE_A;
+      document.getElementById('b').value = SAMPLE_B;
+      run();
+    });
+
+    ['a', 'b'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+
+    document.getElementById('a').value = SAMPLE_A;
+    document.getElementById('b').value = SAMPLE_B;
+    run();
+  })();
+  </script>
+</body>
+</html>
