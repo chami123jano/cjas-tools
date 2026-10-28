@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Transcript Converter — Cja's Tools</title>
+<meta name="description" content="Move a conversation between plain text, a messages array, Markdown and CSV. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .turn {
+    display: grid; grid-template-columns: 88px 1fr; gap: 10px;
+    padding: 9px 2px; border-bottom: 1px solid var(--border); font-size: 13.5px;
+  }
+  .turn:last-child { border-bottom: none; }
+  .turn .who {
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); padding-top: 2px;
+  }
+  .turn.system .who { color: #e8a33d; }
+  .turn.assistant .who { color: var(--accent); }
+  .turn .what { white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="chat-transcript">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Chat Transcript Converter</h1>
+        <p>Between a pasted conversation and the shape an API wants.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="from">From</label>
+            <select id="from">
+              <option value="auto" selected>Work it out</option>
+              <option value="text">Plain text with names</option>
+              <option value="json">Messages array (JSON)</option>
+              <option value="markdown">Markdown</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="to">To</label>
+            <select id="to">
+              <option value="json" selected>Messages array (JSON)</option>
+              <option value="text">Plain text with names</option>
+              <option value="markdown">Markdown</option>
+              <option value="csv">CSV</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="detected"></p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Input</label>
+          <textarea id="in" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="preview-panel" hidden>
+        <label style="margin-bottom:8px">The conversation as understood</label>
+        <div id="preview"></div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Output</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+          <button class="btn" id="swap">Use as input</button>
+        </div>
+        <p class="hint" id="counts"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Roles are guessed from the names.</b> Anything that
+          looks like a person &mdash; you, me, user, human, or a plain name
+          &mdash; becomes <code>user</code>; assistant, bot, AI, GPT and Claude
+          become <code>assistant</code>; system and instructions become
+          <code>system</code>. Check the preview before relying on the output,
+          because a transcript with unusual names can be read wrongly.
+          <br><br>
+          Consecutive turns from the same speaker are kept separate rather than
+          merged, since merging changes what a model sees.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = [
+      'System: You are a careful assistant. Answer in short sentences.',
+      '',
+      'User: What is the tax-free threshold in Sri Lanka?',
+      '',
+      'Assistant: Rs. 1,800,000 a year, which is Rs. 150,000 a month.',
+      '',
+      'User: And the first rate above that?',
+      '',
+      'Assistant: Six percent, on the next Rs. 1,000,000.'
+    ].join('\n');
+
+    var ASSISTANT = /^(assistant|bot|ai|gpt|claude|chatgpt|model|agent|a)$/i;
+    var SYSTEM = /^(system|instructions?|developer|prompt|s)$/i;
+    var USER = /^(user|human|me|you|q|question|u)$/i;
+
+    function roleOf(name) {
+      var n = String(name).trim().replace(/[:*_#]+$/, '').trim();
+      if (SYSTEM.test(n)) return 'system';
+      if (ASSISTANT.test(n)) return 'assistant';
+      if (USER.test(n)) return 'user';
+      /* An unrecognised name is almost always a person in a real transcript. */
+      return 'user';
+    }
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function detect(text) {
+      var t = text.trim();
+      if (!t) return null;
+      if (t[0] === '[' || t[0] === '{') return 'json';
+      if (/^#{1,4}\s*(user|assistant|system)\b/im.test(t) ||
+          /^\*\*(user|assistant|system)/im.test(t)) return 'markdown';
+      return 'text';
+    }
+
+    function fromJson(text) {
+      var data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error('That is not valid JSON. ' + e.message);
+      }
+
+      /* Both a bare array and the common wrapper shapes are accepted, since
+         an API response usually nests the messages somewhere. */
+      var arr = Array.isArray(data) ? data
+        : Array.isArray(data.messages) ? data.messages
+        : Array.isArray(data.conversation) ? data.conversation
+        : Array.isArray(data.turns) ? data.turns
+        : null;
+
+      if (!arr) {
+        throw new Error('That JSON does not contain a list of messages. It should ' +
+          'be an array, or an object with a "messages" array in it.');
+      }
+
+      return arr.map(function (m, i) {
+        if (typeof m === 'string') return { role: 'user', content: m };
+        var role = m.role || m.from || m.author || m.speaker || 'user';
+        var content = m.content !== undefined ? m.content
+          : m.text !== undefined ? m.text
+          : m.message !== undefined ? m.message : '';
+
+        /* Content can be an array of blocks rather than a string, which is
+           how several APIs send a message with mixed parts. */
+        if (Array.isArray(content)) {
+          content = content.map(function (c) {
+            if (typeof c === 'string') return c;
+            return c && c.text !== undefined ? c.text : JSON.stringify(c);
+          }).join('\n');
+        } else if (content && typeof content === 'object') {
+          content = JSON.stringify(content);
+        }
+
+        return { role: roleOf(role), content: String(content) };
+      }).filter(function (m) { return m.content.trim() !== ''; });
+    }
+
+    function fromText(text) {
+      var lines = text.split('\n');
+      var turns = [];
+      var current = null;
+
+      lines.forEach(function (line) {
+        /* A speaker label is a short name at the start of a line followed by
+           a colon. The length cap stops a sentence containing a colon from
+           being mistaken for a new turn. */
+        var m = line.match(/^\s*(?:\*\*)?([A-Za-z][A-Za-z0-9 _'-]{0,24})(?:\*\*)?\s*:\s?(.*)$/);
+        if (m && m[1].trim().split(/\s+/).length <= 3) {
+          if (current) turns.push(current);
+          current = { role: roleOf(m[1]), content: m[2] };
+          return;
+        }
+        if (current) {
+          current.content += (current.content ? '\n' : '') + line;
+        } else if (line.trim()) {
+          current = { role: 'user', content: line };
+        }
+      });
+      if (current) turns.push(current);
+
+      return turns.map(function (t) {
+        return { role: t.role, content: t.content.trim() };
+      }).filter(function (t) { return t.content !== ''; });
+    }
+
+    function fromMarkdown(text) {
+      var blocks = text.split(/^#{1,4}\s+/m).filter(function (b) { return b.trim(); });
+      if (blocks.length > 1) {
+        return blocks.map(function (b) {
+          var nl = b.indexOf('\n');
+          var head = nl === -1 ? b : b.slice(0, nl);
+          var body = nl === -1 ? '' : b.slice(nl + 1);
+          return { role: roleOf(head), content: body.trim() };
+        }).filter(function (t) { return t.content !== ''; });
+      }
+      return fromText(text);
+    }
+
+    function toJson(turns) {
+      return JSON.stringify(turns, null, 2);
+    }
+
+    function toText(turns) {
+      return turns.map(function (t) {
+        return t.role.charAt(0).toUpperCase() + t.role.slice(1) + ': ' + t.content;
+      }).join('\n\n');
+    }
+
+    function toMarkdown(turns) {
+      return turns.map(function (t) {
+        return '### ' + t.role.charAt(0).toUpperCase() + t.role.slice(1) +
+          '\n\n' + t.content;
+      }).join('\n\n');
+    }
+
+    function toCsv(turns) {
+      var cell = function (v) {
+        var s = String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      return 'turn,role,content\n' + turns.map(function (t, i) {
+        return [i + 1, cell(t.role), cell(t.content)].join(',');
+      }).join('\n');
+    }
+
+    var WRITERS = { json: toJson, text: toText, markdown: toMarkdown, csv: toCsv };
+    var READERS = { json: fromJson, text: fromText, markdown: fromMarkdown };
+
+    function run() {
+      error('');
+      var text = document.getElementById('in').value;
+      var out = document.getElementById('out');
+
+      if (!text.trim()) {
+        out.value = '';
+        document.getElementById('preview-panel').hidden = true;
+        document.getElementById('detected').textContent = '';
+        document.getElementById('counts').textContent = '';
+        return;
+      }
+
+      var from = document.getElementById('from').value;
+      var used = from === 'auto' ? detect(text) : from;
+
+      document.getElementById('detected').textContent = from === 'auto'
+        ? 'Read as ' + ({ json: 'a messages array', text: 'plain text',
+                          markdown: 'Markdown' }[used] || used) + '.'
+        : '';
+
+      var turns;
+      try {
+        turns = READERS[used](text);
+      } catch (e) {
+        out.value = '';
+        document.getElementById('preview-panel').hidden = true;
+        error(e.message);
+        return;
+      }
+
+      if (!turns.length) {
+        out.value = '';
+        document.getElementById('preview-panel').hidden = true;
+        error('No turns were found. A plain transcript needs lines like ' +
+              '"User: hello" so the speakers can be told apart.');
+        return;
+      }
+
+      document.getElementById('preview-panel').hidden = false;
+      document.getElementById('preview').innerHTML = turns.slice(0, 100)
+        .map(function (t) {
+          return '<div class="turn ' + t.role + '"><span class="who">' + t.role +
+            '</span><span class="what">' + escapeHtml(t.content) + '</span></div>';
+        }).join('');
+
+      out.value = WRITERS[document.getElementById('to').value](turns);
+
+      var byRole = {};
+      turns.forEach(function (t) { byRole[t.role] = (byRole[t.role] || 0) + 1; });
+      var chars = turns.reduce(function (a, t) { return a + t.content.length; }, 0);
+
+      document.getElementById('counts').textContent =
+        turns.length + ' turns (' +
+        Object.keys(byRole).map(function (r) { return byRole[r] + ' ' + r; }).join(', ') +
+        '), ' + chars.toLocaleString() + ' characters, roughly ' +
+        Math.round(chars / 4).toLocaleString() + ' tokens.';
+    }
+
+    ['in', 'from', 'to'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', run);
+      el.addEventListener('change', run);
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = SAMPLE;
+      document.getElementById('from').value = 'auto';
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) return;
+      var to = document.getElementById('to').value;
+      document.getElementById('in').value = v;
+      /* CSV cannot be read back in, so the direction only flips for the
+         formats this tool can parse. */
+      document.getElementById('from').value = (to === 'csv') ? 'auto' : to;
+      run();
+    });
+
+    document.getElementById('in').value = SAMPLE;
+    run();
+  })();
+  </script>
+</body>
+</html>

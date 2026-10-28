@@ -547,6 +547,41 @@ const TOOLS = [
     category: 'developers',
     desc: 'Strip smart quotes, invisible characters and stray formatting out of a prompt.',
     keywords: ['prompt', 'clean', 'smart quotes', 'invisible', 'llm', 'paste', 'tidy']
+  },
+  {
+    slug: 'rag-chunker',
+    name: 'Text Chunker',
+    category: 'developers',
+    desc: 'Split a long document into overlapping chunks for search or embedding.',
+    keywords: ['rag', 'chunk', 'split', 'embedding', 'overlap', 'retrieval', 'document']
+  },
+  {
+    slug: 'vector-similarity',
+    name: 'Vector Similarity',
+    category: 'developers',
+    desc: 'Compare two embeddings with cosine similarity, dot product and distance.',
+    keywords: ['vector', 'embedding', 'cosine', 'similarity', 'distance', 'dot product']
+  },
+  {
+    slug: 'chat-transcript',
+    name: 'Chat Transcript Converter',
+    category: 'developers',
+    desc: 'Move a conversation between plain text, a messages array and Markdown.',
+    keywords: ['chat', 'transcript', 'messages', 'convert', 'llm', 'json', 'markdown']
+  },
+  {
+    slug: 'meta-tags',
+    name: 'Meta Tag Generator',
+    category: 'seo',
+    desc: 'Build the title, description and social sharing tags for a page, with a preview.',
+    keywords: ['meta', 'open graph', 'og', 'twitter card', 'seo', 'tags', 'share']
+  },
+  {
+    slug: 'robots-txt',
+    name: 'Robots.txt Generator',
+    category: 'seo',
+    desc: 'Build a robots.txt that says what crawlers may and may not visit.',
+    keywords: ['robots', 'robots.txt', 'crawler', 'seo', 'disallow', 'sitemap', 'bot']
   }
 ];
 

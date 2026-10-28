@@ -1563,6 +1563,193 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- developers, part 4 + seo
+
+(function ragChunker() {
+  const t = loadTool('rag-chunker');
+  // 1000 characters of a repeating sentence, chunked at 200 with no overlap
+  const text = 'This is a sentence. '.repeat(50);
+  t.set('in', text).set('size', 200).set('overlap', 0).set('mode', 'sentence');
+  const count = parseInt(t.text('s-count'), 10);
+  ok(count >= 5 && count <= 7, 'a 1000-character document splits into about 5 chunks',
+     'got ' + count);
+  ok(parseInt(t.text('s-largest').replace(/,/g, ''), 10) <= 200,
+     'no chunk exceeds the requested size',
+     'largest was ' + t.text('s-largest'));
+
+  // overlap must increase the stored total, and the loop must still terminate
+  t.set('overlap', 100);
+  const withOverlap = parseInt(t.text('s-count'), 10);
+  ok(withOverlap > count, 'overlap produces more chunks',
+     'got ' + withOverlap + ' vs ' + count);
+  has(t.text('bars-note'), 'more', 'and the extra storage is reported');
+
+  // an overlap as large as the chunk would loop forever if unguarded
+  t.set('size', 200).set('overlap', 800);
+  ok(parseInt(t.text('s-count'), 10) > 0,
+     'an overlap larger than the chunk does not hang');
+
+  // hard mode must cut exactly
+  t.set('in', 'abcdefghij'.repeat(30)).set('size', 200).set('overlap', 0).set('mode', 'hard');
+  ok(parseInt(t.text('s-largest').replace(/,/g, ''), 10) === 200,
+     'hard mode cuts at exactly the size');
+  t.close();
+})();
+
+(function vectorSimilarity() {
+  const t = loadTool('vector-similarity');
+
+  // identical vectors are cosine 1
+  t.set('a', '1, 0, 0').set('b', '1, 0, 0');
+  has(t.text('verdict'), '1.0000', 'identical vectors are cosine 1');
+  has(t.text('verdict'), 'identical', 'and described as such');
+
+  // perpendicular is 0
+  t.set('a', '1, 0').set('b', '0, 1');
+  has(t.text('verdict'), '0.0000', 'perpendicular vectors are cosine 0');
+
+  // opposite is -1
+  t.set('a', '1, 0').set('b', '-1, 0');
+  has(t.text('verdict'), '-1.0000', 'opposite vectors are cosine -1');
+
+  // a known case: cosine of (1,1) and (1,0) is 1/sqrt(2); the straight-line
+  // distance between them is 1, and the length of (1,1) is sqrt(2)
+  t.set('a', '1, 1').set('b', '1, 0');
+  has(t.text('metrics'), '0.707107', 'a known cosine value is right');
+  has(t.text('metrics'), '1.000000', 'and the Euclidean distance is 1');
+  has(t.text('s-norm-a'), '1.4142', 'while the length of A is root two');
+  has(t.text('norm-note'), 'not length 1', 'and it says these are not normalised');
+
+  // JSON brackets should be tolerated
+  t.set('a', '[1, 0]').set('b', '[1, 0]');
+  has(t.text('verdict'), '1.0000', 'bracketed input parses');
+
+  // mismatched lengths cannot be compared
+  t.set('a', '1, 0, 0').set('b', '1, 0');
+  has(t.text('err-slot'), 'different lengths', 'a length mismatch is explained');
+
+  // a zero vector has no direction, so cosine is undefined not zero
+  t.set('a', '0, 0').set('b', '1, 1');
+  has(t.text('verdict'), 'Undefined', 'a zero vector gives undefined, not zero');
+
+  t.set('a', '1, two').set('b', '1, 2');
+  has(t.text('err-slot'), 'not a number', 'a non-number is reported');
+  t.close();
+})();
+
+(function chatTranscript() {
+  const t = loadTool('chat-transcript');
+  t.set('from', 'auto').set('to', 'json');
+  t.set('in', 'User: hello\n\nAssistant: hi there');
+  const parsed = () => JSON.parse(t.byId('out').value);
+  ok(parsed().length === 2, 'two turns parsed', 'got ' + parsed().length);
+  ok(parsed()[0].role === 'user', 'the first is the user');
+  ok(parsed()[1].role === 'assistant', 'the second is the assistant');
+  ok(parsed()[1].content === 'hi there', 'content preserved');
+
+  // roles should be recognised from aliases
+  t.set('in', 'Human: a\n\nAI: b\n\nSystem: c');
+  const roles = parsed().map((m) => m.role);
+  ok(roles.join(',') === 'user,assistant,system',
+     'aliases map to the right roles', 'got ' + roles.join(','));
+
+  // an unknown name is a person
+  t.set('in', 'Nimali: hello\n\nAssistant: hi');
+  ok(parsed()[0].role === 'user', 'an unrecognised name is treated as a user');
+
+  // a sentence containing a colon must not start a new turn
+  t.set('in', 'User: note this: it has a colon mid-sentence');
+  ok(parsed().length === 1, 'a mid-sentence colon does not split the turn',
+     'got ' + parsed().length);
+
+  // reading JSON back in
+  t.set('from', 'json').set('to', 'text');
+  t.set('in', '[{"role":"user","content":"x"},{"role":"assistant","content":"y"}]');
+  ok(t.byId('out').value === 'User: x\n\nAssistant: y', 'JSON converts to text',
+     'got ' + JSON.stringify(t.byId('out').value));
+
+  // content as an array of blocks is a real API shape
+  t.set('in', '[{"role":"user","content":[{"type":"text","text":"block one"}]}]');
+  has(t.byId('out').value, 'block one', 'content given as blocks is flattened');
+
+  // a wrapper object with a messages array
+  t.set('in', '{"messages":[{"role":"user","content":"wrapped"}]}');
+  has(t.byId('out').value, 'wrapped', 'a messages wrapper is unwrapped');
+
+  t.set('in', '{"nope":1}');
+  has(t.text('err-slot'), 'list of messages', 'JSON with no messages is explained');
+  t.close();
+})();
+
+(function metaTags() {
+  const t = loadTool('meta-tags');
+  t.set('title', 'My Page').set('desc', 'A description.')
+   .set('url', 'https://example.com/a').set('site', 'My Site').set('image', '');
+  const out = () => t.byId('out').value;
+  has(out(), '<title>My Page</title>', 'the title tag');
+  has(out(), 'name="description" content="A description."', 'the description');
+  has(out(), 'property="og:title"', 'Open Graph tags');
+  has(out(), 'name="twitter:card" content="summary"', 'a summary card with no image');
+
+  // with an image it should become a large card
+  t.set('image', 'https://example.com/i.png');
+  has(out(), 'summary_large_image', 'an image upgrades the card type');
+
+  // a relative image must be flagged, because it fails silently when shared
+  t.set('image', '/local.png');
+  has(t.text('p-img'), 'not absolute', 'a relative share image is flagged');
+
+  // a quote in the title must not break the attribute
+  t.set('image', '').set('title', 'He said "hi"');
+  has(out(), '&quot;hi&quot;', 'a quote in the title is escaped in attributes');
+
+  // length warnings
+  t.set('title', 'x'.repeat(90));
+  has(t.text('title-len'), 'cut off', 'an over-long title is flagged');
+  t.close();
+})();
+
+(function robotsTxt() {
+  const t = loadTool('robots-txt');
+  t.set('preset', 'open');
+  has(t.byId('out').value, 'User-agent: *', 'a user-agent group is written');
+  has(t.byId('out').value, 'Allow: /', 'with the allow rule');
+
+  // blocking everything is a serious mistake on a live site and must warn
+  t.set('preset', 'closed');
+  has(t.text('warn-slot'), 'blocks every crawler', 'blocking everything warns');
+
+  // path testing: a disallow should block a matching path
+  t.set('preset', 'common');
+  t.set('test-path', '/admin/settings').set('test-agent', 'Googlebot');
+  has(t.text('test-result'), 'Blocked', '/admin/settings is blocked');
+  t.set('test-path', '/about');
+  has(t.text('test-result'), 'Allowed', '/about is allowed');
+
+  // a crawler with its own group must not also obey the * group
+  t.set('preset', 'noai');
+  t.set('test-path', '/anything').set('test-agent', 'GPTBot');
+  has(t.text('test-result'), 'Blocked', 'GPTBot follows its own group');
+  t.set('test-agent', 'Googlebot');
+  has(t.text('test-result'), 'Allowed', 'Googlebot falls back to the * group');
+
+  // a sensitive-looking path should be called out, since the file is public
+  t.set('preset', 'open');
+  const pathInput = [...t.document.querySelectorAll('#rules input')][0];
+  pathInput.value = '/secret-backup.sql';
+  pathInput.dispatchEvent(new t.window.Event('input', { bubbles: true }));
+  const sel = [...t.document.querySelectorAll('#rules select')]
+    .find((s) => s.dataset.f === 'rule');
+  sel.value = 'disallow';
+  sel.dispatchEvent(new t.window.Event('change', { bubbles: true }));
+  has(t.text('warn-slot'), 'advertises', 'a sensitive path is called out');
+
+  // a relative sitemap is ignored by crawlers
+  t.set('sitemap', '/sitemap.xml');
+  has(t.text('warn-slot'), 'full address', 'a relative sitemap is flagged');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

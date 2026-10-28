@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robots.txt Generator — Cja's Tools</title>
+<meta name="description" content="Build a robots.txt that says what crawlers may and may not visit, with a tester for individual paths.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-family: ui-monospace, Consolas, monospace; font-size: 13px; min-height: 220px; }
+  .rule {
+    display: grid; grid-template-columns: 170px 120px 1fr auto;
+    gap: 9px; align-items: center; margin-bottom: 9px;
+  }
+  .head-row {
+    display: grid; grid-template-columns: 170px 120px 1fr auto; gap: 9px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin-bottom: 7px;
+  }
+  .rule .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .rule .drop:hover { color: var(--danger); }
+  .verdict { padding: 12px 15px; border-radius: var(--radius); font-size: 14px; }
+  .verdict.allow { background:#dcf5e7; color:#146b3c; border:1px solid #27b86a; }
+  .verdict.block { background:rgba(212,72,59,.1); color:var(--danger); border:1px solid var(--danger); }
+  html:not([data-theme="light"]) .verdict.allow { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .verdict.allow { background:#17402c; color:#6fdca2; }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+  @media (max-width: 680px) {
+    .rule, .head-row { grid-template-columns: 1fr 96px auto; }
+    .head-row span:nth-child(3), .rule > *:nth-child(3) { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="robots-txt">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=seo">SEO</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Robots.txt Generator</h1>
+        <p>Build the file, then test a path against it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="preset">Start from</label>
+          <select id="preset">
+            <option value="open" selected>Allow everything</option>
+            <option value="common">Allow everything, block the usual private paths</option>
+            <option value="closed">Block everything</option>
+            <option value="noai">Allow search engines, block AI training crawlers</option>
+          </select>
+        </div>
+        <p class="hint" id="preset-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="head-row">
+          <span>Crawler</span><span>Rule</span><span>Path</span><span></span>
+        </div>
+        <div id="rules"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="add">Add a rule</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="sitemap">Sitemap address (optional)</label>
+            <input type="text" id="sitemap" value="https://example.com/sitemap.xml"
+                   autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="delay">Crawl delay in seconds (optional)</label>
+            <input type="number" id="delay" value="" min="0" step="1" placeholder="leave empty">
+          </div>
+        </div>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">robots.txt</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+          <button class="btn" id="download">Download robots.txt</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Test a path</label>
+        <div class="row">
+          <div class="field">
+            <label for="test-path">Path</label>
+            <input type="text" id="test-path" value="/admin/settings" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="test-agent">As this crawler</label>
+            <select id="test-agent">
+              <option value="Googlebot" selected>Googlebot</option>
+              <option value="bingbot">bingbot</option>
+              <option value="GPTBot">GPTBot</option>
+              <option value="ClaudeBot">ClaudeBot</option>
+              <option value="*">Some other crawler</option>
+            </select>
+          </div>
+        </div>
+        <div id="test-result"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This file is a request, not a lock.</b> Well-behaved
+          crawlers follow it. Anything malicious ignores it entirely, and the
+          file is public, so listing a secret path in it tells the world exactly
+          where to look. Protect private pages with a login, not with robots.txt.
+          <br><br>
+          <b>Blocking a page does not remove it from search results.</b> It only
+          stops the page being read &mdash; it can still be listed from links
+          elsewhere, with no description. To keep something out of results, let
+          it be crawled and put <code>noindex</code> on the page itself.
+          <br><br>
+          The file belongs at the very top of the site, as
+          <code>example.com/robots.txt</code>. Anywhere else and it is ignored.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var PRESETS = {
+      open: {
+        note: 'One group allowing everything. This is the right default for most sites.',
+        rules: [{ agent: '*', rule: 'allow', path: '/' }]
+      },
+      common: {
+        note: 'Allows everything except the paths that normally hold admin pages, carts and search results. Adjust to match your site.',
+        rules: [
+          { agent: '*', rule: 'allow', path: '/' },
+          { agent: '*', rule: 'disallow', path: '/admin/' },
+          { agent: '*', rule: 'disallow', path: '/cart' },
+          { agent: '*', rule: 'disallow', path: '/checkout' },
+          { agent: '*', rule: 'disallow', path: '/search' },
+          { agent: '*', rule: 'disallow', path: '/*?*sort=' }
+        ]
+      },
+      closed: {
+        note: 'Blocks every crawler from everything. Use on a staging site - and add a password as well, because this file only asks.',
+        rules: [{ agent: '*', rule: 'disallow', path: '/' }]
+      },
+      noai: {
+        note: 'Lets search engines in, asks the known AI training crawlers to stay out. These crawlers honour it voluntarily; it cannot be enforced.',
+        rules: [
+          { agent: '*', rule: 'allow', path: '/' },
+          { agent: 'GPTBot', rule: 'disallow', path: '/' },
+          { agent: 'ClaudeBot', rule: 'disallow', path: '/' },
+          { agent: 'CCBot', rule: 'disallow', path: '/' },
+          { agent: 'Google-Extended', rule: 'disallow', path: '/' },
+          { agent: 'PerplexityBot', rule: 'disallow', path: '/' }
+        ]
+      }
+    };
+
+    var AGENTS = ['*', 'Googlebot', 'Googlebot-Image', 'Google-Extended', 'bingbot',
+                  'DuckDuckBot', 'Slurp', 'YandexBot', 'Baiduspider', 'GPTBot',
+                  'ClaudeBot', 'CCBot', 'PerplexityBot', 'Applebot',
+                  'facebookexternalhit', 'Twitterbot', 'AhrefsBot', 'SemrushBot'];
+
+    var rules = JSON.parse(JSON.stringify(PRESETS.open.rules));
+
+    function draw() {
+      document.getElementById('rules').innerHTML = rules.map(function (r, i) {
+        var opts = AGENTS.map(function (a) {
+          return '<option value="' + a + '"' + (a === r.agent ? ' selected' : '') + '>' +
+            (a === '*' ? '* (all crawlers)' : a) + '</option>';
+        }).join('');
+        if (AGENTS.indexOf(r.agent) === -1) {
+          opts += '<option value="' + r.agent + '" selected>' + r.agent + '</option>';
+        }
+        return '<div class="rule">' +
+          '<select data-i="' + i + '" data-f="agent">' + opts + '</select>' +
+          '<select data-i="' + i + '" data-f="rule">' +
+            '<option value="allow"' + (r.rule === 'allow' ? ' selected' : '') + '>Allow</option>' +
+            '<option value="disallow"' + (r.rule === 'disallow' ? ' selected' : '') + '>Disallow</option>' +
+          '</select>' +
+          '<input type="text" data-i="' + i + '" data-f="path" value="' +
+            String(r.path).replace(/"/g, '&quot;') + '" spellcheck="false">' +
+          '<button class="drop" data-drop="' + i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    /* Google's matching rules: * stands for any run of characters and $ pins
+       the end. Everything else is a literal prefix match, which is why a
+       plain /admin also blocks /administrator. */
+    function pathMatches(pattern, path) {
+      if (!pattern) return false;
+      var anchored = pattern.slice(-1) === '$';
+      var body = anchored ? pattern.slice(0, -1) : pattern;
+
+      var re = body.split('*').map(function (part) {
+        return part.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+      }).join('.*');
+
+      return new RegExp('^' + re + (anchored ? '$' : ''), '').test(path);
+    }
+
+    function build() {
+      var groups = {};
+      rules.forEach(function (r) {
+        var agent = String(r.agent || '*').trim() || '*';
+        if (!groups[agent]) groups[agent] = [];
+        groups[agent].push(r);
+      });
+
+      var lines = ['# robots.txt', '# Built with Cja’s Tools', ''];
+      var delay = document.getElementById('delay').value.trim();
+
+      Object.keys(groups).forEach(function (agent) {
+        lines.push('User-agent: ' + agent);
+        groups[agent].forEach(function (r) {
+          var path = String(r.path || '').trim();
+          if (!path) return;
+          lines.push((r.rule === 'allow' ? 'Allow: ' : 'Disallow: ') + path);
+        });
+        if (delay && /^\d+$/.test(delay)) lines.push('Crawl-delay: ' + delay);
+        lines.push('');
+      });
+
+      var sitemap = document.getElementById('sitemap').value.trim();
+      if (sitemap) {
+        lines.push('Sitemap: ' + sitemap);
+      }
+
+      document.getElementById('out').value = lines.join('\n').replace(/\n{3,}/g, '\n\n');
+
+      var warnings = [];
+
+      var blocksAll = rules.some(function (r) {
+        return r.agent === '*' && r.rule === 'disallow' &&
+               String(r.path).trim() === '/';
+      });
+      if (blocksAll) {
+        warnings.push('<b>This blocks every crawler from the whole site.</b> ' +
+          'Correct for a staging server, and a disaster on a live one — the ' +
+          'site will drop out of search results.');
+      }
+
+      if (sitemap && !/^https?:\/\//i.test(sitemap)) {
+        warnings.push('The sitemap line needs a full address starting with https, ' +
+          'not a path. A relative sitemap address is ignored.');
+      }
+
+      var secretish = rules.filter(function (r) {
+        return r.rule === 'disallow' &&
+               /secret|private|backup|\.sql|\.env|password|key/i.test(String(r.path));
+      });
+      if (secretish.length) {
+        warnings.push('One of your blocked paths looks sensitive. Remember this ' +
+          'file is public — listing a path here <b>advertises</b> it. Protect ' +
+          'it with a login instead.');
+      }
+
+      if (delay && /^\d+$/.test(delay) && parseInt(delay, 10) > 10) {
+        warnings.push('A crawl delay above about 10 seconds means a large site may ' +
+          'never be fully crawled. Google ignores this directive entirely.');
+      }
+
+      document.getElementById('warn-slot').innerHTML = warnings.length
+        ? '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>'
+        : '';
+
+      test();
+    }
+
+    function test() {
+      var path = document.getElementById('test-path').value.trim() || '/';
+      var agent = document.getElementById('test-agent').value;
+      var slot = document.getElementById('test-result');
+
+      /* A crawler obeys the group that names it, and only falls back to the
+         * group when no group names it. Mixing the two is a common mistake. */
+      var own = rules.filter(function (r) {
+        return String(r.agent).toLowerCase() === agent.toLowerCase();
+      });
+      var applicable = own.length ? own : rules.filter(function (r) {
+        return String(r.agent) === '*';
+      });
+
+      if (!applicable.length) {
+        slot.innerHTML = '<div class="verdict allow">Allowed — no rule applies ' +
+          'to ' + agent + ', and anything not forbidden is allowed.</div>';
+        return;
+      }
+
+      /* Where both an Allow and a Disallow match, the longer pattern wins;
+         a tie goes to Allow. That is Google's documented behaviour. */
+      var best = null;
+      applicable.forEach(function (r) {
+        var p = String(r.path || '').trim();
+        if (!pathMatches(p, path)) return;
+        if (!best || p.length > best.len ||
+            (p.length === best.len && r.rule === 'allow')) {
+          best = { rule: r.rule, path: p, len: p.length };
+        }
+      });
+
+      if (!best) {
+        slot.innerHTML = '<div class="verdict allow">Allowed — no rule matches ' +
+          'that path, and anything not forbidden is allowed.</div>';
+        return;
+      }
+
+      slot.innerHTML = best.rule === 'allow'
+        ? '<div class="verdict allow">Allowed by <code>Allow: ' + best.path +
+          '</code>' + (own.length ? ' in the ' + agent + ' group' : ' in the * group') +
+          '.</div>'
+        : '<div class="verdict block">Blocked by <code>Disallow: ' + best.path +
+          '</code>' + (own.length ? ' in the ' + agent + ' group' : ' in the * group') +
+          '.</div>';
+    }
+
+    document.getElementById('rules').addEventListener('input', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      rules[+el.dataset.i][el.dataset.f] = el.value;
+      build();
+    });
+
+    document.getElementById('rules').addEventListener('change', function (e) {
+      var el = e.target;
+      if (el.dataset.i === undefined) return;
+      rules[+el.dataset.i][el.dataset.f] = el.value;
+      build();
+    });
+
+    document.getElementById('rules').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      rules.splice(+b.dataset.drop, 1);
+      if (!rules.length) rules.push({ agent: '*', rule: 'allow', path: '/' });
+      draw();
+      build();
+    });
+
+    document.getElementById('add').addEventListener('click', function () {
+      rules.push({ agent: '*', rule: 'disallow', path: '/' });
+      draw();
+      build();
+    });
+
+    document.getElementById('preset').addEventListener('change', function () {
+      var p = PRESETS[this.value];
+      rules = JSON.parse(JSON.stringify(p.rules));
+      document.getElementById('preset-note').textContent = p.note;
+      draw();
+      build();
+    });
+
+    ['sitemap', 'delay', 'test-path', 'test-agent'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([v], { type: 'text/plain;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'robots.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('preset-note').textContent = PRESETS.open.note;
+    draw();
+    build();
+  })();
+  </script>
+</body>
+</html>

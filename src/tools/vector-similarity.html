@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vector Similarity — Cja's Tools</title>
+<meta name="description" content="Compare two embeddings with cosine similarity, dot product and Euclidean distance. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #a, #b { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; min-height: 130px; }
+  .mrow {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px;
+    align-items: baseline; padding: 11px 2px; border-bottom: 1px solid var(--border);
+  }
+  .mrow:last-child { border-bottom: none; }
+  .mrow .name { font-size: 14px; }
+  .mrow .name small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .mrow .val {
+    font-family: ui-monospace, Consolas, monospace; font-size: 17px;
+    font-weight: 600; text-align: right;
+  }
+  .scale { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; position: relative; }
+  .scale i { display: block; height: 100%; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="vector-similarity">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Vector Similarity</h1>
+        <p>Paste two embeddings and see how close they are.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="a">Vector A</label>
+            <textarea id="a" spellcheck="false" placeholder="0.12, -0.45, 0.88"></textarea>
+          </div>
+          <div class="field">
+            <label for="b">Vector B</label>
+            <textarea id="b" spellcheck="false" placeholder="[0.10, -0.40, 0.91]"></textarea>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="random">Random pair</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint">Commas, spaces or newlines all work, and square brackets
+          are ignored, so a vector copied straight out of JSON pastes fine.</p>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel" id="out-panel" hidden>
+        <div class="result" id="verdict">&mdash;</div>
+        <div class="scale"><i id="bar" style="width:0%"></i></div>
+        <p class="hint" id="bar-note"></p>
+      </div>
+
+      <div class="panel" id="metrics-panel" hidden>
+        <div id="metrics"></div>
+      </div>
+
+      <div class="panel" id="info-panel" hidden>
+        <div class="stats">
+          <div class="stat"><b id="s-dims">0</b><span>Dimensions</span></div>
+          <div class="stat"><b id="s-norm-a">0</b><span>Length of A</span></div>
+          <div class="stat"><b id="s-norm-b">0</b><span>Length of B</span></div>
+        </div>
+        <p class="hint" id="norm-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which number should I use?</b> For embeddings, almost
+          always <b>cosine similarity</b>. It measures the angle between the two
+          vectors and ignores their length, which is what you want &mdash; a long
+          document and a short one about the same subject should count as similar.
+          <br><br>
+          <b>Dot product</b> gives the same ranking as cosine only when both
+          vectors are already normalised to length 1. Many embedding models do
+          normalise, and if so the two agree; the panel above says whether yours
+          are. If they are not, dot product quietly favours longer vectors.
+          <br><br>
+          <b>Euclidean distance</b> measures straight-line distance, so smaller
+          means more similar &mdash; the opposite direction from the other two.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+      ['out-panel', 'metrics-panel', 'info-panel'].forEach(function (id) {
+        document.getElementById(id).hidden = !!msg;
+      });
+    }
+
+    function hideAll() {
+      ['out-panel', 'metrics-panel', 'info-panel'].forEach(function (id) {
+        document.getElementById(id).hidden = true;
+      });
+    }
+
+    /* Accepts whatever shape the numbers arrive in: a JSON array, a comma
+       list, or one per line. Anything that is not a number is reported
+       rather than quietly skipped, because a silently shortened vector
+       gives a confidently wrong answer. */
+    function parse(text, label) {
+      var cleaned = text.replace(/[\[\]]/g, ' ').trim();
+      if (!cleaned) return null;
+
+      var parts = cleaned.split(/[\s,;]+/).filter(function (p) { return p !== ''; });
+      var nums = [];
+      for (var i = 0; i < parts.length; i++) {
+        var v = parseFloat(parts[i]);
+        if (!isFinite(v)) {
+          return { error: 'Vector ' + label + ' has something that is not a number: "' +
+            parts[i].slice(0, 20) + '" at position ' + (i + 1) + '.' };
+        }
+        nums.push(v);
+      }
+      return { values: nums };
+    }
+
+    function dot(a, b) {
+      var s = 0;
+      for (var i = 0; i < a.length; i++) s += a[i] * b[i];
+      return s;
+    }
+
+    function norm(a) { return Math.sqrt(dot(a, a)); }
+
+    function euclidean(a, b) {
+      var s = 0;
+      for (var i = 0; i < a.length; i++) s += Math.pow(a[i] - b[i], 2);
+      return Math.sqrt(s);
+    }
+
+    function manhattan(a, b) {
+      var s = 0;
+      for (var i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+      return s;
+    }
+
+    function fmt(v, places) {
+      if (!isFinite(v)) return '—';
+      return v.toFixed(places === undefined ? 6 : places);
+    }
+
+    function describe(cos) {
+      if (cos > 0.95) return ['Nearly identical', '#27b86a'];
+      if (cos > 0.8) return ['Very similar', '#27b86a'];
+      if (cos > 0.6) return ['Related', '#5aa9e6'];
+      if (cos > 0.3) return ['Loosely related', '#e8a33d'];
+      if (cos > -0.1) return ['Unrelated', 'var(--muted)'];
+      return ['Opposite in meaning', 'var(--danger)'];
+    }
+
+    function run() {
+      var pa = parse(document.getElementById('a').value, 'A');
+      var pb = parse(document.getElementById('b').value, 'B');
+
+      if (!pa || !pb) { error(''); hideAll(); return; }
+      if (pa.error) { error(pa.error); return; }
+      if (pb.error) { error(pb.error); return; }
+
+      var a = pa.values, b = pb.values;
+
+      if (a.length !== b.length) {
+        error('The two vectors are different lengths — A has ' + a.length +
+              ' numbers and B has ' + b.length + '. Two embeddings can only be ' +
+              'compared if they came from the same model, which always gives the ' +
+              'same number of dimensions.');
+        return;
+      }
+      if (a.length < 2) {
+        error('A vector needs at least two numbers.');
+        return;
+      }
+
+      error('');
+
+      var na = norm(a), nb = norm(b);
+      var d = dot(a, b);
+
+      /* A zero-length vector has no direction, so there is no angle between
+         it and anything - cosine is undefined rather than zero. */
+      var cos = (na === 0 || nb === 0) ? NaN : d / (na * nb);
+
+      var label = isFinite(cos) ? describe(cos) : ['Undefined', 'var(--muted)'];
+
+      document.getElementById('verdict').innerHTML = isFinite(cos)
+        ? fmt(cos, 4) + ' — ' + label[0] +
+          '<small>cosine similarity, from -1 to 1</small>'
+        : 'Undefined<small>one of the vectors is all zeros, so it has no direction</small>';
+
+      /* Mapped from the -1..1 range onto the bar. */
+      var pct = isFinite(cos) ? ((cos + 1) / 2) * 100 : 0;
+      var bar = document.getElementById('bar');
+      bar.style.width = pct + '%';
+      bar.style.background = label[1];
+
+      document.getElementById('bar-note').textContent = isFinite(cos)
+        ? '1 means pointing the same way, 0 means unrelated, -1 means exactly opposite.'
+        : '';
+
+      var rows = [
+        ['Cosine similarity', isFinite(cos) ? fmt(cos) : '—',
+         'The angle between them. Higher is more similar. Use this one.'],
+        ['Dot product', fmt(d),
+         'Only ranks the same as cosine when both vectors are length 1.'],
+        ['Euclidean distance', fmt(euclidean(a, b)),
+         'Straight-line distance. Lower is more similar.'],
+        ['Manhattan distance', fmt(manhattan(a, b)),
+         'Distance along each axis added up. Lower is more similar.'],
+        ['Cosine distance', isFinite(cos) ? fmt(1 - cos) : '—',
+         'Just 1 minus cosine similarity, which some databases report instead.']
+      ];
+
+      document.getElementById('metrics').innerHTML = rows.map(function (r) {
+        return '<div class="mrow"><span class="name">' + r[0] +
+          '<small>' + r[2] + '</small></span>' +
+          '<span class="val">' + r[1] + '</span></div>';
+      }).join('');
+
+      document.getElementById('s-dims').textContent = a.length.toLocaleString();
+      document.getElementById('s-norm-a').textContent = fmt(na, 4);
+      document.getElementById('s-norm-b').textContent = fmt(nb, 4);
+
+      var normalised = Math.abs(na - 1) < 0.01 && Math.abs(nb - 1) < 0.01;
+      document.getElementById('norm-note').textContent = normalised
+        ? 'Both vectors are length 1, so dot product and cosine similarity agree here.'
+        : 'These are not length 1, so dot product and cosine similarity will rank ' +
+          'results differently. Prefer cosine.';
+    }
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('a').value = '0.021, -0.134, 0.512, 0.098, -0.301, 0.447, 0.012, -0.220';
+      document.getElementById('b').value = '[0.018, -0.120, 0.498, 0.110, -0.288, 0.460, 0.030, -0.205]';
+      run();
+    });
+
+    document.getElementById('random').addEventListener('click', function () {
+      function vec(n) {
+        var out = [];
+        for (var i = 0; i < n; i++) {
+          out.push((Math.random() * 2 - 1).toFixed(3));
+        }
+        return out.join(', ');
+      }
+      document.getElementById('a').value = vec(12);
+      document.getElementById('b').value = vec(12);
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('a').value = '';
+      document.getElementById('b').value = '';
+      run();
+    });
+
+    ['a', 'b'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

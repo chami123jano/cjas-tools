@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text Chunker — Cja's Tools</title>
+<meta name="description" content="Split a long document into overlapping chunks for search or embedding, without cutting sentences in half. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in { font-size: 13.5px; min-height: 180px; }
+  .chunk { border-bottom: 1px solid var(--border); }
+  .chunk:last-child { border-bottom: none; }
+  .chunk summary {
+    padding: 9px 4px; cursor: pointer; font-size: 13px;
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .chunk summary .no {
+    color: var(--muted); font-family: ui-monospace, Consolas, monospace;
+    font-size: 11.5px; flex: none;
+  }
+  .chunk summary .peek {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  }
+  .chunk summary .size { color: var(--muted); font-size: 11.5px; flex: none; }
+  .chunk .body {
+    padding: 4px 4px 14px 22px; font-size: 13px; line-height: 1.7;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .chunk .body .ov { background: rgba(232,163,61,.22); border-radius: 2px; }
+  .bars { display: flex; gap: 2px; align-items: flex-end; height: 48px; margin-top: 6px; }
+  .bars i { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
+</style>
+</head>
+<body data-page="tool" data-slug="rag-chunker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=developers">Developers</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Text Chunker</h1>
+        <p>For feeding a long document into a search index or an embedding model.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your document</label>
+          <textarea id="in" spellcheck="false" placeholder="Paste a long document&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="size">Chunk size: <span id="size-val">800</span> characters</label>
+            <input type="range" id="size" min="200" max="4000" step="50" value="800" style="width:100%">
+          </div>
+          <div class="field">
+            <label for="overlap">Overlap: <span id="overlap-val">100</span> characters</label>
+            <input type="range" id="overlap" min="0" max="800" step="25" value="100" style="width:100%">
+          </div>
+        </div>
+        <div class="field">
+          <label for="mode">Break at</label>
+          <select id="mode">
+            <option value="paragraph" selected>Paragraph, then sentence, then word</option>
+            <option value="sentence">Sentence, then word</option>
+            <option value="word">Word</option>
+            <option value="hard">Exactly the character count</option>
+          </select>
+        </div>
+        <p class="hint" id="mode-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-count">0</b><span>Chunks</span></div>
+          <div class="stat"><b id="s-avg">0</b><span>Average size</span></div>
+          <div class="stat"><b id="s-largest">0</b><span>Largest</span></div>
+          <div class="stat"><b id="s-tokens">0</b><span>Tokens, roughly</span></div>
+        </div>
+        <div class="bars" id="bars"></div>
+        <p class="hint" id="bars-note"></p>
+      </div>
+
+      <div class="panel">
+        <div id="chunks"></div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="download-json">Download as JSON</button>
+          <button class="btn" id="download-jsonl">Download as JSONL</button>
+        </div>
+        <p class="hint"><b>Why overlap.</b> A fact that straddles a chunk boundary
+          is lost to search, because neither chunk contains the whole of it.
+          Repeating the last part of each chunk at the start of the next keeps
+          those facts findable, at the cost of storing a little more. Around an
+          eighth of the chunk size is a reasonable starting point.
+          <br><br>
+          Token counts here are a rough estimate from character counts. The
+          <a href="token-counter.html">Token Counter</a> explains why an offline
+          page cannot be exact about that.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = [
+      'Cja’s Tools is a collection of small utilities that run entirely on your own device. Nothing is uploaded, and almost everything works with no internet connection at all.',
+      '',
+      'The project started because the useful little tools people reach for every day are scattered across dozens of websites, most of which upload your files to a server you know nothing about. A calculator does not need a server. Neither does a PDF merger, or a QR code generator.',
+      '',
+      'Everything is plain HTML, CSS and JavaScript. There is no framework and no build step, which means the same files serve the website and get bundled into the desktop application. It also means anyone can read the source of a tool and see exactly what it does.',
+      '',
+      'The Sri Lankan tools are the ones that took the most care. The Poya calendar carries published dates rather than calculating them, because the astronomical full moon disagrees with the gazetted holiday about half the time. The postal code lookup covers Colombo District only, because inventing codes for the rest of the country would misdirect real post.'
+    ].join('\n');
+
+    var NOTES = {
+      paragraph: 'Prefers a blank line, then the end of a sentence, then a space. Best for prose.',
+      sentence: 'Prefers the end of a sentence, then a space. Good for dense text with few paragraph breaks.',
+      word: 'Breaks at the nearest space. Use for text with no clear sentences, such as logs.',
+      hard: 'Cuts at exactly the character count, mid-word if necessary. Only use when the size limit is absolute.'
+    };
+
+    function n(id) {
+      var v = parseInt(document.getElementById(id).value, 10);
+      return isFinite(v) ? v : 0;
+    }
+
+    /* Looks backwards from the ideal end for a natural break, in order of
+       preference, but only within a window. Searching the whole chunk would
+       let one early paragraph break produce a tiny chunk. */
+    function findBreak(text, start, idealEnd, mode) {
+      if (mode === 'hard' || idealEnd >= text.length) return Math.min(idealEnd, text.length);
+
+      var window = Math.floor((idealEnd - start) * 0.3);
+      var floor = Math.max(start + 1, idealEnd - window);
+      var slice = text.slice(floor, idealEnd);
+
+      function lastOf(re) {
+        var best = -1, m;
+        var scan = new RegExp(re.source, 'g');
+        while ((m = scan.exec(slice)) !== null) {
+          best = m.index + m[0].length;
+          if (m.index === scan.lastIndex) scan.lastIndex++;
+        }
+        return best === -1 ? -1 : floor + best;
+      }
+
+      if (mode === 'paragraph') {
+        var para = lastOf(/\n\s*\n/);
+        if (para !== -1) return para;
+      }
+      if (mode === 'paragraph' || mode === 'sentence') {
+        var sentence = lastOf(/[.!?]["')\]]?\s/);
+        if (sentence !== -1) return sentence;
+      }
+      var space = lastOf(/\s/);
+      if (space !== -1) return space;
+
+      return idealEnd;
+    }
+
+    function chunk(text, size, overlap, mode) {
+      var out = [];
+      if (!text.trim()) return out;
+      if (overlap >= size) overlap = Math.floor(size / 2);
+
+      var pos = 0;
+      var guard = 0;
+
+      while (pos < text.length && guard < 10000) {
+        guard++;
+        var end = findBreak(text, pos, pos + size, mode);
+        if (end <= pos) end = Math.min(pos + size, text.length);
+
+        var body = text.slice(pos, end);
+        out.push({ start: pos, end: end, text: body });
+
+        if (end >= text.length) break;
+
+        /* The next chunk starts before this one ended, by the overlap. The
+           step must stay positive or this loops forever on the same text. */
+        var step = Math.max(1, (end - pos) - overlap);
+        pos = pos + step;
+      }
+      return out;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    var chunks = [];
+
+    function run() {
+      var text = document.getElementById('in').value;
+      var size = n('size');
+      var overlap = n('overlap');
+      var mode = document.getElementById('mode').value;
+
+      document.getElementById('size-val').textContent = size;
+      document.getElementById('overlap-val').textContent = overlap;
+      document.getElementById('mode-note').textContent = NOTES[mode];
+
+      chunks = chunk(text, size, overlap, mode);
+
+      var sizes = chunks.map(function (c) { return c.text.length; });
+      var total = sizes.reduce(function (a, b) { return a + b; }, 0);
+
+      document.getElementById('s-count').textContent = chunks.length;
+      document.getElementById('s-avg').textContent = chunks.length
+        ? Math.round(total / chunks.length).toLocaleString() : '0';
+      document.getElementById('s-largest').textContent = sizes.length
+        ? Math.max.apply(null, sizes).toLocaleString() : '0';
+      document.getElementById('s-tokens').textContent = chunks.length
+        ? '~' + Math.round(total / 4).toLocaleString() : '0';
+
+      var max = sizes.length ? Math.max.apply(null, sizes) : 1;
+      document.getElementById('bars').innerHTML = sizes.slice(0, 120).map(function (s) {
+        return '<i style="height:' + Math.max(4, s / max * 100) + '%" title="' +
+          s + ' characters"></i>';
+      }).join('');
+
+      document.getElementById('bars-note').textContent = chunks.length
+        ? (overlap > 0
+            ? 'Stored characters: ' + total.toLocaleString() + ' from a ' +
+              text.length.toLocaleString() + ' character document — ' +
+              Math.round((total / Math.max(1, text.length) - 1) * 100) +
+              '% more, which is the cost of the overlap.'
+            : 'No overlap, so a fact spanning a boundary will not be findable.')
+        : '';
+
+      document.getElementById('chunks').innerHTML = chunks.length
+        ? chunks.slice(0, 200).map(function (c, i) {
+            var prev = chunks[i - 1];
+            var overlapLen = prev ? Math.max(0, prev.end - c.start) : 0;
+            var head = c.text.slice(0, overlapLen);
+            var rest = c.text.slice(overlapLen);
+            return '<details class="chunk">' +
+              '<summary><span class="no">' + (i + 1) + '</span>' +
+              '<span class="peek">' + escapeHtml(c.text.slice(0, 90)) + '</span>' +
+              '<span class="size">' + c.text.length + '</span></summary>' +
+              '<div class="body">' +
+                (overlapLen ? '<span class="ov">' + escapeHtml(head) + '</span>' : '') +
+                escapeHtml(rest) +
+              '</div></details>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Paste a document above.</p>';
+    }
+
+    function download(text, name, type) {
+      var blob = new Blob([text], { type: type });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.getElementById('download-json').addEventListener('click', function () {
+      if (!chunks.length) { CT.toast('Nothing to download'); return; }
+      download(JSON.stringify(chunks.map(function (c, i) {
+        return { index: i, start: c.start, end: c.end, text: c.text };
+      }), null, 2), 'chunks.json', 'application/json');
+    });
+
+    document.getElementById('download-jsonl').addEventListener('click', function () {
+      if (!chunks.length) { CT.toast('Nothing to download'); return; }
+      download(chunks.map(function (c, i) {
+        return JSON.stringify({ index: i, text: c.text });
+      }).join('\n') + '\n', 'chunks.jsonl', 'application/x-ndjson');
+    });
+
+    ['in', 'size', 'overlap', 'mode'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', run);
+      el.addEventListener('change', run);
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = SAMPLE;
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    document.getElementById('in').value = SAMPLE;
+    run();
+  })();
+  </script>
+</body>
+</html>

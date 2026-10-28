@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meta Tag Generator — Cja's Tools</title>
+<meta name="description" content="Build the title, description and social sharing tags for a page, with a preview of how it will look in search and when shared.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; min-height: 260px; }
+  .serp {
+    padding: 15px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+  }
+  .serp .url { font-size: 12.5px; color: #1f7a3d; margin-bottom: 3px; word-break: break-all; }
+  html:not([data-theme="light"]) .serp .url { color:#6fdca2; }
+  :root[data-theme="dark"] .serp .url { color:#6fdca2; }
+  .serp .t { font-size: 18px; color: #1a0dab; line-height: 1.3; margin-bottom: 3px; }
+  html:not([data-theme="light"]) .serp .t { color:#8ab4f8; }
+  :root[data-theme="dark"] .serp .t { color:#8ab4f8; }
+  .serp .d { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; background: var(--bg); max-width: 500px;
+  }
+  .card .img {
+    aspect-ratio: 1.91; background: var(--surface-2);
+    display: grid; place-items: center; color: var(--muted); font-size: 12.5px;
+    background-size: cover; background-position: center;
+  }
+  .card .body { padding: 11px 13px; }
+  .card .host { font-size: 11.5px; color: var(--muted); text-transform: uppercase; }
+  .card .t { font-size: 14.5px; font-weight: 600; margin: 3px 0; }
+  .card .d { font-size: 13px; color: var(--muted); line-height: 1.45; }
+  .len { font-size: 12px; margin-top: 5px; }
+  .len.ok { color: #1f9d55; }
+  .len.warn { color: #b8730b; }
+  .len.bad { color: var(--danger); }
+</style>
+</head>
+<body data-page="tool" data-slug="meta-tags">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=seo">SEO</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Meta Tag Generator</h1>
+        <p>Everything a page needs in its head, with a preview.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="title">Page title</label>
+          <input type="text" id="title" value="Cja's Tools — every little tool, on your computer" autocomplete="off">
+          <div class="len" id="title-len"></div>
+        </div>
+        <div class="field">
+          <label for="desc">Description</label>
+          <textarea id="desc" style="min-height:80px">Free tools for PDFs, images, video, audio, text, money and more. Everything runs on your own device, so your files are never uploaded.</textarea>
+          <div class="len" id="desc-len"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="url">Page address</label>
+            <input type="text" id="url" value="https://chami123jano.github.io/cjas-tools" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="site">Site name</label>
+            <input type="text" id="site" value="Cja's Tools" autocomplete="off">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="image">Share image address</label>
+            <input type="text" id="image" placeholder="https://example.com/share.png" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="type">Page kind</label>
+            <select id="type">
+              <option value="website" selected>Website</option>
+              <option value="article">Article</option>
+              <option value="product">Product</option>
+              <option value="profile">Profile</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="author">Author (optional)</label>
+            <input type="text" id="author" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="locale">Language</label>
+            <select id="locale">
+              <option value="en" selected>English</option>
+              <option value="en_GB">English (UK)</option>
+              <option value="si_LK">Sinhala (Sri Lanka)</option>
+              <option value="ta_LK">Tamil (Sri Lanka)</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="og">Open Graph</button>
+          <button class="btn primary" data-opt="twitter">Twitter card</button>
+          <button class="btn primary" data-opt="canonical">Canonical link</button>
+          <button class="btn" data-opt="noindex">Ask not to be indexed</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">How it may look in search results</label>
+        <div class="serp">
+          <div class="url" id="p-url"></div>
+          <div class="t" id="p-title"></div>
+          <div class="d" id="p-desc"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">How it may look when shared</label>
+        <div class="card">
+          <div class="img" id="p-img">No share image set</div>
+          <div class="body">
+            <div class="host" id="p-host"></div>
+            <div class="t" id="c-title"></div>
+            <div class="d" id="c-desc"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Paste this into your page's &lt;head&gt;</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy tags</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The previews are a guide, not a guarantee.</b> Search
+          engines rewrite titles and descriptions when they think something else
+          fits the query better, and each social network crops images
+          differently. The lengths flagged above are the points where text
+          usually starts getting cut off.
+          <br><br>
+          <b>The share image must be a full address</b> beginning with https,
+          not a relative path. A relative one works on your own page and then
+          silently fails everywhere it gets shared. Around 1200 by 630 pixels
+          suits most networks.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { og: true, twitter: true, canonical: true, noindex: false };
+
+    function val(id) { return document.getElementById(id).value.trim(); }
+
+    /* Attribute values go inside double quotes, so a quote in the text would
+       end the attribute early and break the tag. */
+    function attr(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function lengthNote(el, text, good, max) {
+      var n = text.length;
+      var cls = n === 0 ? '' : n <= good ? 'ok' : n <= max ? 'warn' : 'bad';
+      var msg = n === 0 ? 'Empty'
+        : n <= good ? n + ' characters — fits'
+        : n <= max ? n + ' characters — may be shortened'
+        : n + ' characters — will almost certainly be cut off';
+      el.className = 'len ' + cls;
+      el.textContent = msg;
+    }
+
+    function host(url) {
+      try {
+        return new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url).hostname;
+      } catch (e) { return url.replace(/^https?:\/\//i, '').split('/')[0]; }
+    }
+
+    function run() {
+      var title = val('title');
+      var desc = val('desc');
+      var url = val('url');
+      var site = val('site');
+      var image = val('image');
+      var type = val('type');
+      var author = val('author');
+      var locale = val('locale');
+
+      lengthNote(document.getElementById('title-len'), title, 60, 70);
+      lengthNote(document.getElementById('desc-len'), desc, 155, 165);
+
+      document.getElementById('p-url').textContent = url || 'https://example.com';
+      document.getElementById('p-title').textContent =
+        title.length > 70 ? title.slice(0, 70) + '…' : (title || 'Your page title');
+      document.getElementById('p-desc').textContent =
+        desc.length > 165 ? desc.slice(0, 165) + '…' : (desc || 'Your description.');
+
+      document.getElementById('p-host').textContent = host(url) || 'example.com';
+      document.getElementById('c-title').textContent = title || 'Your page title';
+      document.getElementById('c-desc').textContent =
+        desc.length > 120 ? desc.slice(0, 120) + '…' : (desc || 'Your description.');
+
+      var img = document.getElementById('p-img');
+      if (image && /^https?:\/\//i.test(image)) {
+        img.style.backgroundImage = 'url("' + image.replace(/"/g, '') + '")';
+        img.textContent = '';
+      } else {
+        img.style.backgroundImage = '';
+        img.textContent = image
+          ? 'That image address is not absolute — it will not load when shared'
+          : 'No share image set';
+      }
+
+      var lines = ['<!-- Basics -->'];
+      lines.push('<meta charset="utf-8">');
+      lines.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
+      if (title) lines.push('<title>' + escapeHtml(title) + '</title>');
+      if (desc) lines.push('<meta name="description" content="' + attr(desc) + '">');
+      if (author) lines.push('<meta name="author" content="' + attr(author) + '">');
+      if (opts.canonical && url) {
+        lines.push('<link rel="canonical" href="' + attr(url) + '">');
+      }
+      if (opts.noindex) {
+        lines.push('<meta name="robots" content="noindex, nofollow">');
+      }
+
+      if (opts.og) {
+        lines.push('');
+        lines.push('<!-- Open Graph, used by Facebook, LinkedIn, WhatsApp and others -->');
+        lines.push('<meta property="og:type" content="' + attr(type) + '">');
+        if (title) lines.push('<meta property="og:title" content="' + attr(title) + '">');
+        if (desc) lines.push('<meta property="og:description" content="' + attr(desc) + '">');
+        if (url) lines.push('<meta property="og:url" content="' + attr(url) + '">');
+        if (site) lines.push('<meta property="og:site_name" content="' + attr(site) + '">');
+        if (locale) lines.push('<meta property="og:locale" content="' + attr(locale) + '">');
+        if (image) {
+          lines.push('<meta property="og:image" content="' + attr(image) + '">');
+          lines.push('<meta property="og:image:width" content="1200">');
+          lines.push('<meta property="og:image:height" content="630">');
+          lines.push('<meta property="og:image:alt" content="' +
+            attr(title || site) + '">');
+        }
+      }
+
+      if (opts.twitter) {
+        lines.push('');
+        lines.push('<!-- Twitter card -->');
+        lines.push('<meta name="twitter:card" content="' +
+          (image ? 'summary_large_image' : 'summary') + '">');
+        if (title) lines.push('<meta name="twitter:title" content="' + attr(title) + '">');
+        if (desc) lines.push('<meta name="twitter:description" content="' + attr(desc) + '">');
+        if (image) lines.push('<meta name="twitter:image" content="' + attr(image) + '">');
+      }
+
+      document.getElementById('out').value = lines.join('\n');
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    ['title', 'desc', 'url', 'site', 'image', 'type', 'author', 'locale']
+      .forEach(function (id) {
+        var el = document.getElementById(id);
+        el.addEventListener('input', run);
+        el.addEventListener('change', run);
+      });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>
