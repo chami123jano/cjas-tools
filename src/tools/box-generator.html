@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Box Generator — Cja's Tools</title>
+<meta name="description" content="Make a cutting template for a box that folds together, sized to fit what you are putting in it. Downloads as SVG or PDF-ready outlines.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .preview {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: #fff; padding: 14px; overflow: auto; line-height: 0;
+  }
+  .preview svg { max-width: 100%; height: auto; display: block; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 12px; }
+  .legend i { display: inline-block; width: 22px; height: 0; border-top: 2px solid; margin-right: 6px; vertical-align: middle; }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="box-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=printing">3D Printing</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Box Generator</h1>
+        <p>A flat template that folds into a box. Cut, score, fold, glue.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="w">Width (mm)</label>
+            <input type="number" id="w" value="100" min="10" max="600" step="1">
+          </div>
+          <div class="field">
+            <label for="d">Depth (mm)</label>
+            <input type="number" id="d" value="70" min="10" max="600" step="1">
+          </div>
+          <div class="field">
+            <label for="h">Height (mm)</label>
+            <input type="number" id="h" value="50" min="10" max="600" step="1">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="thickness">Material thickness (mm)</label>
+            <input type="number" id="thickness" value="0.5" min="0" max="10" step="0.1">
+          </div>
+          <div class="field">
+            <label for="glue">Glue tab width (mm)</label>
+            <input type="number" id="glue" value="12" min="0" max="40" step="1">
+          </div>
+          <div class="field">
+            <label for="lid">Lid style</label>
+            <select id="lid">
+              <option value="tuck" selected>Tuck-in flap</option>
+              <option value="flaps">Four folding flaps</option>
+              <option value="open">Open top</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" id="inside" checked style="width:auto;margin-right:7px">
+            These are inside measurements (what has to fit)
+          </label>
+        </div>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-sheet">&mdash;</b><span>Sheet needed</span></div>
+          <div class="stat"><b id="s-fits">&mdash;</b><span>Fits on</span></div>
+          <div class="stat"><b id="s-cut">&mdash;</b><span>Cut length</span></div>
+          <div class="stat"><b id="s-volume">&mdash;</b><span>Holds about</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="preview" id="preview"></div>
+        <div class="legend">
+          <span><i style="border-color:#d4483b"></i>Cut</span>
+          <span><i style="border-color:#2f6df6;border-top-style:dashed"></i>Score and fold</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="download-svg">Download SVG</button>
+          <button class="btn" id="print">Print at actual size</button>
+        </div>
+        <p class="hint">The SVG is drawn at true millimetre size, so a laser
+          cutter or plotter will cut it correctly without scaling. Red lines are
+          cuts, blue dashed lines are folds &mdash; most cutting software can
+          separate them by colour.</p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Inside or outside measurements.</b> With the box above
+          ticked, the numbers are what has to fit <i>inside</i>, and the material
+          thickness is added on so the contents actually go in. Untick it and the
+          numbers become the outside of the finished box. Getting this backwards
+          is the usual reason a box comes out slightly too small.
+          <br><br>
+          <b>Score, do not cut, the fold lines.</b> On card, run a blunt edge
+          along them first; on a laser cutter, use a low-power pass. Cutting
+          through them gives you five separate pieces.
+          <br><br>
+          Card up to about 1 mm folds cleanly with a straight score. Thicker
+          material needs the fold line widened to roughly the thickness, or it
+          will crack rather than bend.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var CUT = '#d4483b';
+    var FOLD = '#2f6df6';
+
+    /* Common sheet sizes in mm, to tell someone up front whether the
+       template will actually fit on what they have. */
+    var SHEETS = [
+      ['A4', 210, 297],
+      ['A3', 297, 420],
+      ['A2', 420, 594],
+      ['Letter', 216, 279],
+      ['600 x 400 laser bed', 600, 400]
+    ];
+
+    function n(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : 0;
+    }
+
+    function build() {
+      var w = n('w'), d = n('d'), h = n('h');
+      var t = n('thickness'), glue = n('glue');
+      var lid = document.getElementById('lid').value;
+      var inside = document.getElementById('inside').checked;
+
+      if (w <= 0 || d <= 0 || h <= 0) {
+        document.getElementById('preview').innerHTML =
+          '<p style="color:#666;font-size:13px;line-height:1.5;margin:0">' +
+          'Enter a width, depth and height.</p>';
+        return;
+      }
+
+      /* Inside measurements have to grow by the material thickness on each
+         side, or the contents will not fit the finished box. */
+      if (inside) {
+        w += t * 2;
+        d += t * 2;
+      }
+
+      /* Flap depth: half the depth is the standard for flaps that meet in
+         the middle without overlapping. */
+      var flap = lid === 'open' ? 0 : (lid === 'tuck' ? Math.min(h, d * 0.8) : d / 2);
+      var bottomFlap = d / 2;
+
+      /* Layout, left to right: glue tab, then the four walls wrapped round,
+         with the base flaps below and the lid flaps above. */
+      var bodyW = (w + d) * 2;
+      var totalW = glue + bodyW;
+      var totalH = bottomFlap + h + flap;
+
+      var margin = 6;
+      var svgW = totalW + margin * 2;
+      var svgH = totalH + margin * 2;
+
+      var cuts = [];
+      var folds = [];
+
+      function line(a, b, c, e, into) {
+        into.push('M' + a.toFixed(2) + ' ' + b.toFixed(2) +
+                  ' L' + c.toFixed(2) + ' ' + e.toFixed(2));
+      }
+
+      var x0 = margin + glue;
+      var yTop = margin + flap;
+      var yBot = yTop + h;
+
+      /* Walls, in order: width, depth, width, depth. */
+      var walls = [w, d, w, d];
+      var edges = [x0];
+      walls.forEach(function (ww) { edges.push(edges[edges.length - 1] + ww); });
+
+      /* The outer edge of the band of walls. */
+      line(x0, yTop, edges[4], yTop, cuts);
+      line(x0, yBot, edges[4], yBot, cuts);
+
+      /* Vertical folds between walls, and cuts at the two far ends. */
+      line(x0, yTop, x0, yBot, folds);
+      for (var i = 1; i < 4; i++) {
+        line(edges[i], yTop, edges[i], yBot, folds);
+      }
+      line(edges[4], yTop, edges[4], yBot, cuts);
+
+      /* Glue tab on the left, tapered so it slides inside the opposite wall. */
+      if (glue > 0) {
+        var taper = Math.min(glue * 0.6, h * 0.12);
+        cuts.push('M' + (x0).toFixed(2) + ' ' + yTop.toFixed(2) +
+          ' L' + (x0 - glue).toFixed(2) + ' ' + (yTop + taper).toFixed(2) +
+          ' L' + (x0 - glue).toFixed(2) + ' ' + (yBot - taper).toFixed(2) +
+          ' L' + (x0).toFixed(2) + ' ' + yBot.toFixed(2));
+      }
+
+      /* Base flaps: one under each wall, with a small gap so adjacent flaps
+         do not collide when folded. */
+      var gap = Math.max(0.5, t * 2);
+      for (var k = 0; k < 4; k++) {
+        var left = edges[k] + (k % 2 === 0 ? 0 : gap);
+        var right = edges[k + 1] - (k % 2 === 0 ? 0 : gap);
+        var depth = (k % 2 === 0) ? bottomFlap : bottomFlap * 0.92;
+        line(left, yBot, left, yBot + depth, cuts);
+        line(left, yBot + depth, right, yBot + depth, cuts);
+        line(right, yBot + depth, right, yBot, cuts);
+      }
+
+      /* Lid. */
+      if (lid === 'flaps') {
+        for (var m = 0; m < 4; m++) {
+          var l2 = edges[m] + (m % 2 === 0 ? 0 : gap);
+          var r2 = edges[m + 1] - (m % 2 === 0 ? 0 : gap);
+          var dep2 = (m % 2 === 0) ? flap : flap * 0.92;
+          line(l2, yTop, l2, yTop - dep2, cuts);
+          line(l2, yTop - dep2, r2, yTop - dep2, cuts);
+          line(r2, yTop - dep2, r2, yTop, cuts);
+        }
+      } else if (lid === 'tuck') {
+        /* A single lid panel over the first wall, with a tongue that tucks
+           into the front, plus small side wings to hold it shut. */
+        var lidLeft = edges[0], lidRight = edges[1];
+        var wing = Math.min(d * 0.35, h * 0.6);
+
+        line(lidLeft, yTop, lidLeft, yTop - d, cuts);
+        line(lidLeft, yTop - d, lidRight, yTop - d, folds);
+        line(lidRight, yTop - d, lidRight, yTop, cuts);
+
+        var tongue = Math.min(flap, d * 0.75);
+        line(lidLeft + wing, yTop - d, lidLeft + wing, yTop - d - tongue, cuts);
+        line(lidLeft + wing, yTop - d - tongue, lidRight - wing, yTop - d - tongue, cuts);
+        line(lidRight - wing, yTop - d - tongue, lidRight - wing, yTop - d, cuts);
+
+        totalH = d + tongue + h + bottomFlap;
+        svgH = totalH + margin * 2;
+        /* The tongue sticks out above the lid, so the drawing is shifted
+           down to keep everything inside the canvas. */
+      }
+
+      var shiftY = lid === 'tuck' ? (d + Math.min(flap, d * 0.75)) - flap : 0;
+
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" ' +
+        'width="' + svgW + 'mm" height="' + svgH + 'mm" ' +
+        'viewBox="0 ' + (-shiftY) + ' ' + svgW + ' ' + svgH + '">' +
+        '<g fill="none" stroke-width="0.3">' +
+        '<path stroke="' + CUT + '" d="' + cuts.join(' ') + '"/>' +
+        '<path stroke="' + FOLD + '" stroke-dasharray="3 2" d="' + folds.join(' ') + '"/>' +
+        '</g></svg>';
+
+      document.getElementById('preview').innerHTML = svg;
+      window.__boxSvg = svg;
+
+      var cutLength = 0;
+      cuts.concat().forEach(function (path) {
+        var pts = path.match(/-?\d+\.?\d*/g) || [];
+        for (var p = 2; p + 1 < pts.length; p += 2) {
+          cutLength += Math.hypot(pts[p] - pts[p - 2], pts[p + 1] - pts[p - 1]);
+        }
+      });
+
+      document.getElementById('s-sheet').textContent =
+        Math.ceil(svgW) + ' × ' + Math.ceil(svgH) + ' mm';
+
+      var fits = SHEETS.filter(function (s) {
+        return (svgW <= s[1] && svgH <= s[2]) || (svgW <= s[2] && svgH <= s[1]);
+      });
+      document.getElementById('s-fits').textContent = fits.length
+        ? fits[0][0] : 'nothing standard';
+
+      document.getElementById('s-cut').textContent =
+        (cutLength / 10).toFixed(0) + ' cm';
+
+      var litres = (n('w') * n('d') * n('h')) / 1000000;
+      document.getElementById('s-volume').textContent = litres < 1
+        ? Math.round(litres * 1000) + ' ml' : litres.toFixed(2) + ' L';
+
+      var warnings = [];
+      if (!fits.length) {
+        warnings.push('<b>This template is ' + Math.ceil(svgW) + ' by ' +
+          Math.ceil(svgH) + ' mm</b>, which is larger than A2 or a 600 by 400 ' +
+          'laser bed. You would need to cut it in pieces and join them.');
+      }
+      if (t > 1) {
+        warnings.push('At ' + t + ' mm the material is too thick to fold on a ' +
+          'simple score line. Widen each fold to about the material thickness, ' +
+          'or build the box as separate panels with finger joints.');
+      }
+      if (glue === 0) {
+        warnings.push('With no glue tab the two ends only meet edge to edge, so ' +
+          'the box needs tape to hold its shape.');
+      }
+      if (n('h') > n('w') * 3 || n('h') > n('d') * 3) {
+        warnings.push('This is very tall for its base, so it will be easy to tip ' +
+          'over once filled.');
+      }
+
+      document.getElementById('warn-slot').innerHTML = warnings.length
+        ? '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>'
+        : '';
+    }
+
+    document.getElementById('download-svg').addEventListener('click', function () {
+      if (!window.__boxSvg) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([window.__boxSvg], { type: 'image/svg+xml' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'box-' + n('w') + 'x' + n('d') + 'x' + n('h') + '.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('print').addEventListener('click', function () {
+      window.print();
+    });
+
+    ['w', 'd', 'h', 'thickness', 'glue', 'lid', 'inside'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    build();
+  })();
+  </script>
+</body>
+</html>

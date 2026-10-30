@@ -1750,6 +1750,144 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- seo + misc
+
+(function sitemapGenerator() {
+  const t = loadTool('sitemap-generator');
+  t.set('base', 'https://example.com').set('in', '/\n/about\n/contact');
+  const out = () => t.byId('out').value;
+  has(out(), '<loc>https://example.com/</loc>', 'a root path becomes a full address');
+  has(out(), '<loc>https://example.com/about</loc>', 'and so does a sub-path');
+  has(t.text('s-count'), '3', 'three pages counted');
+
+  // a comment and a blank line must not become entries
+  t.set('in', '/a\n\n/b   # a note\n');
+  has(t.text('s-count'), '2', 'comments and blank lines are ignored');
+  ok(out().indexOf('a note') === -1, 'the comment text does not reach the XML');
+
+  // an address on another site would make the whole file invalid
+  t.set('in', '/a\nhttps://other.com/x');
+  has(t.text('s-skipped'), '1', 'an off-site address is skipped');
+  has(t.text('warn-slot'), 'same site', 'and explained');
+
+  // duplicates
+  t.set('in', '/a\n/a\n/b');
+  has(t.text('s-count'), '2', 'duplicates are removed');
+
+  // an ampersand in a query string must be escaped or the XML is broken
+  t.set('in', '/search?a=1&b=2');
+  has(out(), '&amp;', 'an ampersand is escaped for XML');
+
+  // blocking the whole site with http should warn about the scheme
+  t.set('base', 'http://example.com').set('in', '/a');
+  has(t.text('warn-slot'), 'plain http', 'a plain http base is flagged');
+  t.close();
+})();
+
+(function keywordDensity() {
+  const t = loadTool('keyword-density');
+  t.set('in', 'tea tea tea coffee sugar');
+  has(t.text('s-words'), '5', 'words counted');
+  has(t.text('results'), 'tea', 'the repeated word is listed');
+  has(t.text('results'), '3', 'with its count');
+
+  // common words should be excluded by default so the subject shows through
+  t.set('in', 'the the the the the tools tools');
+  const shown = t.text('results');
+  ok(shown.indexOf('tools') !== -1, 'the meaningful word is listed');
+
+  // over-repetition should be flagged
+  t.set('in', ('tea ' + 'word '.repeat(19)).trim());
+  t.set('min', 1);
+  // 'tea' is 1 of 20 words = 5%, above the 4% flag
+  has(t.text('warn-slot'), '4%', 'over-repetition is flagged');
+
+  // a very short text should say the numbers are unreliable
+  t.set('in', 'just a few words here');
+  has(t.text('warn-slot'), 'swing wildly', 'a short text is called out');
+  t.close();
+})();
+
+(function socialPreview() {
+  const t = loadTool('social-preview');
+  t.set('title', 'A short title').set('desc', 'A description.')
+   .set('url', 'https://example.com').set('image', '');
+  has(t.text('cards'), 'Facebook', 'platforms are listed');
+  has(t.text('cards'), 'WhatsApp', 'including WhatsApp');
+  has(t.text('cards'), 'example.com', 'the host is shown');
+  has(t.text('warn-slot'), 'No share image', 'a missing image is flagged');
+
+  // a relative image fails silently once shared, so it must be called out
+  t.set('image', '/local.png');
+  has(t.text('warn-slot'), 'relative', 'a relative image is flagged');
+
+  // a long title must be reported as cut per platform
+  t.set('image', 'https://example.com/i.png').set('title', 'x'.repeat(100));
+  has(t.text('cards'), 'Title cut at 65', 'WhatsApp truncation is reported');
+  has(t.text('cards'), 'Title cut at 70', 'and X truncation too');
+
+  // LinkedIn shows no description at all
+  t.set('title', 'Short');
+  has(t.text('cards'), 'no description', 'LinkedIn behaviour is noted');
+  t.close();
+})();
+
+(function typingTest() {
+  const t = loadTool('typing-test');
+  ok(t.byId('passage').textContent.trim().length > 0, 'a passage is generated');
+  has(t.text('verdict'), 'Start typing', 'it waits for the first keystroke');
+  ok(t.document.querySelectorAll('#passage span').length > 0,
+     'the passage is rendered character by character');
+
+  // typing the passage exactly should finish it at 100% accuracy
+  const passage = [...t.document.querySelectorAll('#passage span')]
+    .map((s) => (s.textContent === ' ' ? ' ' : s.textContent)).join('');
+  t.set('typed', passage);
+  has(t.text('s-acc'), '100%', 'typing it exactly gives full accuracy');
+  has(t.text('s-errors'), '0', 'and no mistakes');
+  has(t.text('verdict'), 'words per minute', 'a result is reported');
+
+  t.close();
+})();
+
+(function boxGenerator() {
+  const t = loadTool('box-generator');
+  t.set('w', 100).set('d', 70).set('h', 50).set('thickness', 0.5)
+   .set('glue', 12).set('lid', 'open').set('inside', false);
+  ok(t.document.querySelector('#preview svg') !== null, 'a template is drawn');
+  ok(t.document.querySelectorAll('#preview path').length === 2,
+     'cuts and folds are separate paths');
+
+  // volume comes from the entered dimensions: 100*70*50mm = 350ml
+  has(t.text('s-volume'), '350 ml', 'the capacity is worked out');
+
+  // the wrapped band of walls is (w+d)*2 = 340, plus a 12mm glue tab and a
+  // 6mm margin on each side = 364
+  has(t.text('s-sheet'), '364', 'the sheet width is the walls, tab and margins');
+
+  // inside measurements must grow the box, not shrink it
+  t.set('inside', true);
+  const withInside = t.text('s-sheet');
+  t.set('inside', false);
+  const withOutside = t.text('s-sheet');
+  ok(parseInt(withInside, 10) > parseInt(withOutside, 10),
+     'inside measurements produce a larger template',
+     withInside + ' vs ' + withOutside);
+
+  // thick material cannot be folded on a score line
+  t.set('thickness', 3);
+  has(t.text('warn-slot'), 'too thick', 'thick material is flagged');
+
+  // no glue tab means it needs tape
+  t.set('thickness', 0.5).set('glue', 0);
+  has(t.text('warn-slot'), 'tape', 'a missing glue tab is flagged');
+
+  // something far too big for any sheet
+  t.set('glue', 12).set('w', 500).set('d', 500).set('h', 500);
+  has(t.text('warn-slot'), 'larger than', 'an oversized template is flagged');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

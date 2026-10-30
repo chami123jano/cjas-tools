@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Social Card Preview — Cja's Tools</title>
+<meta name="description" content="See how a link will look when shared on Facebook, X, LinkedIn, WhatsApp and Slack, with warnings about what gets cut off.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 18px; }
+  .plat { }
+  .plat h3 {
+    margin: 0 0 9px; font-size: 11.5px; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); font-weight: 700;
+  }
+  .card {
+    border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; background: var(--bg);
+  }
+  .card .img {
+    aspect-ratio: 1.91; background: var(--surface-2);
+    display: grid; place-items: center; color: var(--muted);
+    font-size: 12px; text-align: center; padding: 10px;
+    background-size: cover; background-position: center;
+  }
+  .card .body { padding: 10px 12px; }
+  .card .host { font-size: 11.5px; color: var(--muted); }
+  .card .t { font-size: 14.5px; font-weight: 600; margin: 3px 0; line-height: 1.3; }
+  .card .d { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+
+  /* Facebook puts the host above the title in small caps */
+  .fb .host { text-transform: uppercase; font-size: 11px; }
+  /* X shows the image with the title overlaid at the bottom on large cards */
+  .x .card { border-radius: 14px; }
+  /* LinkedIn shows no description at all in the feed */
+  .li .d { display: none; }
+  /* WhatsApp shows a small square thumbnail beside the text */
+  .wa .card { display: grid; grid-template-columns: 76px 1fr; }
+  .wa .img { aspect-ratio: 1; }
+  .wa .t { font-size: 13px; }
+  .wa .d { font-size: 12px; }
+  /* Slack adds a coloured bar down the left */
+  .sl .card { border-left: 4px solid var(--accent); }
+
+  .limit { font-size: 11.5px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
+  .limit b { color: var(--danger); }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="social-preview">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=seo">SEO</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Social Card Preview</h1>
+        <p>The same link, as five different platforms will show it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="title">Title</label>
+          <input type="text" id="title" value="Cja's Tools — every little tool, on your computer" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="desc">Description</label>
+          <textarea id="desc" style="min-height:70px">Free tools for PDFs, images, video, audio, text and money. Everything runs on your own device, so your files are never uploaded.</textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="url">Address</label>
+            <input type="text" id="url" value="https://chami123jano.github.io/cjas-tools" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="image">Share image address</label>
+            <input type="text" id="image" placeholder="https://example.com/share.png" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <p class="hint">You can take these values straight from the
+          <a href="meta-tags.html">Meta Tag Generator</a>.</p>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="cards" id="cards"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>These are drawn from the numbers each platform
+          publishes, not fetched from the platforms themselves.</b> Nothing is
+          uploaded and no request leaves your device, which also means this
+          cannot tell you whether a platform has already cached an older version
+          of your page. If you have changed your tags and a platform still shows
+          the old card, use that platform's own debugging tool to make it fetch
+          again.
+          <br><br>
+          <b>One image for all of them.</b> 1200 by 630 pixels works everywhere:
+          it is the right shape for the large cards and gets cropped to a square
+          reasonably for WhatsApp. Keep anything important away from the edges.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Roughly where each platform truncates. These move from time to time,
+       so they are a guide to what is at risk, not a promise. */
+    var PLATFORMS = [
+      { key: 'fb', name: 'Facebook', title: 88, desc: 160, needsImage: false },
+      { key: 'x', name: 'X (Twitter)', title: 70, desc: 125, needsImage: false },
+      { key: 'li', name: 'LinkedIn', title: 70, desc: 0, needsImage: false },
+      { key: 'wa', name: 'WhatsApp', title: 65, desc: 90, needsImage: false },
+      { key: 'sl', name: 'Slack', title: 100, desc: 200, needsImage: false }
+    ];
+
+    function val(id) { return document.getElementById(id).value.trim(); }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function host(url) {
+      try {
+        return new URL(/^https?:\/\//i.test(url) ? url : 'https://' + url).hostname;
+      } catch (e) {
+        return url.replace(/^https?:\/\//i, '').split('/')[0] || 'example.com';
+      }
+    }
+
+    function clip(text, max) {
+      if (!max) return '';
+      return text.length > max ? text.slice(0, max).trim() + '…' : text;
+    }
+
+    function run() {
+      var title = val('title');
+      var desc = val('desc');
+      var url = val('url');
+      var image = val('image');
+      var h = host(url);
+
+      var absolute = image && /^https?:\/\//i.test(image);
+
+      document.getElementById('cards').innerHTML = PLATFORMS.map(function (p) {
+        var shownTitle = clip(title || 'Your page title', p.title);
+        var shownDesc = p.desc ? clip(desc, p.desc) : '';
+
+        var imgStyle = absolute
+          ? 'background-image:url("' + image.replace(/"/g, '') + '")'
+          : '';
+        var imgText = absolute ? '' : (image
+          ? 'That address is not absolute'
+          : 'No image — a small card');
+
+        var notes = [];
+        if (title.length > p.title) {
+          notes.push('<b>Title cut at ' + p.title + ' characters</b> (yours is ' +
+            title.length + ')');
+        }
+        if (p.desc === 0) {
+          notes.push('Shows no description in the feed at all');
+        } else if (desc.length > p.desc) {
+          notes.push('<b>Description cut at ' + p.desc + '</b> (yours is ' +
+            desc.length + ')');
+        }
+        if (p.key === 'wa') notes.push('Image is cropped to a square');
+
+        return '<div class="plat ' + p.key + '">' +
+          '<h3>' + p.name + '</h3>' +
+          '<div class="card">' +
+            '<div class="img" style="' + imgStyle + '">' + imgText + '</div>' +
+            '<div class="body">' +
+              (p.key === 'wa' ? '' : '<div class="host">' + escapeHtml(h) + '</div>') +
+              '<div class="t">' + escapeHtml(shownTitle) + '</div>' +
+              '<div class="d">' + escapeHtml(shownDesc) + '</div>' +
+              (p.key === 'wa' ? '<div class="host">' + escapeHtml(h) + '</div>' : '') +
+            '</div>' +
+          '</div>' +
+          (notes.length ? '<div class="limit">' + notes.join('<br>') + '</div>' : '') +
+        '</div>';
+      }).join('');
+
+      var warnings = [];
+      if (!image) {
+        warnings.push('<b>No share image.</b> Every platform falls back to a small ' +
+          'text-only card, which gets far fewer clicks. One 1200 by 630 image is ' +
+          'the single biggest improvement you can make here.');
+      } else if (!absolute) {
+        warnings.push('<b>That image address is relative.</b> It will work on your ' +
+          'own page and then fail silently everywhere the link is shared. It must ' +
+          'start with https.');
+      }
+      if (title.length > 65) {
+        warnings.push('The title is ' + title.length + ' characters. WhatsApp cuts ' +
+          'at about 65, so put the important words first.');
+      }
+      if (url && !/^https?:\/\//i.test(url)) {
+        warnings.push('The address should start with https.');
+      }
+
+      document.getElementById('warn-slot').innerHTML = warnings.length
+        ? '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>'
+        : '';
+    }
+
+    ['title', 'desc', 'url', 'image'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

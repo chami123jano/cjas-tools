@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typing Speed Test — Cja's Tools</title>
+<meta name="description" content="Find your words per minute and accuracy. Your best score is kept on this device. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .passage {
+    font-size: 19px; line-height: 2; letter-spacing: 0.2px;
+    padding: 18px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg);
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    user-select: none; min-height: 140px;
+  }
+  .passage span { position: relative; }
+  .passage .done { color: var(--muted); }
+  .passage .wrong { color: var(--danger); background: rgba(212,72,59,.16); border-radius: 2px; }
+  .passage .at {
+    background: var(--accent); color: #fff; border-radius: 2px;
+  }
+  .passage .at.space { background: var(--accent); }
+  #typed {
+    position: absolute; opacity: 0; pointer-events: none;
+    width: 1px; height: 1px;
+  }
+  .tap {
+    padding: 13px 15px; border: 1px dashed var(--border); border-radius: var(--radius);
+    text-align: center; color: var(--muted); font-size: 14px; cursor: pointer;
+  }
+  .tap.live { border-style: solid; border-color: var(--accent); color: var(--accent); }
+  .big { font-size: 34px; font-weight: 650; letter-spacing: -1px; }
+  .best { font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body data-page="tool" data-slug="typing-test">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=games">Games</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Typing Speed Test</h1>
+        <p>Click the passage and start typing. The clock starts on your first key.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="length">Length</label>
+            <select id="length">
+              <option value="15">Short — 15 words</option>
+              <option value="30" selected>Medium — 30 words</option>
+              <option value="60">Long — 60 words</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="kind">Passage</label>
+            <select id="kind">
+              <option value="common" selected>Common words</option>
+              <option value="sentences">Real sentences</option>
+              <option value="numbers">With numbers and symbols</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn" id="restart">New passage</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="tap" id="tap">Click here, then type</div>
+        <div class="passage" id="passage" style="margin-top:12px"></div>
+        <input type="text" id="typed" autocomplete="off" autocapitalize="off"
+               autocorrect="off" spellcheck="false">
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b class="big" id="s-wpm">0</b><span>Words per minute</span></div>
+          <div class="stat"><b class="big" id="s-acc">100%</b><span>Accuracy</span></div>
+          <div class="stat"><b id="s-time">0.0s</b><span>Time</span></div>
+          <div class="stat"><b id="s-errors">0</b><span>Mistakes</span></div>
+        </div>
+        <p class="best" id="best" style="margin-top:12px"></p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="verdict">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>How the speed is worked out.</b> One "word" is five
+          characters, which is the standard everyone uses &mdash; otherwise a
+          passage of short words would score higher than the same effort on long
+          ones. The figure shown is net speed: mistakes you left uncorrected are
+          taken off, so hammering the keyboard does not help.
+          <br><br>
+          Your best score is kept in this browser only. Nothing is uploaded and
+          there is no leaderboard.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-typing-best';
+
+    var COMMON = ('the of and a to in is you that it he for was on are as with his they at be ' +
+      'this have from or one had by word but not what all were we when your can said there ' +
+      'use an each which she do how their if will up other about out many then them these so ' +
+      'some her would make like him into time has look two more write go see number no way ' +
+      'could people my than first water been call who oil its now find long down day did get ' +
+      'come made may part over new sound take only little work know place year live me back ' +
+      'give most very after thing our just name good sentence man think say great where help ' +
+      'through much before line right too mean old any same tell boy follow came want show ' +
+      'also around form three small set put end does another well large must big even such').split(' ');
+
+    var SENTENCES = [
+      'The tools run on your own device, so nothing is ever uploaded.',
+      'A good cup of tea needs water just off the boil, not boiling.',
+      'She walked down to the harbour before the sun came up.',
+      'Every file you open here stays on this computer and goes nowhere else.',
+      'The rain started in the afternoon and did not stop until morning.',
+      'He could not remember whether he had locked the door behind him.',
+      'Writing something down is the fastest way to find out what you think.',
+      'The train was late again, which surprised nobody at all.',
+      'They built the whole thing from plain text files and nothing else.',
+      'A small change made early is worth ten made later.'
+    ];
+
+    var SYMBOLS = ('var x = 42; if (a < b) { return "ok"; } user@example.com ' +
+      '{"id": 7, "name": "tea"} 1,250.75 #tag 50% (yes) [no] a-b_c /path/to/file ' +
+      'Rs. 1,800,000 2026-10-30 https://example.com?q=1&p=2').split(' ');
+
+    var passage = '';
+    var typed = '';
+    var startedAt = null;
+    var finished = false;
+    var timer = null;
+
+    var input = document.getElementById('typed');
+    var tap = document.getElementById('tap');
+
+    function pick(list, n) {
+      var out = [];
+      for (var i = 0; i < n; i++) {
+        out.push(list[Math.floor(Math.random() * list.length)]);
+      }
+      return out;
+    }
+
+    function makePassage() {
+      var n = parseInt(document.getElementById('length').value, 10);
+      var kind = document.getElementById('kind').value;
+
+      if (kind === 'sentences') {
+        var out = [];
+        var count = 0;
+        /* Whole sentences rather than a word count, so the passage still
+           reads as English. */
+        while (count < n) {
+          var s = SENTENCES[Math.floor(Math.random() * SENTENCES.length)];
+          out.push(s);
+          count += s.split(' ').length;
+        }
+        return out.join(' ');
+      }
+      if (kind === 'numbers') {
+        /* Mixed, because a passage of pure symbols is a different skill and
+           not what anyone means by a typing test. */
+        var mix = [];
+        for (var i = 0; i < n; i++) {
+          mix.push(i % 3 === 0
+            ? SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]
+            : COMMON[Math.floor(Math.random() * COMMON.length)]);
+        }
+        return mix.join(' ');
+      }
+      return pick(COMMON, n).join(' ');
+    }
+
+    function readBest() {
+      try {
+        var raw = localStorage.getItem(KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) { return null; }
+    }
+
+    function writeBest(b) {
+      try { localStorage.setItem(KEY, JSON.stringify(b)); } catch (e) {}
+    }
+
+    function showBest() {
+      var b = readBest();
+      document.getElementById('best').textContent = b
+        ? 'Your best so far: ' + b.wpm + ' words per minute at ' + b.acc +
+          '% accuracy, on ' + new Date(b.when).toLocaleDateString('en-GB',
+            { day: 'numeric', month: 'short', year: 'numeric' }) + '.'
+        : 'No score saved yet.';
+    }
+
+    function render() {
+      var html = '';
+      for (var i = 0; i < passage.length; i++) {
+        var ch = passage[i];
+        var shown = ch === ' ' ? '&nbsp;' : ch.replace(/[<>&]/g, function (c) {
+          return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+        });
+        var cls;
+        if (i < typed.length) cls = typed[i] === ch ? 'done' : 'wrong';
+        else if (i === typed.length && !finished) cls = 'at';
+        else cls = '';
+        html += '<span class="' + cls + '">' + shown + '</span>';
+      }
+      document.getElementById('passage').innerHTML = html;
+    }
+
+    function stats() {
+      var elapsed = startedAt ? (Date.now() - startedAt) / 1000 : 0;
+
+      var correct = 0;
+      for (var i = 0; i < typed.length; i++) {
+        if (typed[i] === passage[i]) correct++;
+      }
+      var errors = typed.length - correct;
+
+      /* Five characters is one word by convention, and the speed is based on
+         correct characters only - so leaving mistakes in lowers the score. */
+      var minutes = elapsed / 60;
+      var wpm = minutes > 0 ? Math.round((correct / 5) / minutes) : 0;
+      var acc = typed.length ? Math.round(correct / typed.length * 100) : 100;
+
+      document.getElementById('s-wpm').textContent = wpm;
+      document.getElementById('s-acc').textContent = acc + '%';
+      document.getElementById('s-time').textContent = elapsed.toFixed(1) + 's';
+      document.getElementById('s-errors').textContent = errors;
+
+      return { wpm: wpm, acc: acc, elapsed: elapsed, errors: errors };
+    }
+
+    function finish() {
+      finished = true;
+      clearInterval(timer);
+      input.blur();
+      tap.classList.remove('live');
+      tap.textContent = 'Done. Click for another passage.';
+
+      var s = stats();
+      render();
+
+      var level = s.wpm < 25 ? 'Still finding the keys'
+        : s.wpm < 40 ? 'Steady'
+        : s.wpm < 60 ? 'Comfortable'
+        : s.wpm < 80 ? 'Fast'
+        : s.wpm < 100 ? 'Very fast'
+        : 'Remarkable';
+
+      var best = readBest();
+      var isBest = !best || s.wpm > best.wpm;
+      if (isBest && s.elapsed > 2) {
+        writeBest({ wpm: s.wpm, acc: s.acc, when: Date.now() });
+        showBest();
+      }
+
+      document.getElementById('verdict').innerHTML =
+        s.wpm + ' words per minute — ' + level +
+        '<small>' + s.acc + '% accurate, ' + s.errors + ' mistake' +
+        (s.errors === 1 ? '' : 's') + ' left in, ' + s.elapsed.toFixed(1) +
+        ' seconds' + (isBest && s.elapsed > 2 ? ' — a new best' : '') + '</small>';
+    }
+
+    function reset() {
+      passage = makePassage();
+      typed = '';
+      startedAt = null;
+      finished = false;
+      clearInterval(timer);
+      input.value = '';
+      tap.textContent = 'Click here, then type';
+      tap.classList.remove('live');
+      document.getElementById('verdict').innerHTML =
+        '&mdash;<small>Start typing to begin</small>';
+      document.getElementById('s-wpm').textContent = '0';
+      document.getElementById('s-acc').textContent = '100%';
+      document.getElementById('s-time').textContent = '0.0s';
+      document.getElementById('s-errors').textContent = '0';
+      render();
+    }
+
+    input.addEventListener('input', function () {
+      if (finished) return;
+
+      /* The clock starts on the first real keystroke, not when the page
+         loads, so thinking time before starting is not counted. */
+      if (!startedAt && input.value.length) {
+        startedAt = Date.now();
+        timer = setInterval(stats, 100);
+      }
+
+      typed = input.value.slice(0, passage.length);
+      render();
+      stats();
+
+      if (typed.length >= passage.length) finish();
+    });
+
+    /* Tab and Enter would move focus or submit, which loses the test. */
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Enter') e.preventDefault();
+    });
+
+    function focusInput() {
+      if (finished) { reset(); }
+      input.focus();
+      tap.classList.add('live');
+      tap.textContent = 'Typing — keep going';
+    }
+
+    tap.addEventListener('click', focusInput);
+    document.getElementById('passage').addEventListener('click', focusInput);
+
+    input.addEventListener('blur', function () {
+      if (!finished) {
+        tap.classList.remove('live');
+        tap.textContent = 'Click here to carry on';
+      }
+    });
+
+    document.getElementById('restart').addEventListener('click', function () {
+      reset();
+      focusInput();
+    });
+
+    ['length', 'kind'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', reset);
+    });
+
+    showBest();
+    reset();
+  })();
+  </script>
+</body>
+</html>

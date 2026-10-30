@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyword Density — Cja's Tools</title>
+<meta name="description" content="See which words and phrases a page actually repeats and how often, so you can spot both gaps and over-stuffing. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .krow {
+    display: grid; grid-template-columns: 1fr 62px 72px; gap: 10px;
+    align-items: center; padding: 7px 2px; border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .krow:last-child { border-bottom: none; }
+  .krow .bar { height: 7px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 4px; }
+  .krow .bar i { display: block; height: 100%; background: var(--accent); }
+  .krow .n, .krow .p { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .krow.high .p { color: var(--danger); font-weight: 600; }
+  .tabs { display: flex; gap: 7px; margin-bottom: 12px; flex-wrap: wrap; }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="keyword-density">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=seo">SEO</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Keyword Density</h1>
+        <p>What this text actually talks about, by the numbers.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">Your text</label>
+          <textarea id="in" spellcheck="false" placeholder="Paste the page content&hellip;"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="stopwords">Ignore common words</button>
+          <button class="btn primary" data-opt="numbers">Ignore numbers</button>
+          <button class="btn" data-opt="caseSensitive">Match case</button>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label for="min">Only show things appearing at least <span id="min-val">2</span> times</label>
+          <input type="range" id="min" min="1" max="10" value="2" style="width:100%">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-words">0</b><span>Words counted</span></div>
+          <div class="stat"><b id="s-unique">0</b><span>Different words</span></div>
+          <div class="stat"><b id="s-variety">0%</b><span>Variety</span></div>
+          <div class="stat"><b id="s-sentences">0</b><span>Sentences</span></div>
+        </div>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="tabs">
+          <button class="btn primary" data-n="1">Single words</button>
+          <button class="btn" data-n="2">Two-word phrases</button>
+          <button class="btn" data-n="3">Three-word phrases</button>
+        </div>
+        <div id="results"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>There is no target number.</b> Search engines stopped
+          rewarding a particular density many years ago, and stuffing a phrase in
+          repeatedly now reads as spam to both readers and ranking systems.
+          Anything above roughly 4% for a single word is flagged here, not
+          because a threshold exists, but because it usually means the writing
+          has gone stiff.
+          <br><br>
+          <b>What this is actually useful for:</b> checking that the subject you
+          think the page is about appears at all, finding a phrase you have
+          accidentally repeated nine times, and seeing which two and three word
+          phrases a reader would come away with.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { stopwords: true, numbers: true, caseSensitive: false };
+    var size = 1;
+
+    /* Deliberately short. A long stop-word list starts removing words that
+       matter to the subject, and the point here is to see what the text is
+       about, not to produce a tidy-looking chart. */
+    var STOP = ('a an and are as at be been but by can could do does for from had has have ' +
+      'he her his how i if in into is it its may me more most my no not of on or our out ' +
+      'she should so than that the their them then there these they this those to up us ' +
+      'was we were what when which who will with would you your').split(' ');
+
+    var SAMPLE = [
+      'Cja’s Tools is a collection of small utilities that run on your own device.',
+      'Every tool runs on your device, which means your files are never uploaded to a server.',
+      'The tools cover PDFs, images, video, audio, text, money and more.',
+      'Because the tools run on your device, they also work with no internet connection.',
+      'There is no account to make and nothing to pay for. Every tool is free.'
+    ].join(' ');
+
+    function words(text) {
+      /* Letters and digits only, including non-Latin letters, so Sinhala and
+         Tamil words are counted rather than being split apart. */
+      var raw = text.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || [];
+      return raw.map(function (w) {
+        return opts.caseSensitive ? w : w.toLowerCase();
+      });
+    }
+
+    function filtered(list) {
+      return list.filter(function (w) {
+        var k = w.toLowerCase();
+        if (opts.numbers && /^\d+$/.test(k)) return false;
+        if (opts.stopwords && STOP.indexOf(k) !== -1) return false;
+        if (k.length < 2) return false;
+        return true;
+      });
+    }
+
+    function phrases(list, n) {
+      var out = [];
+      for (var i = 0; i + n <= list.length; i++) {
+        out.push(list.slice(i, i + n).join(' '));
+      }
+      return out;
+    }
+
+    function run() {
+      var text = document.getElementById('in').value;
+      var all = words(text);
+      var keep = filtered(all);
+      var min = parseInt(document.getElementById('min').value, 10);
+      document.getElementById('min-val').textContent = min;
+
+      var sentences = (text.match(/[^\s.!?][^.!?]*[.!?]+(\s|$)/g) || []).length;
+      if (!sentences && text.trim()) sentences = 1;
+
+      var unique = {};
+      all.forEach(function (w) { unique[w] = true; });
+      var uniqueCount = Object.keys(unique).length;
+
+      document.getElementById('s-words').textContent = all.length.toLocaleString();
+      document.getElementById('s-unique').textContent = uniqueCount.toLocaleString();
+      document.getElementById('s-variety').textContent = all.length
+        ? Math.round(uniqueCount / all.length * 100) + '%' : '0%';
+      document.getElementById('s-sentences').textContent = sentences.toLocaleString();
+
+      /* Phrases are built from the filtered list for n=1 but the full list
+         for longer ones - "run on your device" loses its meaning if the
+         common words are stripped out of the middle. */
+      var source = size === 1 ? keep : all;
+      var items = phrases(source, size);
+
+      var counts = {};
+      items.forEach(function (p) { counts[p] = (counts[p] || 0) + 1; });
+
+      /* For multi-word phrases, drop any made entirely of common words -
+         "of the" is not an insight. */
+      var entries = Object.keys(counts)
+        .filter(function (p) {
+          if (counts[p] < min) return false;
+          if (size === 1) return true;
+          var parts = p.split(' ');
+          return !parts.every(function (w) {
+            return STOP.indexOf(w.toLowerCase()) !== -1;
+          });
+        })
+        .map(function (p) { return { text: p, n: counts[p] }; })
+        .sort(function (a, b) { return b.n - a.n || a.text.localeCompare(b.text); });
+
+      var total = size === 1 ? keep.length : Math.max(1, items.length);
+      var max = entries.length ? entries[0].n : 1;
+
+      document.getElementById('results').innerHTML = entries.length
+        ? entries.slice(0, 60).map(function (e) {
+            var pct = e.n / total * 100;
+            var high = size === 1 && pct > 4;
+            return '<div class="krow' + (high ? ' high' : '') + '">' +
+              '<div><span>' + e.text.replace(/[<>&]/g, '') + '</span>' +
+              '<div class="bar"><i style="width:' + (e.n / max * 100) + '%"></i></div></div>' +
+              '<span class="n">' + e.n + '</span>' +
+              '<span class="p">' + pct.toFixed(2) + '%</span>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">' +
+          (text.trim()
+            ? 'Nothing appears at least ' + min + ' times. Lower the threshold, ' +
+              'or the text may be too short.'
+            : 'Paste some text above.') + '</p>';
+
+      var warnings = [];
+      var stuffed = entries.filter(function (e) {
+        return size === 1 && (e.n / total * 100) > 4;
+      });
+      if (stuffed.length) {
+        warnings.push('<b>' + stuffed.map(function (e) {
+          return '"' + e.text.replace(/[<>&]/g, '') + '"';
+        }).join(', ') + '</b> ' + (stuffed.length === 1 ? 'appears' : 'appear') +
+          ' more than 4% of the time. That usually reads as repetitive rather ' +
+          'than focused — worth a look.');
+      }
+      if (all.length > 0 && all.length < 100) {
+        warnings.push('Only ' + all.length + ' words. Density figures on a short ' +
+          'piece of text swing wildly and do not mean much.');
+      }
+      document.getElementById('warn-slot').innerHTML = warnings.length
+        ? '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>'
+        : '';
+    }
+
+    document.querySelectorAll('.tabs .btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        size = parseInt(b.dataset.n, 10);
+        document.querySelectorAll('.tabs .btn').forEach(function (x) {
+          x.classList.toggle('primary', x === b);
+        });
+        run();
+      });
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    ['in', 'min'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = SAMPLE;
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    document.getElementById('in').value = SAMPLE;
+    run();
+  })();
+  </script>
+</body>
+</html>

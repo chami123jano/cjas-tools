@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sitemap Generator — Cja's Tools</title>
+<meta name="description" content="Build a sitemap.xml from a list of your pages, ready to submit to search engines. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #in, #out { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  #out { min-height: 260px; }
+  .plist { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .plist th, .plist td { padding: 7px 5px; text-align: left; }
+  .plist thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .plist tbody tr { border-bottom: 1px solid var(--border); }
+  .plist td:first-child { font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
+  .plist td:last-child, .plist th:last-child { text-align: right; }
+  .plist .bad { color: var(--danger); }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="sitemap-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=seo">SEO</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Sitemap Generator</h1>
+        <p>Paste your page addresses, get a sitemap.xml.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="base">Site address</label>
+          <input type="text" id="base" value="https://example.com" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="in">Your pages, one per line</label>
+          <textarea id="in" spellcheck="false" placeholder="/&#10;/about&#10;/contact"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint">A full address or a path starting with a slash both work.
+          Blank lines and anything after a # are ignored, so you can keep notes
+          in the list.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="freq">How often pages change</label>
+            <select id="freq">
+              <option value="">Leave it out</option>
+              <option value="daily">Daily</option>
+              <option value="weekly" selected>Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="lastmod">Last changed</label>
+            <input type="date" id="lastmod">
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="priority">Set priority by depth</button>
+          <button class="btn primary" data-opt="dedupe">Remove duplicates</button>
+          <button class="btn" data-opt="trailing">Add a trailing slash</button>
+        </div>
+      </div>
+
+      <div id="warn-slot"></div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-count">0</b><span>Pages</span></div>
+          <div class="stat"><b id="s-skipped">0</b><span>Skipped</span></div>
+          <div class="stat"><b id="s-size">0</b><span>File size</span></div>
+        </div>
+      </div>
+
+      <div class="panel" id="list-panel" hidden>
+        <label style="margin-bottom:8px">What will go in</label>
+        <div style="overflow-x:auto">
+          <table class="plist">
+            <thead><tr><th>Address</th><th>Depth</th><th>Priority</th></tr></thead>
+            <tbody id="plist"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">sitemap.xml</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+          <button class="btn" id="download">Download sitemap.xml</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Where it goes.</b> Put the file at the top of your site,
+          as <code>example.com/sitemap.xml</code>, then add a
+          <code>Sitemap:</code> line to your
+          <a href="robots-txt.html">robots.txt</a>. Search engines look there
+          first, so you usually do not need to submit it anywhere by hand.
+          <br><br>
+          <b>Priority is mostly ignored.</b> Google has said for years that it
+          does not use the priority or change-frequency values. They do no harm,
+          and some other engines still read them, but do not expect them to move
+          anything. Listing a page at all is the part that matters.
+          <br><br>
+          <b>The limits are 50,000 addresses and 50 MB</b> per file. Beyond that
+          you need several sitemaps and an index listing them.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { priority: true, dedupe: true, trailing: false };
+
+    var SAMPLE = [
+      '/',
+      '/about',
+      '/contact',
+      '/tools',
+      '/tools/percentage-calculator',
+      '/tools/word-counter      # a comment is fine here',
+      '/blog',
+      '/blog/first-post'
+    ].join('\n');
+
+    function escapeXml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    }
+
+    function human(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1048576).toFixed(2) + ' MB';
+    }
+
+    function build() {
+      var base = document.getElementById('base').value.trim().replace(/\/+$/, '');
+      var lines = document.getElementById('in').value.split('\n');
+
+      var pages = [];
+      var skipped = 0;
+      var seen = {};
+      var problems = [];
+
+      lines.forEach(function (raw) {
+        /* A comment marker lets someone annotate the list without the notes
+           ending up in the sitemap. */
+        var line = raw.replace(/#.*$/, '').trim();
+        if (!line) return;
+
+        var url;
+        if (/^https?:\/\//i.test(line)) {
+          url = line;
+        } else if (line.charAt(0) === '/') {
+          url = base + line;
+        } else {
+          /* A bare word is almost always a path with the slash forgotten,
+             rather than something to throw away. */
+          url = base + '/' + line;
+        }
+
+        /* A sitemap must only list addresses on the same site, and search
+           engines reject the whole file if it does not. */
+        if (base && url.indexOf(base) !== 0) {
+          problems.push(line + ' is on a different site');
+          skipped++;
+          return;
+        }
+
+        if (opts.trailing && !/\/$/.test(url) && !/\.[a-z0-9]{2,5}$/i.test(url)) {
+          url += '/';
+        }
+
+        if (opts.dedupe && seen[url]) { skipped++; return; }
+        seen[url] = true;
+
+        var path = url.slice(base.length) || '/';
+        var depth = path.split('/').filter(function (p) { return p; }).length;
+
+        pages.push({ url: url, depth: depth });
+      });
+
+      /* Priority by depth: the home page first, each level down a little
+           lower, with a floor so deep pages are not written off. */
+      pages.forEach(function (p) {
+        p.priority = Math.max(0.3, 1 - p.depth * 0.2).toFixed(1);
+      });
+
+      var freq = document.getElementById('freq').value;
+      var lastmod = document.getElementById('lastmod').value;
+
+      var xml = ['<?xml version="1.0" encoding="UTF-8"?>'];
+      xml.push('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
+      pages.forEach(function (p) {
+        xml.push('  <url>');
+        xml.push('    <loc>' + escapeXml(p.url) + '</loc>');
+        if (lastmod) xml.push('    <lastmod>' + lastmod + '</lastmod>');
+        if (freq) xml.push('    <changefreq>' + freq + '</changefreq>');
+        if (opts.priority) xml.push('    <priority>' + p.priority + '</priority>');
+        xml.push('  </url>');
+      });
+      xml.push('</urlset>');
+
+      var text = xml.join('\n');
+      document.getElementById('out').value = pages.length ? text : '';
+
+      document.getElementById('s-count').textContent = pages.length.toLocaleString();
+      document.getElementById('s-skipped').textContent = skipped.toLocaleString();
+      document.getElementById('s-size').textContent = pages.length ? human(text.length) : '0';
+
+      document.getElementById('list-panel').hidden = pages.length === 0;
+      document.getElementById('plist').innerHTML = pages.slice(0, 200).map(function (p) {
+        return '<tr><td>' + escapeXml(p.url) + '</td><td>' + p.depth + '</td><td>' +
+          (opts.priority ? p.priority : '—') + '</td></tr>';
+      }).join('');
+
+      var warnings = [];
+      if (problems.length) {
+        warnings.push('<b>' + problems.length + ' line' +
+          (problems.length === 1 ? '' : 's') + ' left out</b> because a sitemap ' +
+          'may only list pages on the same site: ' +
+          problems.slice(0, 3).map(escapeXml).join(', ') +
+          (problems.length > 3 ? ' and others' : '') + '.');
+      }
+      if (base && !/^https?:\/\//i.test(base)) {
+        warnings.push('The site address should start with https. Without it the ' +
+          'addresses in the sitemap will not be valid.');
+      }
+      if (pages.length > 50000) {
+        warnings.push('A single sitemap may hold at most <b>50,000 addresses</b>. ' +
+          'Split this into several files and list them in a sitemap index.');
+      }
+      if (/^http:\/\//i.test(base)) {
+        warnings.push('This is plain http, not https. If your site is reachable ' +
+          'over https, list the https addresses instead — otherwise search ' +
+          'engines may treat them as different pages.');
+      }
+
+      document.getElementById('warn-slot').innerHTML = warnings.length
+        ? '<div class="panel"><div class="warn">' + warnings.join('<br><br>') + '</div></div>'
+        : '';
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      build();
+    });
+
+    ['base', 'in', 'freq', 'lastmod'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('in').value = SAMPLE;
+      build();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      build();
+      document.getElementById('in').focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([v], { type: 'application/xml' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'sitemap.xml';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    var d = new Date();
+    document.getElementById('lastmod').value = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+
+    document.getElementById('in').value = SAMPLE;
+    build();
+  })();
+  </script>
+</body>
+</html>

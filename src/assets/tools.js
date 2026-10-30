@@ -582,6 +582,41 @@ const TOOLS = [
     category: 'seo',
     desc: 'Build a robots.txt that says what crawlers may and may not visit.',
     keywords: ['robots', 'robots.txt', 'crawler', 'seo', 'disallow', 'sitemap', 'bot']
+  },
+  {
+    slug: 'sitemap-generator',
+    name: 'Sitemap Generator',
+    category: 'seo',
+    desc: 'Build a sitemap.xml from a list of your pages, ready to submit.',
+    keywords: ['sitemap', 'xml', 'seo', 'google', 'index', 'crawl', 'submit']
+  },
+  {
+    slug: 'keyword-density',
+    name: 'Keyword Density',
+    category: 'seo',
+    desc: 'See which words and phrases a page actually repeats, and how often.',
+    keywords: ['keyword', 'density', 'seo', 'content', 'phrase', 'repeat', 'analyse']
+  },
+  {
+    slug: 'social-preview',
+    name: 'Social Card Preview',
+    category: 'seo',
+    desc: 'See how a link will look when shared on each major platform.',
+    keywords: ['social', 'preview', 'card', 'share', 'facebook', 'twitter', 'whatsapp']
+  },
+  {
+    slug: 'typing-test',
+    name: 'Typing Speed Test',
+    category: 'games',
+    desc: 'Find your words per minute and accuracy, with your best score kept.',
+    keywords: ['typing', 'test', 'wpm', 'speed', 'keyboard', 'accuracy', 'practice']
+  },
+  {
+    slug: 'box-generator',
+    name: 'Box Generator',
+    category: 'printing',
+    desc: 'Make a cutting template for a box that folds together, sized to fit.',
+    keywords: ['box', 'laser', 'cut', 'svg', 'template', 'craft', 'packaging']
   }
 ];
 
