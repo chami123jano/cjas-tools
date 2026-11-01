@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alarm Clock — Cja's Tools</title>
+<meta name="description" content="Set alarms that ring on this device, with a clock you can read from across a room. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .now {
+    font-size: 64px; font-weight: 650; letter-spacing: -2px;
+    font-variant-numeric: tabular-nums; text-align: center; line-height: 1;
+  }
+  .now small {
+    display: block; font-size: 14px; font-weight: 500; letter-spacing: 0;
+    color: var(--muted); margin-top: 8px;
+  }
+  .arow {
+    display: grid; grid-template-columns: 78px 1fr auto auto;
+    gap: 10px; align-items: center; padding: 11px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .arow:last-child { border-bottom: none; }
+  .arow.off { opacity: .45; }
+  .arow .t {
+    font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .arow .label { font-size: 13.5px; }
+  .arow .label small { display: block; color: var(--muted); font-size: 12px; }
+  .arow button {
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 8px; padding: 5px 11px; cursor: pointer; font-size: 12.5px;
+  }
+  .arow .drop { border: none; background: none; color: var(--muted); font-size: 17px; padding: 0 5px; }
+  .arow .drop:hover { color: var(--danger); }
+  .ringing {
+    padding: 18px; border: 2px solid var(--danger); border-radius: var(--radius);
+    background: rgba(212,72,59,.08); text-align: center;
+  }
+  .ringing b { font-size: 21px; display: block; margin-bottom: 4px; }
+  @media (max-width: 480px) { .now { font-size: 46px; } }
+</style>
+</head>
+<body data-page="tool" data-slug="alarm-clock">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Alarm Clock</h1>
+        <p>Rings on this device, as long as the page stays open.</p>
+      </div>
+
+      <div class="panel">
+        <div class="now" id="now">--:--:--<small id="date"></small></div>
+      </div>
+
+      <div id="ring-slot"></div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="time">Alarm time</label>
+            <input type="time" id="time">
+          </div>
+          <div class="field">
+            <label for="label">What for (optional)</label>
+            <input type="text" id="label" placeholder="Take the bread out" autocomplete="off">
+          </div>
+          <div class="field" style="max-width:150px">
+            <label for="repeat">Repeat</label>
+            <select id="repeat">
+              <option value="once" selected>Once</option>
+              <option value="daily">Every day</option>
+              <option value="weekdays">Weekdays</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="add">Add alarm</button>
+          <button class="btn" id="in5">In 5 minutes</button>
+          <button class="btn" id="in30">In 30 minutes</button>
+        </div>
+        <p class="hint" id="next-note"></p>
+      </div>
+
+      <div class="panel">
+        <div id="alarms"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint" id="store-note"></p>
+        <p class="hint"><b>This page has to stay open.</b> An alarm here is a
+          timer in the browser, not something your operating system knows about
+          &mdash; so closing the tab or shutting the laptop stops it. For
+          anything you genuinely cannot miss, use your phone.
+          <br><br>
+          If the page was closed over an alarm time, it will tell you the alarm
+          was missed rather than ringing late and pretending it was on time.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-alarms';
+    var alarms = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(alarms)) alarms = [];
+
+    var ringing = null;
+    var audioCtx = null;
+    var ringTimer = null;
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, alarms);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your alarms — ' + CJA_STORE.note();
+    }
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+
+    /* The next time this alarm should go off, as a timestamp. A one-off
+       alarm whose time has passed today moves to tomorrow; a weekday alarm
+       skips the weekend. */
+    function nextFor(a, from) {
+      var base = from || new Date();
+      var parts = a.time.split(':');
+      var hh = parseInt(parts[0], 10), mm = parseInt(parts[1], 10);
+
+      for (var add = 0; add < 8; add++) {
+        var d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + add,
+                         hh, mm, 0, 0);
+        if (d.getTime() <= base.getTime()) continue;
+        if (a.repeat === 'weekdays' && (d.getDay() === 0 || d.getDay() === 6)) continue;
+        return d.getTime();
+      }
+      return null;
+    }
+
+    function describe(a) {
+      if (a.repeat === 'daily') return 'Every day';
+      if (a.repeat === 'weekdays') return 'Monday to Friday';
+      return 'Once';
+    }
+
+    function untilText(ms) {
+      var diff = ms - Date.now();
+      if (diff < 0) return 'passed';
+      var mins = Math.round(diff / 60000);
+      if (mins < 1) return 'in less than a minute';
+      if (mins < 60) return 'in ' + mins + ' minute' + (mins === 1 ? '' : 's');
+      var hrs = Math.floor(mins / 60);
+      var rem = mins % 60;
+      if (hrs < 24) return 'in ' + hrs + 'h' + (rem ? ' ' + rem + 'm' : '');
+      return 'in ' + Math.round(hrs / 24) + ' days';
+    }
+
+    function draw() {
+      var host = document.getElementById('alarms');
+
+      if (!alarms.length) {
+        host.innerHTML = '<p class="hint" style="margin:0">No alarms set.</p>';
+        document.getElementById('next-note').textContent = '';
+        return;
+      }
+
+      /* Sorted by when each one will actually next ring, not by clock time,
+         so an 06:00 alarm shows before a 23:00 one in the evening. */
+      var withNext = alarms.map(function (a, i) {
+        return { a: a, i: i, next: a.on ? nextFor(a) : null };
+      }).sort(function (x, y) {
+        if (x.next === null) return 1;
+        if (y.next === null) return -1;
+        return x.next - y.next;
+      });
+
+      host.innerHTML = withNext.map(function (row) {
+        var a = row.a;
+        return '<div class="arow' + (a.on ? '' : ' off') + '">' +
+          '<span class="t">' + a.time + '</span>' +
+          '<span class="label">' + (a.label || describe(a)).replace(/[<>&]/g, '') +
+            '<small>' + describe(a) +
+            (a.on && row.next ? ' · ' + untilText(row.next) : ' · off') +
+            (a.missed ? ' · missed while the page was closed' : '') +
+            '</small></span>' +
+          '<button data-toggle="' + row.i + '">' + (a.on ? 'On' : 'Off') + '</button>' +
+          '<button class="drop" data-drop="' + row.i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+
+      var soonest = withNext.filter(function (r) { return r.next; })[0];
+      document.getElementById('next-note').textContent = soonest
+        ? 'Next alarm ' + untilText(soonest.next) + ', at ' + soonest.a.time + '.'
+        : 'All alarms are switched off.';
+    }
+
+    function startRinging(a) {
+      ringing = a;
+      document.getElementById('ring-slot').innerHTML =
+        '<div class="panel"><div class="ringing">' +
+        '<b>' + (a.label || 'Alarm').replace(/[<>&]/g, '') + '</b>' +
+        '<span style="color:var(--muted);font-size:13px">Set for ' + a.time + '</span>' +
+        '<div class="btns" style="justify-content:center;margin-top:14px">' +
+        '<button class="btn primary" id="stop-ring">Stop</button>' +
+        '<button class="btn" id="snooze">Snooze 9 minutes</button>' +
+        '</div></div></div>';
+
+      document.getElementById('stop-ring').addEventListener('click', stopRinging);
+      document.getElementById('snooze').addEventListener('click', function () {
+        var d = new Date(Date.now() + 9 * 60000);
+        alarms.push({
+          time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+          label: (a.label || 'Alarm') + ' (snoozed)',
+          repeat: 'once', on: true
+        });
+        save();
+        stopRinging();
+        draw();
+      });
+
+      tone();
+      ringTimer = setInterval(tone, 2000);
+    }
+
+    function tone() {
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!audioCtx) audioCtx = new Ctx();
+        for (var i = 0; i < 3; i++) {
+          var osc = audioCtx.createOscillator();
+          var gain = audioCtx.createGain();
+          osc.type = 'square';
+          osc.frequency.value = 880;
+          var at = audioCtx.currentTime + i * 0.3;
+          gain.gain.setValueAtTime(0.0001, at);
+          gain.gain.exponentialRampToValueAtTime(0.14, at + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+          osc.connect(gain).connect(audioCtx.destination);
+          osc.start(at);
+          osc.stop(at + 0.24);
+        }
+      } catch (e) { /* no audio - the panel still appears */ }
+    }
+
+    function stopRinging() {
+      clearInterval(ringTimer);
+      ringTimer = null;
+      ringing = null;
+      document.getElementById('ring-slot').innerHTML = '';
+    }
+
+    function tick() {
+      var d = new Date();
+      document.getElementById('now').firstChild.textContent =
+        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+      document.getElementById('date').textContent = d.toLocaleDateString('en-GB',
+        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+      if (ringing) return;
+
+      var nowKey = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      var changed = false;
+
+      alarms.forEach(function (a) {
+        if (!a.on) return;
+        /* Matching on the minute, and remembering which minute already
+           fired, so it rings once rather than sixty times. */
+        if (a.time === nowKey && a.lastFired !== nowKey + '|' + d.toDateString()) {
+          a.lastFired = nowKey + '|' + d.toDateString();
+          a.missed = false;
+          if (a.repeat === 'weekdays' && (d.getDay() === 0 || d.getDay() === 6)) {
+            changed = true;
+            return;
+          }
+          if (a.repeat === 'once') a.on = false;
+          changed = true;
+          startRinging(a);
+        }
+      });
+
+      if (changed) { save(); draw(); }
+      if (d.getSeconds() === 0) draw();
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var time = document.getElementById('time').value;
+      if (!time) { CT.toast('Pick a time first'); return; }
+      alarms.push({
+        time: time,
+        label: document.getElementById('label').value.trim(),
+        repeat: document.getElementById('repeat').value,
+        on: true
+      });
+      document.getElementById('label').value = '';
+      save();
+      draw();
+    });
+
+    function addIn(mins) {
+      var d = new Date(Date.now() + mins * 60000);
+      alarms.push({
+        time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+        label: 'In ' + mins + ' minutes',
+        repeat: 'once', on: true
+      });
+      save();
+      draw();
+    }
+
+    document.getElementById('in5').addEventListener('click', function () { addIn(5); });
+    document.getElementById('in30').addEventListener('click', function () { addIn(30); });
+
+    document.getElementById('alarms').addEventListener('click', function (e) {
+      var toggle = e.target.closest('[data-toggle]');
+      if (toggle) {
+        var a = alarms[+toggle.dataset.toggle];
+        a.on = !a.on;
+        if (a.on) a.missed = false;
+        save();
+        draw();
+        return;
+      }
+      var drop = e.target.closest('[data-drop]');
+      if (drop) {
+        alarms.splice(+drop.dataset.drop, 1);
+        save();
+        draw();
+      }
+    });
+
+    /* On load, flag any one-off alarm whose time has already gone by, rather
+       than ringing it late as though nothing happened. */
+    (function markMissed() {
+      var now = new Date();
+      var changed = false;
+      alarms.forEach(function (a) {
+        if (a.repeat !== 'once' || !a.on) return;
+        var parts = a.time.split(':');
+        var at = new Date(now.getFullYear(), now.getMonth(), now.getDate(),
+                          parseInt(parts[0], 10), parseInt(parts[1], 10));
+        if (at.getTime() < now.getTime() - 60000) {
+          a.missed = true;
+          a.on = false;
+          changed = true;
+        }
+      });
+      if (changed) save();
+    })();
+
+    var d0 = new Date(Date.now() + 10 * 60000);
+    document.getElementById('time').value = pad(d0.getHours()) + ':' + pad(d0.getMinutes());
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    setInterval(tick, 1000);
+    tick();
+    draw();
+  })();
+  </script>
+</body>
+</html>

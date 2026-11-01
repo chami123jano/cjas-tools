@@ -617,6 +617,41 @@ const TOOLS = [
     category: 'printing',
     desc: 'Make a cutting template for a box that folds together, sized to fit.',
     keywords: ['box', 'laser', 'cut', 'svg', 'template', 'craft', 'packaging']
+  },
+  {
+    slug: 'pomodoro',
+    name: 'Focus Timer',
+    category: 'time',
+    desc: 'Work in set stretches with breaks between, and see what you got through.',
+    keywords: ['pomodoro', 'focus', 'timer', 'work', 'break', 'concentrate', 'study']
+  },
+  {
+    slug: 'alarm-clock',
+    name: 'Alarm Clock',
+    category: 'time',
+    desc: 'Set alarms that ring on this device, with a clock you can read across a room.',
+    keywords: ['alarm', 'clock', 'wake', 'remind', 'time', 'ring', 'nap']
+  },
+  {
+    slug: 'todo-list',
+    name: 'To-do List',
+    category: 'time',
+    desc: 'A plain checklist that saves itself, with due dates if you want them.',
+    keywords: ['todo', 'to-do', 'list', 'task', 'checklist', 'done', 'plan']
+  },
+  {
+    slug: 'habit-tracker',
+    name: 'Habit Tracker',
+    category: 'time',
+    desc: 'Tick off a habit each day and watch the streak build up.',
+    keywords: ['habit', 'tracker', 'streak', 'daily', 'routine', 'goal', 'consistency']
+  },
+  {
+    slug: 'birthday-reminder',
+    name: 'Birthday Reminder',
+    category: 'time',
+    desc: 'Keep birthdays in one place and see who is next, with ages.',
+    keywords: ['birthday', 'reminder', 'anniversary', 'age', 'date', 'family', 'friends']
   }
 ];
 

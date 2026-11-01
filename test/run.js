@@ -1888,6 +1888,174 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- time
+
+(function sharedStore() {
+  // The store helper is what every data-keeping tool now relies on, so its
+  // failure behaviour matters more than its success behaviour.
+  const code = fs.readFileSync(path.join(SRC, 'assets/store.js'), 'utf8');
+
+  // a working localStorage
+  const good = (() => {
+    const box = {};
+    return {
+      getItem: (k) => (k in box ? box[k] : null),
+      setItem: (k, v) => { box[k] = String(v); },
+      removeItem: (k) => { delete box[k]; }
+    };
+  })();
+  const S = new Function('localStorage', code + '; return CJA_STORE;')(good);
+  ok(S.available(), 'reports available when storage works');
+  ok(S.set('k', { a: 1 }) === true, 'a write reports success');
+  ok(S.get('k', null).a === 1, 'and reads back');
+  ok(S.get('missing', 'fallback') === 'fallback', 'a missing key gives the fallback');
+  has(S.note(), 'does not sync', 'the note explains the limitation');
+
+  // corrupt data must give the fallback, not throw into a tool's startup
+  good.setItem('bad', '{not json');
+  ok(S.get('bad', 'fallback') === 'fallback', 'corrupt data gives the fallback');
+
+  // a private window, where every call throws
+  const broken = {
+    getItem: () => { throw new Error('denied'); },
+    setItem: () => { throw new Error('denied'); },
+    removeItem: () => { throw new Error('denied'); }
+  };
+  const B = new Function('localStorage', code + '; return CJA_STORE;')(broken);
+  ok(B.available() === false, 'reports unavailable when storage throws');
+  ok(B.set('k', 1) === false, 'a failed write reports failure rather than throwing');
+  ok(B.get('k', 'fallback') === 'fallback', 'a failed read gives the fallback');
+  has(B.note(), 'not available', 'and the note says so plainly');
+
+  // every tool that keeps data must use it rather than its own try/catch
+  ['pomodoro', 'alarm-clock', 'todo-list', 'habit-tracker', 'birthday-reminder']
+    .forEach((slug) => {
+      const s = fs.readFileSync(path.join(SRC, 'tools/' + slug + '.html'), 'utf8');
+      ok(s.indexOf('store.js') !== -1, slug + ' loads the shared store');
+      ok(s.indexOf('localStorage.setItem') === -1,
+         slug + ' does not touch localStorage directly');
+    });
+})();
+
+(function pomodoro() {
+  const t = loadTool('pomodoro');
+  t.set('work', 25).set('short', 5).set('long', 15).set('rounds', 4);
+  has(t.text('clock'), '25:00', 'the clock shows the work length');
+  has(t.text('phase'), 'Ready', 'and waits to be started');
+  ok(t.document.querySelectorAll('#dots i').length === 4,
+     'one dot per round before a long break');
+
+  t.set('work', 50);
+  has(t.text('clock'), '50:00', 'changing the length updates the clock');
+
+  // skipping a work session should count it and move to a break
+  t.click('skip');
+  has(t.text('phase'), 'break', 'finishing work leads to a break');
+  has(t.text('s-today'), '1', 'and the session is counted');
+  t.close();
+})();
+
+(function alarmClock() {
+  const t = loadTool('alarm-clock');
+  has(t.text('alarms'), 'No alarms set', 'it starts empty');
+
+  t.set('time', '07:30').set('label', 'Wake up').set('repeat', 'daily');
+  t.click('add');
+  has(t.text('alarms'), '07:30', 'the alarm is listed');
+  has(t.text('alarms'), 'Wake up', 'with its label');
+  has(t.text('alarms'), 'Every day', 'and its repeat');
+  has(t.text('next-note'), 'Next alarm', 'and the next one is announced');
+
+  // adding without a time must not create a broken alarm
+  t.set('time', '');
+  t.click('add');
+  ok((t.text('alarms').match(/07:30/g) || []).length === 1,
+     'adding with no time does nothing');
+  t.close();
+})();
+
+(function todoList() {
+  const t = loadTool('todo-list');
+  has(t.text('items'), 'Nothing on the list', 'it starts empty');
+
+  t.set('what', 'Buy tea');
+  t.click('add');
+  has(t.text('items'), 'Buy tea', 'the task is listed');
+  has(t.text('summary'), '1 still to do', 'and counted');
+
+  // an empty task must not be added
+  t.set('what', '   ');
+  t.click('add');
+  has(t.text('summary'), '1 still to do', 'a blank task is refused');
+
+  // ticking it off
+  const cb = t.document.querySelector('#items input[type="checkbox"]');
+  cb.checked = true;
+  cb.dispatchEvent(new t.window.Event('change', { bubbles: true }));
+  has(t.text('summary'), '0 still to do', 'ticking it off updates the count');
+  has(t.text('summary'), '1 of 1 finished', 'and the finished tally');
+
+  // an overdue task should be flagged
+  t.set('filter', 'all');
+  t.set('what', 'Late thing').set('due', '2020-01-01');
+  t.click('add');
+  has(t.text('summary'), 'past its due date', 'an overdue task is flagged');
+  t.close();
+})();
+
+(function habitTracker() {
+  const t = loadTool('habit-tracker');
+  has(t.text('habits'), 'No habits yet', 'it starts empty');
+
+  t.set('name', 'Walk');
+  t.click('add');
+  has(t.text('habits'), 'Walk', 'the habit is listed');
+  has(t.text('s-today'), '0 of 1', 'nothing done yet today');
+
+  // marking today
+  const tick = t.document.querySelector('#habits [data-tick]');
+  tick.dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.text('s-today'), '1 of 1', 'marking today is counted');
+  has(t.text('habits'), '1 day', 'and the streak starts');
+
+  // unmarking should take it back off
+  t.document.querySelector('#habits [data-tick]')
+   .dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.text('s-today'), '0 of 1', 'unmarking removes it again');
+
+  // the grid should have one square per day in the chosen span
+  t.set('span', '28');
+  ok(t.document.querySelectorAll('#habits .grid i').length === 28,
+     'one square per day');
+  t.close();
+})();
+
+(function birthdayReminder() {
+  const t = loadTool('birthday-reminder');
+  has(t.text('list'), 'Nobody on the list', 'it starts empty');
+
+  t.set('name', 'Nimali').set('dob', '1995-06-15').set('no-year', false);
+  t.click('add');
+  has(t.text('list'), 'Nimali', 'the person is listed');
+  has(t.text('list'), '15 June 1995', 'with their date');
+  has(t.text('next'), 'Nimali', 'and announced as next');
+
+  // with no year known, no age should be invented
+  t.set('name', 'Perera').set('dob', '2000-03-02').set('no-year', true);
+  t.click('add');
+  t.set('sort', 'date');
+  const list = t.text('list');
+  ok(list.indexOf('2 March 2000') === -1,
+     'a year is not shown when it is not known', 'got: ' + list.slice(0, 200));
+
+  // a missing name must not create a blank entry
+  t.set('name', '').set('dob', '1990-01-01');
+  t.click('add');
+  ok((t.text('list').match(/Nimali/g) || []).length === 1,
+     'adding with no name does nothing');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

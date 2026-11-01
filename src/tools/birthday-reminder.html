@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Birthday Reminder — Cja's Tools</title>
+<meta name="description" content="Keep birthdays in one place and see who is next, with ages. Saved on your own device, never uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .brow {
+    display: grid; grid-template-columns: 1fr auto auto auto;
+    gap: 10px; align-items: center; padding: 11px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brow:last-child { border-bottom: none; }
+  .brow.soon { background: var(--accent-soft); margin: 0 -10px; padding: 11px 10px; border-radius: 10px; border-bottom-color: transparent; }
+  .brow.today { background: #dcf5e7; }
+  html:not([data-theme="light"]) .brow.today { background:#17402c; }
+  :root[data-theme="dark"] .brow.today { background:#17402c; }
+  .brow .who { font-size: 14.5px; font-weight: 550; }
+  .brow .who small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .brow .when { text-align: right; font-size: 13.5px; white-space: nowrap; }
+  .brow .when small { display: block; color: var(--muted); font-size: 12px; }
+  .brow .age { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .brow .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .brow .drop:hover { color: var(--danger); }
+  .add-row { display: grid; grid-template-columns: 1fr 160px auto; gap: 9px; align-items: end; }
+  @media (max-width: 560px) { .add-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="tool" data-slug="birthday-reminder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Birthday Reminder</h1>
+        <p>Who is next, how old they will be, and how long you have.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="next">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="add-row">
+          <div class="field" style="margin:0">
+            <label for="name">Name</label>
+            <input type="text" id="name" placeholder="Nimali" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="dob">Date of birth</label>
+            <input type="date" id="dob">
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add</button>
+        </div>
+        <p class="hint">If you do not know the year, pick any year and the age
+          will simply be left out.</p>
+        <div class="field" style="margin-top:12px">
+          <label>
+            <input type="checkbox" id="no-year" style="width:auto;margin-right:7px">
+            I only know the day and month
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="sort">Order by</label>
+            <select id="sort">
+              <option value="next" selected>Who is next</option>
+              <option value="name">Name</option>
+              <option value="age">Age</option>
+              <option value="date">Date in the year</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="window">Highlight the next</label>
+            <select id="window">
+              <option value="7">7 days</option>
+              <option value="14" selected>14 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
+        </div>
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="export">Download as CSV</button>
+          <button class="btn" id="clear-all">Delete everything</button>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A 29 February birthday</b> is shown on 1 March in years
+          that have no 29th, which is the usual convention.
+          <br><br>
+          Nothing here leaves your device, so there are no notifications and no
+          emails &mdash; this is a list you look at, not something that will
+          chase you. Everything is kept in this browser only.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-birthdays';
+    var people = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(people)) people = [];
+
+    var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                  'August', 'September', 'October', 'November', 'December'];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, people);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your list — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function todayMidday() {
+      var n = new Date();
+      return new Date(n.getFullYear(), n.getMonth(), n.getDate(), 12, 0, 0);
+    }
+
+    function daysInMonth(y, m) { return new Date(y, m + 1, 0).getDate(); }
+
+    /* The next time this birthday comes round. A 29 February birthday falls
+       on 1 March in a year that has no 29th, which is the common convention. */
+    function nextOccurrence(p, from) {
+      var base = from || todayMidday();
+
+      function make(year) {
+        if (p.month === 1 && p.day === 29 && daysInMonth(year, 1) < 29) {
+          return new Date(year, 2, 1, 12, 0, 0);
+        }
+        return new Date(year, p.month, p.day, 12, 0, 0);
+      }
+
+      var d = make(base.getFullYear());
+      if (d < base) d = make(base.getFullYear() + 1);
+      return d;
+    }
+
+    function ageOn(p, when) {
+      if (!p.year) return null;
+      var age = when.getFullYear() - p.year;
+      return age;
+    }
+
+    function currentAge(p) {
+      if (!p.year) return null;
+      var now = todayMidday();
+      var age = now.getFullYear() - p.year;
+      var hadIt = (now.getMonth() > p.month) ||
+                  (now.getMonth() === p.month && now.getDate() >= p.day);
+      if (!hadIt) age--;
+      return age;
+    }
+
+    function draw() {
+      var sort = document.getElementById('sort').value;
+      var windowDays = parseInt(document.getElementById('window').value, 10);
+      var today = todayMidday();
+
+      var rows = people.map(function (p, i) {
+        var next = nextOccurrence(p);
+        return {
+          p: p, i: i, next: next,
+          days: Math.round((next - today) / 86400000),
+          turning: ageOn(p, next),
+          age: currentAge(p)
+        };
+      });
+
+      if (sort === 'name') rows.sort(function (a, b) { return a.p.name.localeCompare(b.p.name); });
+      else if (sort === 'age') rows.sort(function (a, b) {
+        if (a.age === null) return 1;
+        if (b.age === null) return -1;
+        return b.age - a.age;
+      });
+      else if (sort === 'date') rows.sort(function (a, b) {
+        return (a.p.month - b.p.month) || (a.p.day - b.p.day);
+      });
+      else rows.sort(function (a, b) { return a.days - b.days; });
+
+      var host = document.getElementById('list');
+      host.innerHTML = rows.length
+        ? rows.map(function (r) {
+            var cls = r.days === 0 ? 'today' : (r.days <= windowDays ? 'soon' : '');
+            return '<div class="brow ' + cls + '">' +
+              '<span class="who">' + escapeHtml(r.p.name) +
+                '<small>' + r.p.day + ' ' + MONTHS[r.p.month] +
+                (r.p.year ? ' ' + r.p.year : '') + '</small></span>' +
+              '<span class="age">' + (r.age === null ? '—' : r.age) + '</span>' +
+              '<span class="when">' +
+                (r.days === 0 ? 'Today' : r.days === 1 ? 'Tomorrow' : 'in ' + r.days + ' days') +
+                '<small>' + (r.turning === null ? '' : 'turns ' + r.turning) + '</small>' +
+              '</span>' +
+              '<button class="drop" data-drop="' + r.i + '">&times;</button>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Nobody on the list yet.</p>';
+
+      var soonest = rows.slice().sort(function (a, b) { return a.days - b.days; })[0];
+      document.getElementById('next').innerHTML = soonest
+        ? (soonest.days === 0
+            ? escapeHtml(soonest.p.name) + '’s birthday is today'
+            : escapeHtml(soonest.p.name) + ' in ' + soonest.days +
+              ' day' + (soonest.days === 1 ? '' : 's')) +
+          '<small>' + soonest.next.toLocaleDateString('en-GB',
+            { weekday: 'long', day: 'numeric', month: 'long' }) +
+          (soonest.turning === null ? '' : ' · turning ' + soonest.turning) +
+          '</small>'
+        : '&mdash;<small>Add someone below</small>';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var name = document.getElementById('name').value.trim();
+      var dob = document.getElementById('dob').value;
+      if (!name) { document.getElementById('name').focus(); return; }
+      if (!dob) { CT.toast('Pick a date of birth'); return; }
+
+      var parts = dob.split('-');
+      people.push({
+        name: name,
+        /* The year is dropped deliberately when it is not known, so no age
+           is invented from a placeholder year. */
+        year: document.getElementById('no-year').checked ? null : parseInt(parts[0], 10),
+        month: parseInt(parts[1], 10) - 1,
+        day: parseInt(parts[2], 10)
+      });
+
+      document.getElementById('name').value = '';
+      document.getElementById('dob').value = '';
+      document.getElementById('name').focus();
+      save();
+      draw();
+    });
+
+    document.getElementById('name').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('add').click(); }
+    });
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      people.splice(+b.dataset.drop, 1);
+      save();
+      draw();
+    });
+
+    ['sort', 'window'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', draw);
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      if (!people.length) { CT.toast('Nothing to download'); return; }
+      var lines = ['Name,Day,Month,Year,Age'];
+      people.forEach(function (p) {
+        lines.push([
+          '"' + p.name.replace(/"/g, '""') + '"',
+          p.day, p.month + 1, p.year || '', currentAge(p) === null ? '' : currentAge(p)
+        ].join(','));
+      });
+      var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'birthdays.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('clear-all').addEventListener('click', function () {
+      if (!people.length) return;
+      if (!window.confirm('Delete all ' + people.length +
+          ' entries? This cannot be undone.')) return;
+      people = [];
+      save();
+      draw();
+    });
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>

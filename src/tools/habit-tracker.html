@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Habit Tracker — Cja's Tools</title>
+<meta name="description" content="Tick off a habit each day and watch the streak build. Saved on your own device, never uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .habit {
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .habit:last-child { border-bottom: none; }
+  .habit .top {
+    display: grid; grid-template-columns: 1fr auto auto auto;
+    gap: 10px; align-items: center; margin-bottom: 10px;
+  }
+  .habit .name { font-size: 15px; font-weight: 550; }
+  .habit .name small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .habit .streak {
+    font-size: 13px; color: var(--muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .habit .tick {
+    border: 1px solid var(--border); background: var(--bg);
+    border-radius: 9px; padding: 7px 14px; cursor: pointer; font-size: 13.5px;
+  }
+  .habit .tick.on { background: #27b86a; border-color: #27b86a; color: #fff; }
+  .habit .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .habit .drop:hover { color: var(--danger); }
+  .grid { display: flex; gap: 3px; flex-wrap: wrap; }
+  .grid i {
+    width: 15px; height: 15px; border-radius: 3px;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .grid i.on { background: #27b86a; border-color: #27b86a; }
+  .grid i.today { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 5px; }
+</style>
+</head>
+<body data-page="tool" data-slug="habit-tracker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Habit Tracker</h1>
+        <p>One tick a day. The squares show the last few weeks.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="name">New habit</label>
+            <input type="text" id="name" placeholder="Walk for 20 minutes" autocomplete="off">
+          </div>
+          <button class="btn primary" id="add" style="height:38px;align-self:end">Add</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-today">0</b><span>Done today</span></div>
+          <div class="stat"><b id="s-best">0</b><span>Longest streak</span></div>
+          <div class="stat"><b id="s-rate">0%</b><span>Last 30 days</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="habits"></div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="span">Show the last</label>
+          <select id="span">
+            <option value="28">4 weeks</option>
+            <option value="56" selected>8 weeks</option>
+            <option value="91">13 weeks</option>
+          </select>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A missed day does not reset everything.</b> The current
+          streak counts back from today and stops at the first gap, but the
+          longest streak you have ever managed is kept separately &mdash; so one
+          bad week does not erase the record of a good month.
+          <br><br>
+          Today is outlined rather than filled until you tick it, so an untouched
+          day reads as "not yet" rather than "failed".</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-habits';
+    var habits = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(habits)) habits = [];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, habits);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your habits — ' + CJA_STORE.note();
+    }
+
+    function keyFor(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+             '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function today() { return keyFor(new Date()); }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    /* Counts back from today, stopping at the first gap. Today not being
+       ticked yet does not break the streak - the count simply starts from
+       yesterday, so the number does not drop to zero every morning. */
+    function currentStreak(h) {
+      var d = new Date();
+      if (!h.days[today()]) d.setDate(d.getDate() - 1);
+      var count = 0;
+      for (var i = 0; i < 1000; i++) {
+        if (!h.days[keyFor(d)]) break;
+        count++;
+        d.setDate(d.getDate() - 1);
+      }
+      return count;
+    }
+
+    /* The longest run anywhere in the record, kept separately so a missed
+       day does not erase the best effort. */
+    function bestStreak(h) {
+      var keys = Object.keys(h.days).filter(function (k) { return h.days[k]; }).sort();
+      var best = 0, run = 0, prev = null;
+      keys.forEach(function (k) {
+        var parts = k.split('-');
+        var at = new Date(+parts[0], +parts[1] - 1, +parts[2]).getTime();
+        if (prev !== null && at - prev === 86400000) run++;
+        else run = 1;
+        prev = at;
+        if (run > best) best = run;
+      });
+      return best;
+    }
+
+    function rate(h, days) {
+      var hit = 0;
+      var d = new Date();
+      for (var i = 0; i < days; i++) {
+        if (h.days[keyFor(d)]) hit++;
+        d.setDate(d.getDate() - 1);
+      }
+      return Math.round(hit / days * 100);
+    }
+
+    function draw() {
+      var span = parseInt(document.getElementById('span').value, 10);
+      var host = document.getElementById('habits');
+
+      if (!habits.length) {
+        host.innerHTML = '<p class="hint" style="margin:0">No habits yet. ' +
+          'Add one above — start with a single easy one.</p>';
+        ['s-today', 's-best'].forEach(function (id) {
+          document.getElementById(id).textContent = '0';
+        });
+        document.getElementById('s-rate').textContent = '0%';
+        return;
+      }
+
+      host.innerHTML = habits.map(function (h, idx) {
+        var squares = '';
+        var d = new Date();
+        d.setDate(d.getDate() - (span - 1));
+        for (var i = 0; i < span; i++) {
+          var k = keyFor(d);
+          squares += '<i class="' + (h.days[k] ? 'on' : '') +
+            (k === today() ? ' today' : '') + '" title="' + k + '"></i>';
+          d.setDate(d.getDate() + 1);
+        }
+
+        var cur = currentStreak(h);
+        var best = bestStreak(h);
+        var done = !!h.days[today()];
+
+        return '<div class="habit">' +
+          '<div class="top">' +
+            '<span class="name">' + escapeHtml(h.name) +
+              '<small>' + rate(h, 30) + '% over the last 30 days</small></span>' +
+            '<span class="streak">' + cur + ' day' + (cur === 1 ? '' : 's') +
+              (best > cur ? ' · best ' + best : '') + '</span>' +
+            '<button class="tick' + (done ? ' on' : '') + '" data-tick="' + idx + '">' +
+              (done ? 'Done today' : 'Mark today') + '</button>' +
+            '<button class="drop" data-drop="' + idx + '">&times;</button>' +
+          '</div>' +
+          '<div class="grid">' + squares + '</div>' +
+          '<div class="labels"><span>' + span + ' days ago</span><span>today</span></div>' +
+        '</div>';
+      }).join('');
+
+      var doneToday = habits.filter(function (h) { return h.days[today()]; }).length;
+      document.getElementById('s-today').textContent =
+        doneToday + ' of ' + habits.length;
+      document.getElementById('s-best').textContent =
+        Math.max.apply(null, habits.map(bestStreak).concat([0]));
+      var avg = Math.round(habits.reduce(function (a, h) {
+        return a + rate(h, 30);
+      }, 0) / habits.length);
+      document.getElementById('s-rate').textContent = avg + '%';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var name = document.getElementById('name').value.trim();
+      if (!name) { document.getElementById('name').focus(); return; }
+      habits.push({ name: name, days: {}, added: Date.now() });
+      document.getElementById('name').value = '';
+      save();
+      draw();
+    });
+
+    document.getElementById('name').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('add').click(); }
+    });
+
+    document.getElementById('habits').addEventListener('click', function (e) {
+      var tick = e.target.closest('[data-tick]');
+      if (tick) {
+        var h = habits[+tick.dataset.tick];
+        var k = today();
+        if (h.days[k]) delete h.days[k];
+        else h.days[k] = true;
+        save();
+        draw();
+        return;
+      }
+      var drop = e.target.closest('[data-drop]');
+      if (drop) {
+        var victim = habits[+drop.dataset.drop];
+        var ticked = Object.keys(victim.days).length;
+        if (ticked > 3 && !window.confirm('Delete "' + victim.name + '"? ' +
+            ticked + ' days of history will go with it.')) return;
+        habits.splice(+drop.dataset.drop, 1);
+        save();
+        draw();
+      }
+    });
+
+    document.getElementById('span').addEventListener('change', draw);
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>

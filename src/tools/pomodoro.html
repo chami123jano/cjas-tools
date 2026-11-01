@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus Timer — Cja's Tools</title>
+<meta name="description" content="Work in set stretches with breaks between, and see what you got through today. Saved on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .clock {
+    font-size: 72px; font-weight: 650; letter-spacing: -2px;
+    font-variant-numeric: tabular-nums; text-align: center; line-height: 1.05;
+  }
+  .clock small {
+    display: block; font-size: 13px; font-weight: 500; letter-spacing: 0;
+    color: var(--muted); margin-top: 6px;
+  }
+  .ring { display: grid; place-items: center; padding: 10px 0 4px; }
+  .ring svg { width: 210px; height: 210px; }
+  .ring .track { stroke: var(--surface-2); }
+  .ring .arc { stroke: var(--accent); transition: stroke-dashoffset .3s linear; }
+  .ring.break .arc { stroke: #27b86a; }
+  .phase {
+    text-align: center; font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 4px;
+  }
+  .dots { display: flex; gap: 6px; justify-content: center; margin-top: 14px; }
+  .dots i {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--surface-2); border: 1px solid var(--border);
+  }
+  .dots i.done { background: var(--accent); border-color: var(--accent); }
+  @media (max-width: 480px) { .clock { font-size: 54px; } .ring svg { width: 170px; height: 170px; } }
+</style>
+</head>
+<body data-page="tool" data-slug="pomodoro">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Focus Timer</h1>
+        <p>Work, then stop. The timer reads the real clock, so it stays right
+          even if you switch tabs.</p>
+      </div>
+
+      <div class="panel">
+        <div class="phase" id="phase">Ready</div>
+        <div class="ring" id="ring">
+          <svg viewBox="0 0 100 100">
+            <circle class="track" cx="50" cy="50" r="44" fill="none" stroke-width="7"></circle>
+            <circle class="arc" id="arc" cx="50" cy="50" r="44" fill="none"
+                    stroke-width="7" stroke-linecap="round"
+                    transform="rotate(-90 50 50)"></circle>
+          </svg>
+        </div>
+        <div class="clock" id="clock">25:00<small id="sub">Press start when you are ready</small></div>
+        <div class="btns" style="justify-content:center;margin-top:16px">
+          <button class="btn primary" id="start">Start</button>
+          <button class="btn" id="skip">Skip ahead</button>
+          <button class="btn" id="reset">Reset</button>
+        </div>
+        <div class="dots" id="dots"></div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="work">Work (minutes)</label>
+            <input type="number" id="work" value="25" min="1" max="180" step="1">
+          </div>
+          <div class="field">
+            <label for="short">Short break</label>
+            <input type="number" id="short" value="5" min="1" max="60" step="1">
+          </div>
+          <div class="field">
+            <label for="long">Long break</label>
+            <input type="number" id="long" value="15" min="1" max="120" step="1">
+          </div>
+          <div class="field">
+            <label for="rounds">Rounds before a long break</label>
+            <input type="number" id="rounds" value="4" min="2" max="10" step="1">
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="sound">Sound at the end</button>
+          <button class="btn primary" data-opt="autoNext">Start the next one automatically</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Today</label>
+        <div class="stats">
+          <div class="stat"><b id="s-today">0</b><span>Sessions finished</span></div>
+          <div class="stat"><b id="s-minutes">0</b><span>Minutes focused</span></div>
+          <div class="stat"><b id="s-streak">0</b><span>Day streak</span></div>
+          <div class="stat"><b id="s-total">0</b><span>Sessions all time</span></div>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why 25 minutes.</b> It is short enough that starting
+          feels easy and long enough to get somewhere, which is the whole trick
+          &mdash; the number matters far less than actually stopping when the
+          break comes. Change it to whatever suits the work.
+          <br><br>
+          The timer compares against the real clock rather than counting down a
+          variable, so it stays accurate when the tab is in the background,
+          where browsers slow timers down.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-pomodoro';
+
+    var state = CJA_STORE.get(KEY, { history: {}, completed: 0, round: 0 });
+    if (!state.history || typeof state.history !== 'object') state.history = {};
+
+    var opts = { sound: true, autoNext: true };
+
+    var phase = 'idle';        /* idle | work | short | long */
+    var endsAt = null;
+    var remaining = null;      /* milliseconds left while paused */
+    var running = false;
+
+    function today() {
+      var d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+             '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function minutes(id) {
+      var v = parseInt(document.getElementById(id).value, 10);
+      return isFinite(v) && v > 0 ? v : 1;
+    }
+
+    function phaseLength() {
+      if (phase === 'short') return minutes('short') * 60000;
+      if (phase === 'long') return minutes('long') * 60000;
+      return minutes('work') * 60000;
+    }
+
+    function left() {
+      if (running) return Math.max(0, endsAt - Date.now());
+      if (remaining !== null) return remaining;
+      return phaseLength();
+    }
+
+    function beep(times) {
+      if (!opts.sound) return;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        var ctx = new Ctx();
+        for (var i = 0; i < times; i++) {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = phase === 'work' ? 660 : 880;
+          var at = ctx.currentTime + i * 0.45;
+          gain.gain.setValueAtTime(0.0001, at);
+          gain.gain.exponentialRampToValueAtTime(0.22, at + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.4);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(at);
+          osc.stop(at + 0.42);
+        }
+      } catch (e) { /* no audio - the text still changes */ }
+    }
+
+    function streak() {
+      /* Counts back from today while each day has at least one session. A
+         gap ends the streak; today not yet started does not. */
+      var d = new Date();
+      var count = 0;
+      var key = today();
+      if (!state.history[key]) {
+        d.setDate(d.getDate() - 1);
+      }
+      for (var i = 0; i < 400; i++) {
+        var k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+                '-' + String(d.getDate()).padStart(2, '0');
+        if (!state.history[k]) break;
+        count++;
+        d.setDate(d.getDate() - 1);
+      }
+      return count;
+    }
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, state);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your progress — ' + CJA_STORE.note();
+    }
+
+    function paintStats() {
+      var t = state.history[today()] || { sessions: 0, minutes: 0 };
+      document.getElementById('s-today').textContent = t.sessions;
+      document.getElementById('s-minutes').textContent = t.minutes;
+      document.getElementById('s-streak').textContent = streak();
+      document.getElementById('s-total').textContent = state.completed || 0;
+
+      var rounds = Math.max(2, parseInt(document.getElementById('rounds').value, 10) || 4);
+      var dots = '';
+      for (var i = 0; i < rounds; i++) {
+        dots += '<i class="' + (i < (state.round % rounds) ? 'done' : '') + '"></i>';
+      }
+      document.getElementById('dots').innerHTML = dots;
+    }
+
+    function paint() {
+      var ms = left();
+      var total = phaseLength();
+      var secs = Math.ceil(ms / 1000);
+
+      document.getElementById('clock').firstChild.textContent =
+        String(Math.floor(secs / 60)).padStart(2, '0') + ':' +
+        String(secs % 60).padStart(2, '0');
+
+      var sub = document.getElementById('sub');
+      sub.textContent = phase === 'idle'
+        ? 'Press start when you are ready'
+        : running
+          ? (phase === 'work' ? 'Focusing' : 'On a break')
+          : 'Paused';
+
+      document.getElementById('phase').textContent =
+        phase === 'idle' ? 'Ready'
+        : phase === 'work' ? 'Work'
+        : phase === 'short' ? 'Short break' : 'Long break';
+
+      document.getElementById('ring').classList.toggle('break', phase === 'short' || phase === 'long');
+
+      /* The arc is drawn by offsetting a dash the length of the whole
+         circle, which is the simplest way to show a fraction. */
+      var arc = document.getElementById('arc');
+      var circumference = 2 * Math.PI * 44;
+      var fraction = total > 0 ? (total - ms) / total : 0;
+      arc.setAttribute('stroke-dasharray', circumference.toFixed(2));
+      arc.setAttribute('stroke-dashoffset', (circumference * (1 - fraction)).toFixed(2));
+
+      document.getElementById('start').textContent = running ? 'Pause' : 'Start';
+      document.getElementById('start').classList.toggle('primary', !running);
+    }
+
+    function nextPhase() {
+      var rounds = Math.max(2, parseInt(document.getElementById('rounds').value, 10) || 4);
+
+      if (phase === 'work') {
+        /* Only finished work counts. A break is not an achievement. */
+        state.completed = (state.completed || 0) + 1;
+        state.round = (state.round || 0) + 1;
+        var k = today();
+        if (!state.history[k]) state.history[k] = { sessions: 0, minutes: 0 };
+        state.history[k].sessions++;
+        state.history[k].minutes += minutes('work');
+        save();
+        paintStats();
+
+        phase = (state.round % rounds === 0) ? 'long' : 'short';
+      } else {
+        phase = 'work';
+      }
+
+      remaining = phaseLength();
+      running = false;
+
+      if (opts.autoNext) {
+        endsAt = Date.now() + phaseLength();
+        remaining = null;
+        running = true;
+      }
+      paint();
+    }
+
+    document.getElementById('start').addEventListener('click', function () {
+      if (running) {
+        remaining = left();
+        running = false;
+      } else {
+        if (phase === 'idle') phase = 'work';
+        var ms = remaining !== null ? remaining : phaseLength();
+        if (ms <= 0) ms = phaseLength();
+        endsAt = Date.now() + ms;
+        remaining = null;
+        running = true;
+      }
+      paint();
+    });
+
+    document.getElementById('skip').addEventListener('click', function () {
+      if (phase === 'idle') { phase = 'work'; }
+      nextPhase();
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      phase = 'idle';
+      running = false;
+      remaining = null;
+      endsAt = null;
+      paint();
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+    });
+
+    ['work', 'short', 'long', 'rounds'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', function () {
+        if (!running) { remaining = null; paint(); }
+        paintStats();
+      });
+    });
+
+    setInterval(function () {
+      if (!running) return;
+      if (left() <= 0) {
+        beep(phase === 'work' ? 3 : 2);
+        CT.toast(phase === 'work' ? 'Time for a break' : 'Back to it');
+        nextPhase();
+        return;
+      }
+      paint();
+    }, 250);
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    paintStats();
+    paint();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>To-do List — Cja's Tools</title>
+<meta name="description" content="A plain checklist that saves itself on your device, with due dates if you want them. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .add-row { display: grid; grid-template-columns: 1fr 150px auto; gap: 9px; align-items: end; }
+  .item {
+    display: grid; grid-template-columns: 24px 1fr auto auto;
+    gap: 10px; align-items: center; padding: 10px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .item:last-child { border-bottom: none; }
+  .item input[type="checkbox"] { width: 18px; height: 18px; margin: 0; cursor: pointer; }
+  .item .txt { font-size: 14.5px; line-height: 1.4; word-break: break-word; }
+  .item .txt small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .item.done .txt { text-decoration: line-through; color: var(--muted); }
+  .item .due { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .item .due.soon { color: #b8730b; font-weight: 600; }
+  .item .due.late { color: var(--danger); font-weight: 600; }
+  .item .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .item .drop:hover { color: var(--danger); }
+  .track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 8px; }
+  .track i { display: block; height: 100%; background: #27b86a; }
+  @media (max-width: 560px) { .add-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="tool" data-slug="todo-list">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>To-do List</h1>
+        <p>Saves itself as you go. Nothing is uploaded.</p>
+      </div>
+
+      <div class="panel">
+        <div class="add-row">
+          <div class="field" style="margin:0">
+            <label for="what">What needs doing</label>
+            <input type="text" id="what" placeholder="Add a task and press Enter" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="due">Due (optional)</label>
+            <input type="date" id="due">
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="summary">&mdash;</div>
+        <div class="track"><i id="bar" style="width:0%"></i></div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="filter">Show</label>
+            <select id="filter">
+              <option value="open" selected>Still to do</option>
+              <option value="all">Everything</option>
+              <option value="done">Finished</option>
+              <option value="due">With a due date</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="sort">Order by</label>
+            <select id="sort">
+              <option value="added" selected>When added</option>
+              <option value="due">Due date</option>
+              <option value="alpha">A to Z</option>
+            </select>
+          </div>
+        </div>
+        <div id="items"></div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="clear-done">Remove finished</button>
+          <button class="btn" id="export">Download as text</button>
+          <button class="btn" id="clear-all">Delete everything</button>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-todo';
+    var items = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(items)) items = [];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, items);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your list — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function todayMidnight() {
+      var d = new Date();
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+
+    function dueInfo(iso) {
+      if (!iso) return null;
+      var p = iso.split('-');
+      var at = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+      var days = Math.round((at - todayMidnight()) / 86400000);
+      var text = days === 0 ? 'today'
+        : days === 1 ? 'tomorrow'
+        : days === -1 ? 'yesterday'
+        : days < 0 ? Math.abs(days) + ' days ago'
+        : 'in ' + days + ' days';
+      return { days: days, text: text,
+               cls: days < 0 ? 'late' : days <= 2 ? 'soon' : '' };
+    }
+
+    function draw() {
+      var filter = document.getElementById('filter').value;
+      var sort = document.getElementById('sort').value;
+
+      var shown = items.filter(function (it) {
+        if (filter === 'open') return !it.done;
+        if (filter === 'done') return it.done;
+        if (filter === 'due') return !!it.due;
+        return true;
+      });
+
+      if (sort === 'alpha') {
+        shown.sort(function (a, b) { return a.text.localeCompare(b.text); });
+      } else if (sort === 'due') {
+        /* Anything without a due date goes last rather than first - an
+           undated task is not more urgent than a dated one. */
+        shown.sort(function (a, b) {
+          if (!a.due && !b.due) return 0;
+          if (!a.due) return 1;
+          if (!b.due) return -1;
+          return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+        });
+      }
+
+      document.getElementById('items').innerHTML = shown.length
+        ? shown.map(function (it) {
+            var d = dueInfo(it.due);
+            return '<div class="item' + (it.done ? ' done' : '') + '">' +
+              '<input type="checkbox" data-id="' + it.id + '"' +
+                (it.done ? ' checked' : '') + '>' +
+              '<span class="txt">' + escapeHtml(it.text) +
+                (it.done && it.doneAt
+                  ? '<small>finished ' + new Date(it.doneAt).toLocaleDateString('en-GB',
+                      { day: 'numeric', month: 'short' }) + '</small>'
+                  : '') +
+              '</span>' +
+              '<span class="due' + (d && !it.done ? ' ' + d.cls : '') + '">' +
+                (d ? d.text : '') + '</span>' +
+              '<button class="drop" data-drop="' + it.id + '">&times;</button>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">' +
+          (items.length
+            ? 'Nothing matches that filter.'
+            : 'Nothing on the list. Add something above.') + '</p>';
+
+      var done = items.filter(function (it) { return it.done; }).length;
+      var total = items.length;
+      var overdue = items.filter(function (it) {
+        if (it.done || !it.due) return false;
+        var d = dueInfo(it.due);
+        return d && d.days < 0;
+      }).length;
+
+      document.getElementById('summary').innerHTML = total
+        ? (total - done) + ' still to do' +
+          '<small>' + done + ' of ' + total + ' finished' +
+          (overdue ? ' · ' + overdue + ' past its due date' : '') + '</small>'
+        : '&mdash;<small>Nothing on the list yet</small>';
+
+      document.getElementById('bar').style.width =
+        total ? (done / total * 100) + '%' : '0%';
+    }
+
+    function add() {
+      var text = document.getElementById('what').value.trim();
+      if (!text) { document.getElementById('what').focus(); return; }
+      items.push({
+        id: String(Date.now()) + Math.random().toString(36).slice(2, 7),
+        text: text,
+        due: document.getElementById('due').value || '',
+        done: false,
+        added: Date.now()
+      });
+      document.getElementById('what').value = '';
+      document.getElementById('due').value = '';
+      document.getElementById('what').focus();
+      save();
+      draw();
+    }
+
+    document.getElementById('add').addEventListener('click', add);
+    document.getElementById('what').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); add(); }
+    });
+
+    document.getElementById('items').addEventListener('change', function (e) {
+      var cb = e.target.closest('[data-id]');
+      if (!cb) return;
+      var it = items.filter(function (x) { return x.id === cb.dataset.id; })[0];
+      if (!it) return;
+      it.done = cb.checked;
+      it.doneAt = cb.checked ? Date.now() : null;
+      save();
+      draw();
+    });
+
+    document.getElementById('items').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      items = items.filter(function (x) { return x.id !== b.dataset.drop; });
+      save();
+      draw();
+    });
+
+    ['filter', 'sort'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', draw);
+    });
+
+    document.getElementById('clear-done').addEventListener('click', function () {
+      var n = items.filter(function (it) { return it.done; }).length;
+      if (!n) { CT.toast('Nothing finished yet'); return; }
+      items = items.filter(function (it) { return !it.done; });
+      save();
+      draw();
+      CT.toast(n + ' removed');
+    });
+
+    document.getElementById('clear-all').addEventListener('click', function () {
+      if (!items.length) return;
+      /* Deleting a whole list is not undoable, so it asks first. */
+      if (!window.confirm('Delete all ' + items.length +
+          ' items? This cannot be undone.')) return;
+      items = [];
+      save();
+      draw();
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      if (!items.length) { CT.toast('Nothing to download'); return; }
+      var text = items.map(function (it) {
+        return (it.done ? '[x] ' : '[ ] ') + it.text +
+          (it.due ? ' (due ' + it.due + ')' : '');
+      }).join('\n');
+      var blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'todo.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>
