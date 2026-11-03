@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interval Timer — Cja's Tools</title>
+<meta name="description" content="Work and rest rounds counted out for exercise or practice, with a countdown you can see from across the room.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .stage {
+    border-radius: var(--radius); padding: 26px 18px; text-align: center;
+    transition: background .25s;
+    background: var(--surface);
+  }
+  .stage.work { background: rgba(212,72,59,.12); }
+  .stage.rest { background: rgba(39,184,106,.12); }
+  .stage.ready { background: rgba(47,109,246,.1); }
+  .stage .label {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .stage .time {
+    font-size: 86px; font-weight: 700; letter-spacing: -3px;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .stage.work .time { color: var(--danger); }
+  .stage.rest .time { color: #1f9d55; }
+  .stage .round { font-size: 15px; color: var(--muted); margin-top: 8px; }
+  .track { height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 16px; }
+  .track i { display: block; height: 100%; background: var(--accent); }
+  .plan { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 12px; }
+  .plan i { height: 9px; border-radius: 2px; flex: 1; min-width: 4px; }
+  .plan i.w { background: var(--danger); }
+  .plan i.r { background: #27b86a; }
+  .plan i.past { opacity: .3; }
+  @media (max-width: 480px) { .stage .time { font-size: 62px; } }
+</style>
+</head>
+<body data-page="tool" data-slug="interval-timer">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Interval Timer</h1>
+        <p>Set the rounds once and put the phone down.</p>
+      </div>
+
+      <div class="panel">
+        <div class="stage ready" id="stage">
+          <div class="label" id="label">Ready</div>
+          <div class="time" id="time">00:30</div>
+          <div class="round" id="round">8 rounds of 30 seconds work, 15 rest</div>
+        </div>
+        <div class="track"><i id="bar" style="width:0%"></i></div>
+        <div class="plan" id="plan"></div>
+        <div class="btns" style="justify-content:center;margin-top:16px">
+          <button class="btn primary" id="start">Start</button>
+          <button class="btn" id="reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="work">Work (seconds)</label>
+            <input type="number" id="work" value="30" min="1" max="600" step="5">
+          </div>
+          <div class="field">
+            <label for="rest">Rest (seconds)</label>
+            <input type="number" id="rest" value="15" min="0" max="600" step="5">
+          </div>
+          <div class="field">
+            <label for="rounds">Rounds</label>
+            <input type="number" id="rounds" value="8" min="1" max="60" step="1">
+          </div>
+          <div class="field">
+            <label for="prep">Get ready (seconds)</label>
+            <input type="number" id="prep" value="10" min="0" max="60" step="5">
+          </div>
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-p="20|10|8|10">Tabata — 20/10 &times; 8</button>
+          <button class="btn" data-p="45|15|10|10">45/15 &times; 10</button>
+          <button class="btn" data-p="60|30|6|10">60/30 &times; 6</button>
+          <button class="btn" data-p="180|60|5|15">3 min rounds &times; 5</button>
+        </div>
+        <div class="btns" id="opts" style="margin-top:11px">
+          <button class="btn primary" data-opt="sound">Beeps</button>
+          <button class="btn primary" data-opt="countIn">Count the last 3 seconds</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-total">0</b><span>Whole session</span></div>
+          <div class="stat"><b id="s-working">0</b><span>Time working</span></div>
+          <div class="stat"><b id="s-done">0</b><span>Rounds done</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The last round has no rest after it.</b> Eight rounds
+          of 30 on and 15 off is eight work periods and seven rests, not eight
+          of each &mdash; otherwise the session ends with you standing around.
+          The bar above shows the real plan.
+          <br><br>
+          The countdown reads the real clock rather than counting ticks, so it
+          stays accurate when the screen dims or the tab goes to the background.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { sound: true, countIn: true };
+
+    var phases = [];        /* the whole session, worked out up front */
+    var index = 0;
+    var endsAt = null;
+    var remaining = null;
+    var running = false;
+    var lastBeepAt = null;
+
+    function n(id) {
+      var v = parseInt(document.getElementById(id).value, 10);
+      return isFinite(v) && v >= 0 ? v : 0;
+    }
+
+    /* The plan is built once rather than decided as it goes, which is what
+       makes the last round end on work instead of a pointless rest. */
+    function buildPlan() {
+      var work = Math.max(1, n('work'));
+      var rest = n('rest');
+      var rounds = Math.max(1, n('rounds'));
+      var prep = n('prep');
+
+      var out = [];
+      if (prep > 0) out.push({ kind: 'ready', secs: prep, round: 0 });
+      for (var i = 1; i <= rounds; i++) {
+        out.push({ kind: 'work', secs: work, round: i });
+        if (rest > 0 && i < rounds) out.push({ kind: 'rest', secs: rest, round: i });
+      }
+      return out;
+    }
+
+    function totals() {
+      var work = Math.max(1, n('work'));
+      var rest = n('rest');
+      var rounds = Math.max(1, n('rounds'));
+      var prep = n('prep');
+      var total = prep + work * rounds + rest * Math.max(0, rounds - 1);
+      return { total: total, working: work * rounds };
+    }
+
+    function mmss(secs) {
+      return String(Math.floor(secs / 60)).padStart(2, '0') + ':' +
+             String(Math.floor(secs % 60)).padStart(2, '0');
+    }
+
+    function longer(secs) {
+      if (secs < 60) return secs + 's';
+      var m = Math.floor(secs / 60), s = secs % 60;
+      return m + 'm' + (s ? ' ' + s + 's' : '');
+    }
+
+    function beep(freq, times) {
+      if (!opts.sound) return;
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        var ctx = new Ctx();
+        for (var i = 0; i < times; i++) {
+          var osc = ctx.createOscillator();
+          var gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          var at = ctx.currentTime + i * 0.2;
+          gain.gain.setValueAtTime(0.0001, at);
+          gain.gain.exponentialRampToValueAtTime(0.25, at + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.15);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(at);
+          osc.stop(at + 0.17);
+        }
+      } catch (e) { /* no audio - the colours still change */ }
+    }
+
+    function current() { return phases[index] || null; }
+
+    function left() {
+      var p = current();
+      if (!p) return 0;
+      if (running) return Math.max(0, (endsAt - Date.now()) / 1000);
+      if (remaining !== null) return remaining;
+      return p.secs;
+    }
+
+    function paintPlan() {
+      var rounds = Math.max(1, n('rounds'));
+      document.getElementById('plan').innerHTML = phases
+        .filter(function (p) { return p.kind !== 'ready'; })
+        .map(function (p, i) {
+          var absoluteIndex = phases.indexOf(p);
+          return '<i class="' + (p.kind === 'work' ? 'w' : 'r') +
+            (absoluteIndex < index ? ' past' : '') +
+            '" style="flex:' + p.secs + '" title="' + p.kind + ' ' + p.secs + 's"></i>';
+        }).join('');
+
+      var t = totals();
+      document.getElementById('s-total').textContent = longer(t.total);
+      document.getElementById('s-working').textContent = longer(t.working);
+
+      var doneRounds = 0;
+      for (var i = 0; i < index && i < phases.length; i++) {
+        if (phases[i].kind === 'work') doneRounds++;
+      }
+      document.getElementById('s-done').textContent = doneRounds + ' of ' + rounds;
+    }
+
+    function paint() {
+      var p = current();
+      var stage = document.getElementById('stage');
+      var secs = left();
+
+      if (!p) {
+        stage.className = 'stage ready';
+        document.getElementById('label').textContent = 'Finished';
+        document.getElementById('time').textContent = '00:00';
+        document.getElementById('round').textContent = 'Session complete';
+        document.getElementById('bar').style.width = '100%';
+        document.getElementById('start').textContent = 'Start again';
+        document.getElementById('start').classList.add('primary');
+        return;
+      }
+
+      stage.className = 'stage ' + p.kind;
+      document.getElementById('label').textContent =
+        p.kind === 'ready' ? 'Get ready' : p.kind === 'work' ? 'Work' : 'Rest';
+      document.getElementById('time').textContent = mmss(Math.ceil(secs));
+
+      var rounds = Math.max(1, n('rounds'));
+      document.getElementById('round').textContent = p.kind === 'ready'
+        ? rounds + ' rounds of ' + n('work') + ' seconds work, ' + n('rest') + ' rest'
+        : 'Round ' + p.round + ' of ' + rounds;
+
+      document.getElementById('bar').style.width =
+        (p.secs > 0 ? ((p.secs - secs) / p.secs * 100) : 0) + '%';
+
+      document.getElementById('start').textContent = running ? 'Pause' : 'Start';
+      document.getElementById('start').classList.toggle('primary', !running);
+    }
+
+    function advance() {
+      var finishing = phases[index];
+      index++;
+      remaining = null;
+      var next = current();
+
+      if (!next) {
+        running = false;
+        beep(660, 4);
+        CT.toast('Session complete');
+        paintPlan();
+        paint();
+        return;
+      }
+
+      /* A different tone for work and rest, so you do not have to look. */
+      beep(next.kind === 'work' ? 880 : 520, next.kind === 'work' ? 2 : 1);
+      endsAt = Date.now() + next.secs * 1000;
+      paintPlan();
+      paint();
+    }
+
+    function reset() {
+      phases = buildPlan();
+      index = 0;
+      running = false;
+      remaining = null;
+      endsAt = null;
+      lastBeepAt = null;
+      paintPlan();
+      paint();
+    }
+
+    document.getElementById('start').addEventListener('click', function () {
+      if (!current()) { reset(); }
+      if (running) {
+        remaining = left();
+        running = false;
+      } else {
+        var secs = remaining !== null ? remaining : current().secs;
+        endsAt = Date.now() + secs * 1000;
+        remaining = null;
+        running = true;
+      }
+      paint();
+    });
+
+    document.getElementById('reset').addEventListener('click', reset);
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-p]');
+      if (!b) return;
+      var p = b.dataset.p.split('|');
+      document.getElementById('work').value = p[0];
+      document.getElementById('rest').value = p[1];
+      document.getElementById('rounds').value = p[2];
+      document.getElementById('prep').value = p[3];
+      reset();
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+    });
+
+    ['work', 'rest', 'rounds', 'prep'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', function () {
+        if (!running) reset();
+      });
+    });
+
+    setInterval(function () {
+      if (!running) return;
+      var secs = left();
+
+      /* A short count-in on the last three seconds, once each, so you know
+         the change is coming without watching the screen. */
+      if (opts.countIn) {
+        var whole = Math.ceil(secs);
+        if (whole <= 3 && whole >= 1 && lastBeepAt !== whole) {
+          lastBeepAt = whole;
+          beep(440, 1);
+        }
+        if (whole > 3) lastBeepAt = null;
+      }
+
+      if (secs <= 0.05) { advance(); return; }
+      paint();
+    }, 100);
+
+    reset();
+  })();
+  </script>
+</body>
+</html>

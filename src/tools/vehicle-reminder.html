@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vehicle Reminders — Cja's Tools</title>
+<meta name="description" content="Service, insurance, revenue licence and emission test for each of your vehicles, in one place. Saved on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .veh {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px; margin-bottom: 14px; background: var(--bg);
+  }
+  .veh .head {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+    align-items: center; margin-bottom: 11px;
+  }
+  .veh .plate {
+    font-size: 16px; font-weight: 650; letter-spacing: .5px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  .veh .plate small {
+    display: block; font-family: -apple-system, "Segoe UI", sans-serif;
+    font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 0;
+  }
+  .veh .km { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+  .veh .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .veh .drop:hover { color: var(--danger); }
+  .items { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 9px; }
+  .it {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 13px;
+  }
+  .it b { display: block; font-size: 12px; color: var(--muted); font-weight: 600;
+          text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+  .it .d { font-size: 14px; font-weight: 600; }
+  .it .n { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .it.soon { border-color: #e8a33d; background: rgba(232,163,61,.08); }
+  .it.gone { border-color: var(--danger); background: rgba(212,72,59,.07); }
+  .it.empty { opacity: .5; }
+  .it input { margin-top: 5px; font-size: 13px; padding: 5px 7px; }
+  .add-row { display: grid; grid-template-columns: 160px 1fr 140px auto; gap: 9px; align-items: end; }
+  @media (max-width: 680px) { .add-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="tool" data-slug="vehicle-reminder">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Vehicle Reminders</h1>
+        <p>The four things that catch people out, per vehicle.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="next">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="add-row">
+          <div class="field" style="margin:0">
+            <label for="plate">Number plate</label>
+            <input type="text" id="plate" placeholder="CAB-1234" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="name">Description</label>
+            <input type="text" id="name" placeholder="The red van" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="odo">Odometer (km)</label>
+            <input type="number" id="odo" placeholder="85000" min="0" step="1">
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add vehicle</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="warn">Warn me this many days ahead</label>
+          <select id="warn">
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="vehicles"></div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="export">Download as CSV</button>
+          <button class="btn" id="clear-all">Delete everything</button>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why these four.</b> In Sri Lanka the revenue licence
+          cannot be renewed without valid insurance, and for most vehicles not
+          without a current emission test either &mdash; so one lapsed
+          certificate blocks the others. Having all four dates side by side is
+          the point of this page.
+          <br><br>
+          <b>Service is by distance as well as date</b>, so both are shown. Put
+          in the odometer reading and the interval, and it works out which comes
+          first.
+          <br><br>
+          Nothing here contacts you. It stays on this device and will not chase
+          you, so put the real deadline in your phone as well.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-vehicles';
+    var vehicles = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(vehicles)) vehicles = [];
+
+    var ITEMS = [
+      { key: 'insurance', label: 'Insurance' },
+      { key: 'revenue', label: 'Revenue licence' },
+      { key: 'emission', label: 'Emission test' },
+      { key: 'service', label: 'Next service' }
+    ];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, vehicles);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function todayMidnight() {
+      var d = new Date();
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+
+    function daysLeft(iso) {
+      if (!iso) return null;
+      var p = iso.split('-');
+      var at = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+      return Math.round((at - todayMidnight()) / 86400000);
+    }
+
+    function human(days) {
+      if (days === null) return 'not set';
+      if (days < 0) return Math.abs(days) + ' days overdue';
+      if (days === 0) return 'today';
+      if (days === 1) return 'tomorrow';
+      if (days < 31) return days + ' days';
+      if (days < 365) return 'about ' + Math.round(days / 30) + ' months';
+      return (days / 365).toFixed(1) + ' years';
+    }
+
+    function warnDays() {
+      return parseInt(document.getElementById('warn').value, 10) || 30;
+    }
+
+    function classOf(days) {
+      if (days === null) return 'empty';
+      if (days < 0) return 'gone';
+      if (days <= warnDays()) return 'soon';
+      return '';
+    }
+
+    function draw() {
+      var host = document.getElementById('vehicles');
+
+      if (!vehicles.length) {
+        host.innerHTML = '<div class="panel"><p class="hint" style="margin:0">' +
+          'No vehicles yet. Add one above.</p></div>';
+        document.getElementById('next').innerHTML =
+          '&mdash;<small>Add a vehicle below</small>';
+        return;
+      }
+
+      host.innerHTML = vehicles.map(function (v, vi) {
+        var cells = ITEMS.map(function (item) {
+          var iso = v[item.key] || '';
+          var days = daysLeft(iso);
+          var note = '';
+
+          /* Service is the only one that can also fall due on distance, so
+             whichever comes first is what gets shown. */
+          if (item.key === 'service' && v.odo && v.serviceEvery) {
+            var sinceLast = Math.max(0, (parseFloat(v.odo) || 0) -
+                                        (parseFloat(v.lastServiceOdo) || 0));
+            var kmLeft = (parseFloat(v.serviceEvery) || 0) - sinceLast;
+            note = kmLeft <= 0
+              ? Math.abs(Math.round(kmLeft)).toLocaleString() + ' km overdue'
+              : Math.round(kmLeft).toLocaleString() + ' km to go';
+          }
+
+          return '<div class="it ' + classOf(days) + '">' +
+            '<b>' + item.label + '</b>' +
+            '<span class="d">' + human(days) + '</span>' +
+            (iso ? '<div class="n">' + iso + '</div>' : '') +
+            (note ? '<div class="n">' + note + '</div>' : '') +
+            '<input type="date" data-v="' + vi + '" data-k="' + item.key +
+              '" value="' + iso + '">' +
+          '</div>';
+        }).join('');
+
+        var extra = '<div class="items" style="margin-top:9px">' +
+          '<div class="it"><b>Odometer now</b>' +
+            '<input type="number" data-v="' + vi + '" data-k="odo" value="' +
+            (v.odo || '') + '" min="0" step="1"></div>' +
+          '<div class="it"><b>Service every (km)</b>' +
+            '<input type="number" data-v="' + vi + '" data-k="serviceEvery" value="' +
+            (v.serviceEvery || '') + '" min="0" step="500"></div>' +
+          '<div class="it"><b>Odometer at last service</b>' +
+            '<input type="number" data-v="' + vi + '" data-k="lastServiceOdo" value="' +
+            (v.lastServiceOdo || '') + '" min="0" step="1"></div>' +
+          '</div>';
+
+        return '<div class="panel"><div class="veh">' +
+          '<div class="head">' +
+            '<span class="plate">' + escapeHtml(v.plate || 'No plate') +
+              (v.name ? '<small>' + escapeHtml(v.name) + '</small>' : '') + '</span>' +
+            '<span class="km">' + (v.odo
+              ? parseFloat(v.odo).toLocaleString() + ' km' : '') + '</span>' +
+            '<button class="drop" data-dropv="' + vi + '">&times;</button>' +
+          '</div>' +
+          '<div class="items">' + cells + '</div>' +
+          extra +
+        '</div></div>';
+      }).join('');
+
+      /* The headline is whatever is closest across every vehicle, since
+         that is the only thing you actually need to act on next. */
+      var all = [];
+      vehicles.forEach(function (v) {
+        ITEMS.forEach(function (item) {
+          var days = daysLeft(v[item.key]);
+          if (days === null) return;
+          all.push({ v: v, label: item.label, days: days });
+        });
+      });
+      all.sort(function (a, b) { return a.days - b.days; });
+
+      var first = all[0];
+      document.getElementById('next').innerHTML = first
+        ? (first.days < 0
+            ? first.label + ' on ' + escapeHtml(first.v.plate) + ' is ' +
+              Math.abs(first.days) + ' days overdue'
+            : first.label + ' on ' + escapeHtml(first.v.plate) + ' due in ' +
+              human(first.days)) +
+          '<small>' + all.filter(function (x) {
+            return x.days <= warnDays();
+          }).length + ' of ' + all.length + ' dates need attention</small>'
+        : '&mdash;<small>No dates filled in yet</small>';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var plate = document.getElementById('plate').value.trim().toUpperCase();
+      if (!plate) { document.getElementById('plate').focus(); return; }
+      vehicles.push({
+        plate: plate,
+        name: document.getElementById('name').value.trim(),
+        odo: document.getElementById('odo').value || '',
+        serviceEvery: 10000,
+        lastServiceOdo: ''
+      });
+      document.getElementById('plate').value = '';
+      document.getElementById('name').value = '';
+      document.getElementById('odo').value = '';
+      save();
+      draw();
+    });
+
+    document.getElementById('vehicles').addEventListener('change', function (e) {
+      var el = e.target;
+      if (el.dataset.v === undefined) return;
+      vehicles[+el.dataset.v][el.dataset.k] = el.value;
+      save();
+      draw();
+    });
+
+    document.getElementById('vehicles').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-dropv]');
+      if (!b) return;
+      var v = vehicles[+b.dataset.dropv];
+      if (!window.confirm('Remove ' + (v.plate || 'this vehicle') + '?')) return;
+      vehicles.splice(+b.dataset.dropv, 1);
+      save();
+      draw();
+    });
+
+    document.getElementById('warn').addEventListener('change', draw);
+
+    document.getElementById('export').addEventListener('click', function () {
+      if (!vehicles.length) { CT.toast('Nothing to download'); return; }
+      var lines = ['Plate,Description,Odometer,Insurance,Revenue licence,Emission,Next service'];
+      vehicles.forEach(function (v) {
+        lines.push([
+          '"' + String(v.plate).replace(/"/g, '""') + '"',
+          '"' + String(v.name || '').replace(/"/g, '""') + '"',
+          v.odo || '', v.insurance || '', v.revenue || '',
+          v.emission || '', v.service || ''
+        ].join(','));
+      });
+      var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'vehicles.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('clear-all').addEventListener('click', function () {
+      if (!vehicles.length) return;
+      if (!window.confirm('Delete all ' + vehicles.length +
+          ' vehicles? This cannot be undone.')) return;
+      vehicles = [];
+      save();
+      draw();
+    });
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>

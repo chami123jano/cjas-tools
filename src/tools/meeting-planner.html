@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Planner — Cja's Tools</title>
+<meta name="description" content="Find an hour that is reasonable for everyone on a call, wherever they are. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .grid-wrap { overflow-x: auto; }
+  .prow {
+    display: grid; grid-template-columns: 150px repeat(24, minmax(26px, 1fr)) 34px;
+    gap: 2px; align-items: center; margin-bottom: 3px;
+  }
+  .prow .who {
+    font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding-right: 6px;
+  }
+  .prow .who small { display: block; color: var(--muted); font-size: 11px; }
+  .prow i {
+    height: 30px; border-radius: 3px; display: grid; place-items: center;
+    font-size: 10px; font-style: normal; color: #fff;
+  }
+  .prow .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+  .prow .drop:hover { color: var(--danger); }
+  .h-good { background: #27b86a; }
+  .h-edge { background: #e8a33d; }
+  .h-bad { background: var(--surface-2); color: var(--muted); }
+  .hours-head {
+    display: grid; grid-template-columns: 150px repeat(24, minmax(26px, 1fr)) 34px;
+    gap: 2px; font-size: 10px; color: var(--muted); margin-bottom: 5px;
+  }
+  .hours-head span { text-align: center; }
+  .score {
+    display: grid; grid-template-columns: 150px repeat(24, minmax(26px, 1fr)) 34px;
+    gap: 2px; margin-top: 6px; align-items: end;
+  }
+  .score i {
+    height: 26px; border-radius: 3px 3px 0 0; background: var(--accent);
+    display: grid; place-items: center; font-size: 10px; font-style: normal; color: #fff;
+  }
+  .score i.best { background: #146b3c; }
+  .score i.none { background: var(--surface-2); }
+  .best-list { font-size: 14px; line-height: 2; }
+  .best-list b { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body data-page="tool" data-slug="meeting-planner">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Meeting Planner</h1>
+        <p>Green is a normal working hour where that person is.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="base">Show the row of hours in</label>
+            <select id="base"></select>
+          </div>
+          <div class="field">
+            <label for="date">On this date</label>
+            <input type="date" id="date">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="who">Add a person</label>
+            <input type="text" id="who" placeholder="Nimali" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="zone">Where they are</label>
+            <select id="zone"></select>
+          </div>
+          <button class="btn primary" id="add" style="height:38px;align-self:end">Add</button>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="from">Their day starts</label>
+            <input type="number" id="from" value="9" min="0" max="23" step="1">
+          </div>
+          <div class="field">
+            <label for="to">and ends</label>
+            <input type="number" id="to" value="17" min="1" max="24" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="best">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="grid-wrap">
+          <div class="hours-head" id="head"></div>
+          <div id="rows"></div>
+          <div class="score" id="scores"></div>
+        </div>
+        <p class="hint">The bottom row counts how many people are inside their
+          own working hours at that time. Darker green is the best you can do.</p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">The best hours</label>
+        <div class="best-list" id="best-list"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint" id="store-note"></p>
+        <p class="hint"><b>Daylight saving is handled from your system's own
+          time zone data</b>, so a date in March or October gives the right
+          answer rather than being an hour out. That is also why the date
+          matters &mdash; the same people can be an hour further apart next
+          month.
+          <br><br>
+          Each person can have their own working hours, because "nine to five"
+          is not universal. Set someone to 6 and 14 if that is when they
+          actually work.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-meeting-people';
+
+    var ZONES = [
+      ['Asia/Colombo', 'Colombo'], ['Asia/Kolkata', 'Mumbai / Delhi'],
+      ['Asia/Dubai', 'Dubai'], ['Asia/Riyadh', 'Riyadh'],
+      ['Asia/Singapore', 'Singapore'], ['Asia/Tokyo', 'Tokyo'],
+      ['Asia/Shanghai', 'Shanghai'], ['Australia/Sydney', 'Sydney'],
+      ['Australia/Perth', 'Perth'], ['Pacific/Auckland', 'Auckland'],
+      ['Europe/London', 'London'], ['Europe/Dublin', 'Dublin'],
+      ['Europe/Paris', 'Paris'], ['Europe/Berlin', 'Berlin'],
+      ['Europe/Moscow', 'Moscow'], ['Africa/Lagos', 'Lagos'],
+      ['Africa/Nairobi', 'Nairobi'], ['Africa/Johannesburg', 'Johannesburg'],
+      ['America/New_York', 'New York'], ['America/Chicago', 'Chicago'],
+      ['America/Denver', 'Denver'], ['America/Los_Angeles', 'Los Angeles'],
+      ['America/Toronto', 'Toronto'], ['America/Sao_Paulo', 'Sao Paulo'],
+      ['UTC', 'UTC']
+    ];
+
+    var people = CJA_STORE.get(KEY, [
+      { name: 'Me', zone: 'Asia/Colombo', from: 9, to: 17 },
+      { name: 'London office', zone: 'Europe/London', from: 9, to: 17 },
+      { name: 'New York', zone: 'America/New_York', from: 9, to: 17 }
+    ]);
+    if (!Array.isArray(people) || !people.length) {
+      people = [{ name: 'Me', zone: 'Asia/Colombo', from: 9, to: 17 }];
+    }
+
+    var here = 'Asia/Colombo';
+    try {
+      var guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (guess) here = guess;
+    } catch (e) {}
+    if (!ZONES.some(function (z) { return z[0] === here; })) {
+      ZONES.unshift([here, here.split('/').pop().replace(/_/g, ' ')]);
+    }
+
+    var opts = ZONES.map(function (z) {
+      return '<option value="' + z[0] + '">' + z[1] + '</option>';
+    }).join('');
+    document.getElementById('base').innerHTML = opts;
+    document.getElementById('zone').innerHTML = opts;
+    document.getElementById('base').value = here;
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, people);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function label(tz) {
+      var f = ZONES.filter(function (z) { return z[0] === tz; })[0];
+      return f ? f[1] : tz;
+    }
+
+    /* The wall-clock hour and weekday in a zone at a given instant. Using
+       Intl means the system's own daylight-saving rules apply, so a date in
+       late March is not an hour out. */
+    function partsIn(date, tz) {
+      var f = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit',
+        weekday: 'short', day: '2-digit', month: '2-digit'
+      });
+      var out = {};
+      f.formatToParts(date).forEach(function (p) { out[p.type] = p.value; });
+      if (out.hour === '24') out.hour = '00';
+      return out;
+    }
+
+    function offsetMinutes(date, tz) {
+      var f = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz, hour12: false, year: 'numeric', month: '2-digit',
+        day: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+      var o = {};
+      f.formatToParts(date).forEach(function (p) { o[p.type] = p.value; });
+      var asUTC = Date.UTC(+o.year, +o.month - 1, +o.day,
+                           o.hour === '24' ? 0 : +o.hour, +o.minute);
+      return Math.round((asUTC - date.getTime()) / 60000);
+    }
+
+    /* Turns a wall-clock reading in the base zone into a real instant.
+       Applied twice because the first guess can land on the wrong side of a
+       daylight-saving change. */
+    function instantFor(dateStr, hour, tz) {
+      var p = dateStr.split('-');
+      var guess = Date.UTC(+p[0], +p[1] - 1, +p[2], hour, 0);
+      var d = new Date(guess);
+      d = new Date(guess - offsetMinutes(d, tz) * 60000);
+      d = new Date(guess - offsetMinutes(d, tz) * 60000);
+      return d;
+    }
+
+    function draw() {
+      var base = document.getElementById('base').value;
+      var dateStr = document.getElementById('date').value;
+      if (!dateStr) return;
+
+      var head = '<span></span>';
+      for (var h = 0; h < 24; h++) head += '<span>' + h + '</span>';
+      head += '<span></span>';
+      document.getElementById('head').innerHTML = head;
+
+      var instants = [];
+      for (var hh = 0; hh < 24; hh++) instants.push(instantFor(dateStr, hh, base));
+
+      var counts = new Array(24).fill(0);
+
+      document.getElementById('rows').innerHTML = people.map(function (p, pi) {
+        var cells = '';
+        for (var h2 = 0; h2 < 24; h2++) {
+          var local = partsIn(instants[h2], p.zone);
+          var localHour = parseInt(local.hour, 10);
+          var from = Math.min(23, Math.max(0, parseInt(p.from, 10) || 9));
+          var to = Math.min(24, Math.max(1, parseInt(p.to, 10) || 17));
+
+          var inHours = localHour >= from && localHour < to;
+          /* An hour just outside the working day is awkward but possible,
+             which is worth telling apart from the middle of the night. */
+          var edge = !inHours && localHour >= from - 2 && localHour < to + 2;
+
+          if (inHours) counts[h2]++;
+
+          cells += '<i class="' + (inHours ? 'h-good' : edge ? 'h-edge' : 'h-bad') +
+            '" title="' + escapeHtml(p.name) + ' — ' + local.hour + ':00 ' +
+            local.weekday + '">' + localHour + '</i>';
+        }
+
+        var off = offsetMinutes(instants[0], p.zone);
+        var sign = off < 0 ? '-' : '+';
+        var abs = Math.abs(off);
+
+        return '<div class="prow">' +
+          '<span class="who">' + escapeHtml(p.name) +
+            '<small>' + label(p.zone) + ' · UTC' + sign +
+            String(Math.floor(abs / 60)).padStart(2, '0') + ':' +
+            String(abs % 60).padStart(2, '0') + '</small></span>' +
+          cells +
+          '<button class="drop" data-drop="' + pi + '">&times;</button>' +
+        '</div>';
+      }).join('');
+
+      var max = Math.max.apply(null, counts);
+      var scores = '<span style="font-size:11px;color:var(--muted)">available</span>';
+      for (var h3 = 0; h3 < 24; h3++) {
+        scores += '<i class="' + (counts[h3] === 0 ? 'none' : counts[h3] === max ? 'best' : '') +
+          '" title="' + counts[h3] + ' of ' + people.length + ' available">' +
+          counts[h3] + '</i>';
+      }
+      scores += '<span></span>';
+      document.getElementById('scores').innerHTML = scores;
+
+      var bestHours = [];
+      for (var h4 = 0; h4 < 24; h4++) {
+        if (counts[h4] === max && max > 0) bestHours.push(h4);
+      }
+
+      document.getElementById('best').innerHTML = max === 0
+        ? 'No hour works for everyone' +
+          '<small>nobody is inside their working hours at the same time — ' +
+          'somebody will have to stretch</small>'
+        : max === people.length
+          ? bestHours.length + ' hour' + (bestHours.length === 1 ? '' : 's') +
+            ' work for everyone' +
+            '<small>' + bestHours.map(function (h) {
+              return String(h).padStart(2, '0') + ':00';
+            }).join(', ') + ' in ' + label(base) + '</small>'
+          : 'The best you can do is ' + max + ' of ' + people.length +
+            '<small>at ' + bestHours.map(function (h) {
+              return String(h).padStart(2, '0') + ':00';
+            }).join(', ') + ' in ' + label(base) + '</small>';
+
+      document.getElementById('best-list').innerHTML = bestHours.length
+        ? bestHours.slice(0, 6).map(function (h) {
+            return '<div><b>' + String(h).padStart(2, '0') + ':00</b> in ' +
+              label(base) + ' — ' + people.map(function (p) {
+                return escapeHtml(p.name) + ' ' +
+                  partsIn(instants[h], p.zone).hour + ':00';
+              }).join(', ') + '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Nothing lines up on this date.</p>';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var name = document.getElementById('who').value.trim();
+      if (!name) { document.getElementById('who').focus(); return; }
+      people.push({
+        name: name,
+        zone: document.getElementById('zone').value,
+        from: parseInt(document.getElementById('from').value, 10) || 9,
+        to: parseInt(document.getElementById('to').value, 10) || 17
+      });
+      document.getElementById('who').value = '';
+      save();
+      draw();
+    });
+
+    document.getElementById('who').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('add').click(); }
+    });
+
+    document.getElementById('rows').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      if (people.length <= 1) { CT.toast('Keep at least one person'); return; }
+      people.splice(+b.dataset.drop, 1);
+      save();
+      draw();
+    });
+
+    ['base', 'date'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', draw);
+    });
+
+    var d = new Date();
+    document.getElementById('date').value = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>

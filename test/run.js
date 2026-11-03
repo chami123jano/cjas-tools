@@ -2056,6 +2056,161 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- time, part 2
+
+(function storeAdoption() {
+  // every tool that keeps data must go through the shared store
+  ['document-expiry', 'vehicle-reminder', 'meeting-planner', 'event-countdown']
+    .forEach((slug) => {
+      const s = fs.readFileSync(path.join(SRC, 'tools/' + slug + '.html'), 'utf8');
+      ok(s.indexOf('store.js') !== -1, slug + ' loads the shared store');
+      ok(s.indexOf('localStorage.setItem') === -1,
+         slug + ' does not touch localStorage directly');
+    });
+})();
+
+(function documentExpiry() {
+  const t = loadTool('document-expiry');
+  has(t.text('list'), 'Nothing tracked yet', 'it starts empty');
+
+  const iso = (daysFromNow) => {
+    const d = new Date(Date.now() + daysFromNow * 86400000);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  };
+
+  // something far away is fine
+  t.set('name', 'Passport').set('expires', iso(400)).set('warn', '90');
+  t.click('add');
+  has(t.text('list'), 'Passport', 'the document is listed');
+  has(t.text('list'), 'Fine', 'a distant expiry is fine');
+  has(t.text('s-soon'), '0', 'nothing needs attention yet');
+
+  // the status uses each document's own warning period, not a global one
+  t.set('name', 'Insurance').set('expires', iso(45)).set('warn', '30');
+  t.click('add');
+  t.set('name', 'Visa').set('expires', iso(45)).set('warn', '90');
+  t.click('add');
+  // 45 days out: fine at a 30-day warning, "renew soon" at a 90-day one
+  has(t.text('list'), 'Renew soon', 'a longer warning period triggers earlier');
+  has(t.text('s-soon'), '1', 'only the one with the longer warning counts');
+
+  // an expired document
+  t.set('name', 'Old licence').set('expires', iso(-10)).set('warn', '30');
+  t.click('add');
+  has(t.text('s-gone'), '1', 'an expired document is counted');
+  has(t.text('next'), 'expired', 'and leads the headline');
+
+  // adding with no date must do nothing
+  t.set('name', 'No date').set('expires', '');
+  t.click('add');
+  has(t.text('s-total'), '4', 'adding without a date is refused');
+  t.close();
+})();
+
+(function vehicleReminder() {
+  const t = loadTool('vehicle-reminder');
+  t.set('plate', 'cab-1234').set('name', 'The van').set('odo', 85000);
+  t.click('add');
+  has(t.text('vehicles'), 'CAB-1234', 'the plate is upper-cased');
+  has(t.text('vehicles'), 'The van', 'and the description kept');
+  has(t.text('vehicles'), 'Insurance', 'the four items are shown');
+  has(t.text('vehicles'), 'Revenue licence', 'including the revenue licence');
+  has(t.text('vehicles'), 'Emission test', 'and the emission test');
+  has(t.text('vehicles'), 'not set', 'with empty dates marked as not set');
+
+  // a plate is required
+  t.set('plate', '');
+  t.click('add');
+  ok((t.text('vehicles').match(/CAB-1234/g) || []).length === 1,
+     'adding without a plate does nothing');
+  t.close();
+})();
+
+(function intervalTimer() {
+  const t = loadTool('interval-timer');
+  t.set('work', 30).set('rest', 15).set('rounds', 8).set('prep', 10);
+  has(t.text('time'), '00:10', 'it starts on the get-ready period');
+  has(t.text('round'), '8 rounds', 'and describes the plan');
+
+  // 10 prep + 8 work of 30 + 7 rests of 15 = 10 + 240 + 105 = 355s
+  has(t.text('s-total'), '5m 55s', 'the session length excludes a trailing rest');
+  has(t.text('s-working'), '4m', 'and the working total is just the work');
+  has(t.text('s-done'), '0 of 8', 'no rounds done yet');
+
+  // the plan bar should have 8 work blocks and 7 rests, not 8 of each
+  const blocks = [...t.document.querySelectorAll('#plan i')];
+  ok(blocks.filter((b) => b.className.indexOf('w') !== -1).length === 8,
+     'eight work blocks');
+  ok(blocks.filter((b) => b.className.indexOf('r') !== -1).length === 7,
+     'and seven rests, not eight',
+     'got ' + blocks.filter((b) => b.className.indexOf('r') !== -1).length);
+
+  // with no rest at all there should be no rest blocks
+  t.set('rest', 0);
+  ok([...t.document.querySelectorAll('#plan i')]
+     .filter((b) => b.className.indexOf('r') !== -1).length === 0,
+     'zero rest means no rest blocks');
+  t.close();
+})();
+
+(function meetingPlanner() {
+  const t = loadTool('meeting-planner');
+  t.set('base', 'UTC').set('date', '2026-11-03');
+  has(t.text('rows'), 'Colombo', 'the default people are shown');
+  has(t.text('rows'), 'London', 'including London');
+
+  // 24 cells per person, plus the name and the remove button
+  const firstRow = t.document.querySelector('#rows .prow');
+  ok(firstRow.querySelectorAll('i').length === 24, 'one cell per hour');
+
+  // the score row should total the people available each hour
+  ok(t.document.querySelectorAll('#scores i').length === 24,
+     'a score for every hour');
+  has(t.text('best'), 'in UTC', 'the verdict names the base zone');
+
+  // a single person in one zone should have 8 good hours for 9 to 17
+  t.set('who', 'Solo').set('zone', 'UTC').set('from', 9).set('to', 17);
+  t.click('add');
+  const soloRow = [...t.document.querySelectorAll('#rows .prow')]
+    .find((r) => r.textContent.indexOf('Solo') === 0);
+  ok(soloRow.querySelectorAll('i.h-good').length === 8,
+     '9 to 17 is eight working hours',
+     'got ' + soloRow.querySelectorAll('i.h-good').length);
+  t.close();
+})();
+
+(function eventCountdown() {
+  const t = loadTool('event-countdown');
+  has(t.text('hero'), 'Nothing added yet', 'it starts empty');
+
+  const future = new Date(Date.now() + 10 * 86400000);
+  const pad = (x) => String(x).padStart(2, '0');
+  const local = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
+    pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+  t.set('name', 'Exam').set('when', local(future));
+  t.click('add');
+  has(t.text('hero'), 'Exam', 'the event becomes the headline');
+  has(t.text('list'), 'Exam', 'and is listed');
+
+  // a date in the past should count upwards, not be hidden
+  const past = new Date(Date.now() - 5 * 86400000);
+  t.set('name', 'Gone by').set('when', local(past));
+  t.click('add');
+  has(t.text('list'), 'Gone by', 'a past event is kept');
+  has(t.text('list'), 'days ago', 'and counts upwards');
+  // the upcoming one should still be the headline, not the past one
+  has(t.text('hero'), 'Exam', 'the headline stays on the upcoming event');
+
+  // no name means no entry
+  t.set('name', '').set('when', local(future));
+  t.click('add');
+  ok((t.text('list').match(/Exam/g) || []).length === 1,
+     'adding without a name does nothing');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

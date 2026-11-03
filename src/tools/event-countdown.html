@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Countdown — Cja's Tools</title>
+<meta name="description" content="Count down to the dates that matter, all on one page. Saved on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .ev {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 12px; align-items: center; padding: 14px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ev:last-child { border-bottom: none; }
+  .ev .what { font-size: 15px; font-weight: 550; }
+  .ev .what small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .ev .count {
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .ev .count b { font-size: 25px; font-weight: 650; letter-spacing: -.5px; }
+  .ev .count small { display: block; color: var(--muted); font-size: 12px; }
+  .ev.past .count b { color: var(--muted); }
+  .ev.soon .count b { color: var(--danger); }
+  .ev .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .ev .drop:hover { color: var(--danger); }
+  .hero {
+    text-align: center; padding: 22px 16px;
+  }
+  .hero .name { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
+  .hero .big {
+    font-size: 58px; font-weight: 700; letter-spacing: -2px; line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero .parts { font-size: 14px; color: var(--muted); margin-top: 10px; }
+  .add-row { display: grid; grid-template-columns: 1fr 190px auto; gap: 9px; align-items: end; }
+  @media (max-width: 620px) {
+    .add-row { grid-template-columns: 1fr; }
+    .hero .big { font-size: 44px; }
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="event-countdown">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Event Countdown</h1>
+        <p>Everything you are counting towards, in one place.</p>
+      </div>
+
+      <div class="panel">
+        <div class="hero" id="hero">
+          <div class="name">Nothing added yet</div>
+          <div class="big">&mdash;</div>
+          <div class="parts">Add an event below</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="add-row">
+          <div class="field" style="margin:0">
+            <label for="name">What is it</label>
+            <input type="text" id="name" placeholder="Exam results" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="when">When</label>
+            <input type="datetime-local" id="when">
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add</button>
+        </div>
+        <div class="btns" id="quick">
+          <button class="btn" data-q="7">In a week</button>
+          <button class="btn" data-q="30">In a month</button>
+          <button class="btn" data-q="newyear">New year</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="sort">Order by</label>
+          <select id="sort">
+            <option value="soonest" selected>Soonest first</option>
+            <option value="added">When added</option>
+            <option value="name">Name</option>
+          </select>
+        </div>
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="clear-past">Remove ones that have passed</button>
+          <button class="btn" id="clear-all">Delete everything</button>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Dates that have gone by are kept, not hidden.</b> They
+          count upwards instead, which is often what you actually want &mdash;
+          how long since something happened. Use the button above to clear them
+          out when you are done with them.
+          <br><br>
+          Everything is counted against this computer's clock and time zone, so
+          an event at "09:00" means nine in the morning where you are.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-events';
+    var events = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(events)) events = [];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, events);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function parse(value) {
+      /* A datetime-local value has no zone, so it is read as local time -
+         which is what someone typing "09:00" means. */
+      var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+      if (!m) return null;
+      return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]).getTime();
+    }
+
+    function breakdown(ms) {
+      var abs = Math.abs(ms);
+      var days = Math.floor(abs / 86400000);
+      var hours = Math.floor((abs % 86400000) / 3600000);
+      var mins = Math.floor((abs % 3600000) / 60000);
+      var secs = Math.floor((abs % 60000) / 1000);
+      return { days: days, hours: hours, mins: mins, secs: secs };
+    }
+
+    function tick() {
+      var now = Date.now();
+      var sort = document.getElementById('sort').value;
+
+      var rows = events.map(function (e, i) {
+        return { e: e, i: i, diff: e.at - now };
+      });
+
+      if (sort === 'name') rows.sort(function (a, b) { return a.e.name.localeCompare(b.e.name); });
+      else if (sort === 'added') rows.sort(function (a, b) { return a.e.added - b.e.added; });
+      else {
+        /* Soonest first means upcoming in order, then past ones most recent
+           first - a date from five years ago is not what you want at the top. */
+        rows.sort(function (a, b) {
+          if (a.diff >= 0 && b.diff >= 0) return a.diff - b.diff;
+          if (a.diff < 0 && b.diff < 0) return b.diff - a.diff;
+          return a.diff >= 0 ? -1 : 1;
+        });
+      }
+
+      document.getElementById('list').innerHTML = rows.length
+        ? rows.map(function (r) {
+            var b = breakdown(r.diff);
+            var past = r.diff < 0;
+            var soon = !past && r.diff < 86400000;
+            return '<div class="ev' + (past ? ' past' : soon ? ' soon' : '') + '">' +
+              '<span class="what">' + escapeHtml(r.e.name) +
+                '<small>' + new Date(r.e.at).toLocaleString('en-GB', {
+                  weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit'
+                }) + '</small></span>' +
+              '<span class="count"><b>' + (past ? '+' : '') + b.days + '</b>' +
+                '<small>' + (past ? 'days ago' : 'days') +
+                (b.days === 0
+                  ? ' · ' + b.hours + 'h ' + b.mins + 'm'
+                  : ' · ' + b.hours + 'h') + '</small></span>' +
+              '<button class="drop" data-drop="' + r.i + '">&times;</button>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Nothing added yet.</p>';
+
+      /* The hero is the next upcoming event, falling back to the most
+         recently passed one if everything is behind us. */
+      var upcoming = rows.filter(function (r) { return r.diff >= 0; })[0];
+      var target = upcoming || rows[0];
+      var hero = document.getElementById('hero');
+
+      if (!target) {
+        hero.innerHTML = '<div class="name">Nothing added yet</div>' +
+          '<div class="big">&mdash;</div>' +
+          '<div class="parts">Add an event below</div>';
+        return;
+      }
+
+      var hb = breakdown(target.diff);
+      var isPast = target.diff < 0;
+
+      hero.innerHTML =
+        '<div class="name">' + escapeHtml(target.e.name) +
+          (isPast ? ' — already passed' : '') + '</div>' +
+        '<div class="big">' + (isPast ? '+' : '') + hb.days + '</div>' +
+        '<div class="parts">' +
+          (hb.days === 1 ? 'day' : 'days') +
+          ' · ' + hb.hours + ' hours · ' + hb.mins + ' minutes · ' +
+          hb.secs + ' seconds' +
+        '</div>';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var name = document.getElementById('name').value.trim();
+      var when = document.getElementById('when').value;
+      if (!name) { document.getElementById('name').focus(); return; }
+      var at = parse(when);
+      if (at === null) { CT.toast('Pick a date and time'); return; }
+
+      events.push({ name: name, at: at, added: Date.now() });
+      document.getElementById('name').value = '';
+      save();
+      tick();
+    });
+
+    document.getElementById('name').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('add').click(); }
+    });
+
+    document.getElementById('quick').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-q]');
+      if (!b) return;
+      var d;
+      if (b.dataset.q === 'newyear') {
+        d = new Date(new Date().getFullYear() + 1, 0, 1, 0, 0);
+        if (!document.getElementById('name').value.trim()) {
+          document.getElementById('name').value = 'New year';
+        }
+      } else {
+        d = new Date(Date.now() + parseInt(b.dataset.q, 10) * 86400000);
+      }
+      document.getElementById('when').value =
+        d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0') + 'T' +
+        String(d.getHours()).padStart(2, '0') + ':' +
+        String(d.getMinutes()).padStart(2, '0');
+    });
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      events.splice(+b.dataset.drop, 1);
+      save();
+      tick();
+    });
+
+    document.getElementById('sort').addEventListener('change', tick);
+
+    document.getElementById('clear-past').addEventListener('click', function () {
+      var now = Date.now();
+      var n = events.filter(function (e) { return e.at < now; }).length;
+      if (!n) { CT.toast('Nothing has passed yet'); return; }
+      events = events.filter(function (e) { return e.at >= now; });
+      save();
+      tick();
+      CT.toast(n + ' removed');
+    });
+
+    document.getElementById('clear-all').addEventListener('click', function () {
+      if (!events.length) return;
+      if (!window.confirm('Delete all ' + events.length +
+          ' events? This cannot be undone.')) return;
+      events = [];
+      save();
+      tick();
+    });
+
+    var d0 = new Date(Date.now() + 7 * 86400000);
+    document.getElementById('when').value =
+      d0.getFullYear() + '-' + String(d0.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d0.getDate()).padStart(2, '0') + 'T09:00';
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    setInterval(tick, 1000);
+    tick();
+  })();
+  </script>
+</body>
+</html>

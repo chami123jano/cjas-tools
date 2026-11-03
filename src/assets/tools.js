@@ -652,6 +652,41 @@ const TOOLS = [
     category: 'time',
     desc: 'Keep birthdays in one place and see who is next, with ages.',
     keywords: ['birthday', 'reminder', 'anniversary', 'age', 'date', 'family', 'friends']
+  },
+  {
+    slug: 'document-expiry',
+    name: 'Document Expiry Tracker',
+    category: 'time',
+    desc: 'Keep passports, licences and insurance in one place and get warned before they lapse.',
+    keywords: ['expiry', 'passport', 'licence', 'insurance', 'renew', 'document', 'visa']
+  },
+  {
+    slug: 'vehicle-reminder',
+    name: 'Vehicle Reminders',
+    category: 'time',
+    desc: 'Service, insurance, revenue licence and emission test, all in one place.',
+    keywords: ['vehicle', 'car', 'service', 'insurance', 'revenue licence', 'emission', 'mot']
+  },
+  {
+    slug: 'interval-timer',
+    name: 'Interval Timer',
+    category: 'time',
+    desc: 'Work and rest rounds counted out loud for exercise or practice.',
+    keywords: ['interval', 'timer', 'hiit', 'workout', 'rounds', 'tabata', 'exercise']
+  },
+  {
+    slug: 'meeting-planner',
+    name: 'Meeting Planner',
+    category: 'time',
+    desc: 'Find an hour that is reasonable for everybody, wherever they are.',
+    keywords: ['meeting', 'planner', 'timezone', 'schedule', 'call', 'across', 'overlap']
+  },
+  {
+    slug: 'event-countdown',
+    name: 'Event Countdown',
+    category: 'time',
+    desc: 'Count down to the dates that matter, all on one page.',
+    keywords: ['countdown', 'event', 'days until', 'deadline', 'date', 'wedding', 'exam']
   }
 ];
 

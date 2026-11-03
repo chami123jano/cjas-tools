@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Document Expiry Tracker — Cja's Tools</title>
+<meta name="description" content="Keep passports, licences and insurance in one place and see what is about to lapse. Saved on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .drow {
+    display: grid; grid-template-columns: 1fr auto auto auto;
+    gap: 10px; align-items: center; padding: 11px 2px;
+    border-bottom: 1px solid var(--border);
+  }
+  .drow:last-child { border-bottom: none; }
+  .drow .what { font-size: 14.5px; font-weight: 550; }
+  .drow .what small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .drow .when { text-align: right; font-size: 13.5px; white-space: nowrap; }
+  .drow .when small { display: block; color: var(--muted); font-size: 12px; }
+  .drow .pill {
+    font-size: 11.5px; font-weight: 650; padding: 3px 9px;
+    border-radius: 999px; white-space: nowrap;
+  }
+  .pill.ok { background: #dcf5e7; color: #146b3c; }
+  .pill.soon { background: rgba(232,163,61,.18); color: #7a4d06; }
+  .pill.urgent { background: rgba(212,72,59,.14); color: var(--danger); }
+  .pill.gone { background: var(--text); color: var(--bg); }
+  html:not([data-theme="light"]) .pill.ok { background:#17402c; color:#6fdca2; }
+  html:not([data-theme="light"]) .pill.soon { color:#f0c96a; }
+  :root[data-theme="dark"] .pill.ok { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .pill.soon { color:#f0c96a; }
+  .drow .drop { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 17px; }
+  .drow .drop:hover { color: var(--danger); }
+  .add-row { display: grid; grid-template-columns: 1fr 160px 150px auto; gap: 9px; align-items: end; }
+  @media (max-width: 680px) { .add-row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body data-page="tool" data-slug="document-expiry">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=time">Time</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Document Expiry Tracker</h1>
+        <p>The things that lapse quietly and cost you when they do.</p>
+      </div>
+
+      <div class="panel">
+        <div class="result" id="next">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <div class="add-row">
+          <div class="field" style="margin:0">
+            <label for="name">What is it</label>
+            <input type="text" id="name" placeholder="Passport" autocomplete="off">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="expires">Expires on</label>
+            <input type="date" id="expires">
+          </div>
+          <div class="field" style="margin:0">
+            <label for="warn">Warn me</label>
+            <select id="warn">
+              <option value="30">30 days before</option>
+              <option value="60">60 days before</option>
+              <option value="90" selected>90 days before</option>
+              <option value="180">6 months before</option>
+            </select>
+          </div>
+          <button class="btn primary" id="add" style="height:38px">Add</button>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label for="note">A note (optional)</label>
+          <input type="text" id="note" placeholder="Number, office, who to call" autocomplete="off">
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-p="Passport|120">Passport</button>
+          <button class="btn" data-p="Driving licence|60">Driving licence</button>
+          <button class="btn" data-p="Vehicle insurance|30">Vehicle insurance</button>
+          <button class="btn" data-p="Revenue licence|30">Revenue licence</button>
+          <button class="btn" data-p="Visa|90">Visa</button>
+          <button class="btn" data-p="Domain name|30">Domain name</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-total">0</b><span>Tracked</span></div>
+          <div class="stat"><b id="s-soon">0</b><span>Need attention</span></div>
+          <div class="stat"><b id="s-gone">0</b><span>Already expired</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn" id="export">Download as CSV</button>
+          <button class="btn" id="clear-all">Delete everything</button>
+        </div>
+        <p class="hint" id="store-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Nothing here will contact you.</b> There are no
+          notifications, no emails and no messages &mdash; it all stays on this
+          device, which is also why it cannot chase you. Treat it as a list you
+          check now and then, and put the real deadline in your phone's calendar
+          for anything expensive to miss.
+          <br><br>
+          <b>Why the warning periods differ.</b> A passport renewal can take
+          weeks and some countries refuse entry within six months of expiry, so
+          the default is generous. Insurance you can usually sort out in a day.
+          Set each one to however long you actually need.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/store.js"></script>
+  <script>
+  (function () {
+    var KEY = 'cja-doc-expiry';
+    var docs = CJA_STORE.get(KEY, []);
+    if (!Array.isArray(docs)) docs = [];
+
+    function save() {
+      var ok = CJA_STORE.set(KEY, docs);
+      document.getElementById('store-note').textContent = ok
+        ? CJA_STORE.note()
+        : 'Could not save your list — ' + CJA_STORE.note();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function todayMidnight() {
+      var d = new Date();
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+
+    function daysLeft(iso) {
+      var p = iso.split('-');
+      var at = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+      return Math.round((at - todayMidnight()) / 86400000);
+    }
+
+    /* The status depends on each document's own warning period, not one
+       global threshold - a passport needing four months' notice and
+       insurance needing a week are not the same problem. */
+    function status(d) {
+      var days = daysLeft(d.expires);
+      var warn = parseInt(d.warn, 10) || 30;
+      if (days < 0) return { cls: 'gone', label: 'Expired', days: days };
+      if (days === 0) return { cls: 'urgent', label: 'Today', days: days };
+      if (days <= Math.min(14, warn)) return { cls: 'urgent', label: 'Urgent', days: days };
+      if (days <= warn) return { cls: 'soon', label: 'Renew soon', days: days };
+      return { cls: 'ok', label: 'Fine', days: days };
+    }
+
+    function human(days) {
+      if (days < 0) {
+        var ago = Math.abs(days);
+        return ago === 1 ? '1 day ago'
+          : ago < 31 ? ago + ' days ago'
+          : ago < 365 ? Math.round(ago / 30) + ' months ago'
+          : (ago / 365).toFixed(1) + ' years ago';
+      }
+      if (days === 0) return 'today';
+      if (days === 1) return 'tomorrow';
+      if (days < 31) return 'in ' + days + ' days';
+      if (days < 365) return 'in about ' + Math.round(days / 30) + ' months';
+      return 'in ' + (days / 365).toFixed(1) + ' years';
+    }
+
+    function draw() {
+      var rows = docs.map(function (d, i) {
+        return { d: d, i: i, st: status(d) };
+      }).sort(function (a, b) { return a.st.days - b.st.days; });
+
+      document.getElementById('list').innerHTML = rows.length
+        ? rows.map(function (r) {
+            var p = r.d.expires.split('-');
+            var when = new Date(+p[0], +p[1] - 1, +p[2]);
+            return '<div class="drow">' +
+              '<span class="what">' + escapeHtml(r.d.name) +
+                (r.d.note ? '<small>' + escapeHtml(r.d.note) + '</small>' : '') +
+              '</span>' +
+              '<span class="pill ' + r.st.cls + '">' + r.st.label + '</span>' +
+              '<span class="when">' + human(r.st.days) +
+                '<small>' + when.toLocaleDateString('en-GB',
+                  { day: 'numeric', month: 'short', year: 'numeric' }) + '</small>' +
+              '</span>' +
+              '<button class="drop" data-drop="' + r.i + '">&times;</button>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Nothing tracked yet. The buttons ' +
+          'above fill in the common ones.</p>';
+
+      var soon = rows.filter(function (r) {
+        return r.st.cls === 'soon' || r.st.cls === 'urgent';
+      }).length;
+      var gone = rows.filter(function (r) { return r.st.cls === 'gone'; }).length;
+
+      document.getElementById('s-total').textContent = docs.length;
+      document.getElementById('s-soon').textContent = soon;
+      document.getElementById('s-gone').textContent = gone;
+
+      var first = rows[0];
+      document.getElementById('next').innerHTML = first
+        ? (first.st.days < 0
+            ? escapeHtml(first.d.name) + ' expired ' + human(first.st.days)
+            : escapeHtml(first.d.name) + ' expires ' + human(first.st.days)) +
+          '<small>' + (gone
+            ? gone + ' already expired, ' + soon + ' need attention'
+            : soon ? soon + ' need attention' : 'nothing else needs attention yet') +
+          '</small>'
+        : '&mdash;<small>Add something below</small>';
+    }
+
+    document.getElementById('add').addEventListener('click', function () {
+      var name = document.getElementById('name').value.trim();
+      var expires = document.getElementById('expires').value;
+      if (!name) { document.getElementById('name').focus(); return; }
+      if (!expires) { CT.toast('Pick an expiry date'); return; }
+
+      docs.push({
+        name: name,
+        expires: expires,
+        warn: document.getElementById('warn').value,
+        note: document.getElementById('note').value.trim()
+      });
+
+      document.getElementById('name').value = '';
+      document.getElementById('note').value = '';
+      document.getElementById('expires').value = '';
+      save();
+      draw();
+    });
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-p]');
+      if (!b) return;
+      var parts = b.dataset.p.split('|');
+      document.getElementById('name').value = parts[0];
+      document.getElementById('warn').value = parts[1];
+      document.getElementById('expires').focus();
+    });
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-drop]');
+      if (!b) return;
+      docs.splice(+b.dataset.drop, 1);
+      save();
+      draw();
+    });
+
+    document.getElementById('export').addEventListener('click', function () {
+      if (!docs.length) { CT.toast('Nothing to download'); return; }
+      var lines = ['Document,Expires,Days left,Warn days,Note'];
+      docs.forEach(function (d) {
+        lines.push([
+          '"' + d.name.replace(/"/g, '""') + '"',
+          d.expires, daysLeft(d.expires), d.warn,
+          '"' + String(d.note || '').replace(/"/g, '""') + '"'
+        ].join(','));
+      });
+      var blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'documents.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('clear-all').addEventListener('click', function () {
+      if (!docs.length) return;
+      if (!window.confirm('Delete all ' + docs.length +
+          ' entries? This cannot be undone.')) return;
+      docs = [];
+      save();
+      draw();
+    });
+
+    document.getElementById('store-note').textContent = CJA_STORE.note();
+    draw();
+  })();
+  </script>
+</body>
+</html>
