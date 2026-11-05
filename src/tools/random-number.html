@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Random Numbers and Dice — Cja's Tools</title>
+<meta name="description" content="Roll dice or pick numbers in a range, with or without repeats. Uses real randomness, not a shuffled list.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .result-big {
+    font-size: 58px; font-weight: 700; letter-spacing: -2px;
+    text-align: center; font-variant-numeric: tabular-nums; line-height: 1.1;
+    word-break: break-word;
+  }
+  .picks { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
+  .picks i {
+    display: grid; place-items: center; min-width: 48px; height: 48px;
+    border-radius: 10px; background: var(--accent-soft); color: var(--accent);
+    font-size: 19px; font-weight: 650; font-style: normal; padding: 0 9px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dice { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .die {
+    width: 58px; height: 58px; border: 2px solid var(--border);
+    border-radius: 11px; display: grid; place-items: center;
+    font-size: 25px; font-weight: 650; background: var(--bg);
+    font-variant-numeric: tabular-nums;
+  }
+  .hist { display: flex; gap: 3px; align-items: flex-end; height: 60px; margin-top: 8px; }
+  .hist i { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; }
+  .hist-labels { display: flex; gap: 3px; font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .hist-labels span { flex: 1; text-align: center; }
+</style>
+</head>
+<body data-page="tool" data-slug="random-number">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Random Numbers and Dice</h1>
+        <p>Real randomness from your browser, not a pattern.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-range">Numbers</button>
+          <button class="btn" id="tab-dice">Dice</button>
+        </div>
+      </div>
+
+      <div id="pane-range">
+        <div class="panel">
+          <div class="row">
+            <div class="field">
+              <label for="min">From</label>
+              <input type="number" id="min" value="1" step="1">
+            </div>
+            <div class="field">
+              <label for="max">To</label>
+              <input type="number" id="max" value="100" step="1">
+            </div>
+            <div class="field">
+              <label for="count">How many</label>
+              <input type="number" id="count" value="1" min="1" max="500" step="1">
+            </div>
+          </div>
+          <div class="btns" id="opts">
+            <button class="btn" data-opt="unique">No repeats</button>
+            <button class="btn" data-opt="sorted">Put them in order</button>
+          </div>
+          <div class="btns" id="presets" style="margin-top:11px">
+            <button class="btn" data-p="1|6|1">Dice roll</button>
+            <button class="btn" data-p="1|100|1">1 to 100</button>
+            <button class="btn" data-p="0|1|1">Coin (0 or 1)</button>
+            <button class="btn" data-p="1|90|6">Lottery, 6 of 90</button>
+            <button class="btn" data-p="1000|9999|1">4-digit PIN</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="result-big" id="out">&mdash;</div>
+          <div class="picks" id="picks"></div>
+          <p class="hint" id="note" style="text-align:center"></p>
+        </div>
+      </div>
+
+      <div id="pane-dice" hidden>
+        <div class="panel">
+          <div class="row">
+            <div class="field">
+              <label for="sides">Sides</label>
+              <select id="sides">
+                <option value="4">d4</option>
+                <option value="6" selected>d6</option>
+                <option value="8">d8</option>
+                <option value="10">d10</option>
+                <option value="12">d12</option>
+                <option value="20">d20</option>
+                <option value="100">d100</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="howmany">How many dice</label>
+              <input type="number" id="howmany" value="2" min="1" max="20" step="1">
+            </div>
+            <div class="field">
+              <label for="modifier">Add or subtract</label>
+              <input type="number" id="modifier" value="0" step="1">
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="dice" id="dice"></div>
+          <div class="result-big" id="dice-total" style="margin-top:16px">&mdash;</div>
+          <p class="hint" id="dice-note" style="text-align:center"></p>
+        </div>
+
+        <div class="panel">
+          <label style="margin-bottom:6px">Totals you have rolled so far</label>
+          <div class="hist" id="hist"></div>
+          <div class="hist-labels" id="hist-labels"></div>
+          <p class="hint" id="hist-note"></p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="btns" style="justify-content:center">
+          <button class="btn primary" id="go">Roll again</button>
+          <button class="btn" id="copy">Copy</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This uses your browser's secure randomness</b>, the
+          same source a password manager uses, with a rejection step so every
+          number in the range is equally likely. Taking a random value modulo
+          the range size &mdash; the obvious way &mdash; makes the lower numbers
+          slightly more common, which matters for a draw or a raffle.
+          <br><br>
+          <b>Two dice do not give a flat spread.</b> Seven comes up six times
+          more often than two, because there are six ways to make it and one way
+          to make two. The chart above shows that building up as you roll, which
+          is worth seeing if you have ever felt a game was rigged.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { unique: false, sorted: false };
+    var mode = 'range';
+    var rollHistory = {};
+
+    /* Rejection sampling. A plain modulo leaves the first few values in the
+       range slightly more likely, which is invisible in casual use and
+       unacceptable for a draw. */
+    function randomInt(min, max) {
+      var range = max - min + 1;
+      if (range <= 0) return min;
+      var limit = Math.floor(0xFFFFFFFF / range) * range;
+      var buf = new Uint32Array(1);
+      var v;
+      do {
+        crypto.getRandomValues(buf);
+        v = buf[0];
+      } while (v >= limit);
+      return min + (v % range);
+    }
+
+    function pickRange() {
+      var min = parseInt(document.getElementById('min').value, 10);
+      var max = parseInt(document.getElementById('max').value, 10);
+      var count = Math.min(500, Math.max(1,
+        parseInt(document.getElementById('count').value, 10) || 1));
+
+      if (!isFinite(min) || !isFinite(max)) {
+        document.getElementById('out').textContent = '—';
+        document.getElementById('note').textContent = 'Enter a range.';
+        document.getElementById('picks').innerHTML = '';
+        return;
+      }
+      if (min > max) { var t = min; min = max; max = t; }
+
+      var span = max - min + 1;
+      var note = '';
+
+      if (opts.unique && count > span) {
+        /* Asking for more unique numbers than the range holds is impossible,
+           so it is capped and said out loud rather than looping forever. */
+        count = span;
+        note = 'Only ' + span + ' different numbers exist in that range, so ' +
+               'that is how many you get.';
+      }
+
+      var picks = [];
+      if (opts.unique) {
+        /* A partial Fisher-Yates over the range, which stays fast even when
+           nearly the whole range is being drawn. Repeatedly guessing and
+           retrying gets very slow as the pool empties. */
+        var pool = [];
+        for (var i = min; i <= max; i++) pool.push(i);
+        for (var k = 0; k < count; k++) {
+          var j = k + randomInt(0, pool.length - 1 - k);
+          var tmp = pool[k]; pool[k] = pool[j]; pool[j] = tmp;
+          picks.push(pool[k]);
+        }
+      } else {
+        for (var m = 0; m < count; m++) picks.push(randomInt(min, max));
+      }
+
+      if (opts.sorted) picks.sort(function (a, b) { return a - b; });
+
+      document.getElementById('out').textContent = picks.length === 1
+        ? picks[0] : picks.length + ' picked';
+      document.getElementById('picks').innerHTML = picks.length === 1
+        ? ''
+        : picks.slice(0, 200).map(function (p) { return '<i>' + p + '</i>'; }).join('');
+
+      document.getElementById('note').textContent = note ||
+        ('From ' + min + ' to ' + max + ', ' +
+         (opts.unique ? 'no repeats' : 'repeats allowed') + '.');
+
+      window.__lastPicks = picks;
+    }
+
+    function rollDice() {
+      var sides = parseInt(document.getElementById('sides').value, 10);
+      var howMany = Math.min(20, Math.max(1,
+        parseInt(document.getElementById('howmany').value, 10) || 1));
+      var mod = parseInt(document.getElementById('modifier').value, 10) || 0;
+
+      var rolls = [];
+      for (var i = 0; i < howMany; i++) rolls.push(randomInt(1, sides));
+      var sum = rolls.reduce(function (a, b) { return a + b; }, 0);
+      var total = sum + mod;
+
+      document.getElementById('dice').innerHTML = rolls.map(function (r) {
+        return '<div class="die">' + r + '</div>';
+      }).join('');
+
+      document.getElementById('dice-total').textContent = total;
+      document.getElementById('dice-note').textContent =
+        howMany + 'd' + sides + (mod ? (mod > 0 ? ' + ' + mod : ' - ' + Math.abs(mod)) : '') +
+        ' — rolled ' + rolls.join(' + ') +
+        (mod ? ' with ' + (mod > 0 ? '+' : '') + mod : '') + ' = ' + total;
+
+      /* The tally is kept per dice configuration, so switching from 2d6 to
+         3d6 does not mix two different distributions into one chart. */
+      var key = howMany + 'd' + sides;
+      if (!rollHistory[key]) rollHistory[key] = {};
+      rollHistory[key][sum] = (rollHistory[key][sum] || 0) + 1;
+
+      var min = howMany, max = howMany * sides;
+      var counts = [];
+      for (var v = min; v <= max; v++) counts.push(rollHistory[key][v] || 0);
+      var peak = Math.max.apply(null, counts.concat([1]));
+      var totalRolls = counts.reduce(function (a, b) { return a + b; }, 0);
+
+      document.getElementById('hist').innerHTML = counts.map(function (c, i) {
+        return '<i style="height:' + (c / peak * 100) + '%" title="' +
+          (min + i) + ': ' + c + '"></i>';
+      }).join('');
+      document.getElementById('hist-labels').innerHTML = counts.map(function (c, i) {
+        /* Only a few labels, or they overlap into illegibility. */
+        var v = min + i;
+        return '<span>' + (counts.length <= 12 || i === 0 || i === counts.length - 1 ||
+          v === Math.round((min + max) / 2) ? v : '') + '</span>';
+      }).join('');
+
+      document.getElementById('hist-note').textContent = totalRolls > 1
+        ? totalRolls + ' rolls of ' + key + ' so far. ' +
+          (howMany > 1
+            ? 'The middle totals should pull ahead — there are more ways to make them.'
+            : 'With one die every face should even out over time.')
+        : 'Roll a few more to see the shape.';
+
+      window.__lastPicks = rolls.concat(mod ? ['total ' + total] : ['total ' + total]);
+    }
+
+    function go() {
+      if (mode === 'range') pickRange();
+      else rollDice();
+    }
+
+    document.getElementById('tab-range').addEventListener('click', function () {
+      mode = 'range';
+      document.getElementById('pane-range').hidden = false;
+      document.getElementById('pane-dice').hidden = true;
+      this.classList.add('primary');
+      document.getElementById('tab-dice').classList.remove('primary');
+      go();
+    });
+
+    document.getElementById('tab-dice').addEventListener('click', function () {
+      mode = 'dice';
+      document.getElementById('pane-range').hidden = true;
+      document.getElementById('pane-dice').hidden = false;
+      this.classList.add('primary');
+      document.getElementById('tab-range').classList.remove('primary');
+      go();
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      pickRange();
+    });
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-p]');
+      if (!b) return;
+      var p = b.dataset.p.split('|');
+      document.getElementById('min').value = p[0];
+      document.getElementById('max').value = p[1];
+      document.getElementById('count').value = p[2];
+      if (parseInt(p[2], 10) > 1 && !opts.unique) {
+        opts.unique = true;
+        document.querySelector('[data-opt="unique"]').classList.add('primary');
+      }
+      pickRange();
+    });
+
+    document.getElementById('go').addEventListener('click', go);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var picks = window.__lastPicks;
+      if (!picks || !picks.length) { CT.toast('Nothing to copy'); return; }
+      CT.copy(picks.join(', '));
+    });
+
+    ['min', 'max', 'count'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', pickRange);
+    });
+    ['sides', 'howmany', 'modifier'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', rollDice);
+    });
+
+    pickRange();
+  })();
+  </script>
+</body>
+</html>

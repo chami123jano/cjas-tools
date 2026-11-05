@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Username Generator — Cja's Tools</title>
+<meta name="description" content="Invent usernames and handles that are easy to say, spell and remember. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .urow {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+    align-items: center; padding: 9px 2px; border-bottom: 1px solid var(--border);
+  }
+  .urow:last-child { border-bottom: none; }
+  .urow .name {
+    font-family: ui-monospace, Consolas, monospace; font-size: 15px; word-break: break-all;
+  }
+  .urow .len { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .urow button {
+    border: none; background: none; color: var(--muted);
+    cursor: pointer; font-size: 12.5px; padding: 2px 6px;
+  }
+  .urow button:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="username-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Username Generator</h1>
+        <p>Names you can say over the phone without spelling them twice.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="style">Style</label>
+            <select id="style">
+              <option value="adjnoun" selected>Adjective and noun</option>
+              <option value="nounnoun">Two nouns</option>
+              <option value="syllables">Made-up word</option>
+              <option value="fromname">Built from your own name</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="count">How many</label>
+            <input type="number" id="count" value="12" min="1" max="60" step="1">
+          </div>
+        </div>
+        <div class="field" id="seed-field" hidden>
+          <label for="seed">Your name or a word to build on</label>
+          <input type="text" id="seed" placeholder="Chamindu" autocomplete="off">
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn" data-opt="numbers">Add some digits</button>
+          <button class="btn" data-opt="separator">Separate with a dot</button>
+          <button class="btn" data-opt="capitalise">Capitalise Each Word</button>
+          <button class="btn primary" data-opt="short">Keep them under 16 characters</button>
+        </div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn primary" id="go">Generate</button>
+          <button class="btn" id="copy-all">Copy all</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why these words.</b> The lists avoid letter pairs that
+          get misheard or misspelled &mdash; no words where the only difference
+          is i against l, or 0 against o. A username you have to spell out every
+          time is a username you will come to resent.
+          <br><br>
+          <b>Nothing here is checked for availability.</b> There is no way to ask
+          a hundred websites whether a name is free without sending your ideas
+          to all of them, and the whole point of these tools is that nothing
+          leaves your device. Pick a few and try them yourself.
+          <br><br>
+          <b>Digits on the end are a last resort.</b> They make a name harder to
+          say and easier to typo. Try a different pairing first.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { numbers: false, separator: false, capitalise: false, short: true };
+
+    /* Deliberately plain, concrete words. Nothing with a silent letter, an
+       unusual spelling, or a pair that sounds like another word on the list. */
+    var ADJECTIVES = ('amber brave bright calm clever cosmic crisp daring deep eager ' +
+      'electric fearless fierce gentle golden happy hidden honest humble jolly keen ' +
+      'kind lively lucky mellow mighty noble polite proud quick quiet rapid ready ' +
+      'royal rustic sharp silent silver simple smooth solid spare steady stormy sunny ' +
+      'swift tidy tranquil urban vivid warm wild wise witty zesty').split(' ');
+
+    var NOUNS = ('anchor arrow atlas badger beacon bison brook canyon cedar cobra ' +
+      'comet coral delta dune eagle ember falcon ferry forest garnet harbour heron ' +
+      'island jungle kestrel lagoon lantern maple marble meadow mesa monsoon ' +
+      'mountain nebula orbit otter palm panther pebble pelican pepper pilot prairie ' +
+      'quarry rapid raven reef ridge river rocket sable sailor sandal sparrow spruce ' +
+      'summit tamarind temple thunder tiger timber trail tundra valley vessel ' +
+      'willow zebra').split(' ');
+
+    /* Syllables that combine into something pronounceable in English and
+       are unlikely to accidentally spell a real word. */
+    var STARTS = ('ba be bo bri ca cle da de dra fa fe flo ga gi gra ha he ja jo ka ' +
+      'ke la le lo ma me mi na ne no pa pe pri ra re ro sa se so ta te to va ve vo ' +
+      'za ze').split(' ');
+    var ENDS = ('bo cha dan dor fin gar han jan kel lan mar nix por qua ran sel tor ' +
+      'van wix yan zor din lor mon nar ras tan vel').split(' ');
+
+    function randomInt(max) {
+      if (max <= 0) return 0;
+      var limit = Math.floor(0xFFFFFFFF / max) * max;
+      var buf = new Uint32Array(1);
+      var v;
+      do {
+        crypto.getRandomValues(buf);
+        v = buf[0];
+      } while (v >= limit);
+      return v % max;
+    }
+
+    function pick(list) { return list[randomInt(list.length)]; }
+
+    function clean(word) {
+      return String(word).toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    function makeOne() {
+      var style = document.getElementById('style').value;
+      var parts = [];
+
+      if (style === 'adjnoun') {
+        parts = [pick(ADJECTIVES), pick(NOUNS)];
+      } else if (style === 'nounnoun') {
+        var a = pick(NOUNS), b = pick(NOUNS);
+        /* Two of the same word reads as a mistake rather than a name. */
+        var guard = 0;
+        while (b === a && guard++ < 10) b = pick(NOUNS);
+        parts = [a, b];
+      } else if (style === 'syllables') {
+        var syllables = pick(STARTS) + (randomInt(2) ? pick(STARTS) : '') + pick(ENDS);
+        parts = [syllables];
+      } else {
+        var seed = clean(document.getElementById('seed').value);
+        if (!seed) return null;
+        /* Pair the seed with a word rather than mangling it, so the result
+           still looks like it belongs to that person. */
+        parts = randomInt(2)
+          ? [seed, pick(NOUNS)]
+          : [pick(ADJECTIVES), seed];
+      }
+
+      if (opts.capitalise) {
+        parts = parts.map(function (p) {
+          return p.charAt(0).toUpperCase() + p.slice(1);
+        });
+      }
+
+      var name = parts.join(opts.separator ? '.' : '');
+
+      if (opts.numbers) {
+        /* Two digits, and never starting with a zero - "07" on the end of a
+           name is read as a typo more often than as a choice. */
+        name += String(randomInt(89) + 10);
+      }
+
+      return name;
+    }
+
+    function generate() {
+      var count = Math.min(60, Math.max(1,
+        parseInt(document.getElementById('count').value, 10) || 1));
+      var style = document.getElementById('style').value;
+      document.getElementById('seed-field').hidden = style !== 'fromname';
+
+      var out = [];
+      var seen = {};
+      var attempts = 0;
+
+      while (out.length < count && attempts < count * 40) {
+        attempts++;
+        var name = makeOne();
+        if (name === null) {
+          document.getElementById('list').innerHTML =
+            '<p class="hint" style="margin:0">Enter a name or word to build on.</p>';
+          return;
+        }
+        if (opts.short && name.length > 16) continue;
+        if (seen[name.toLowerCase()]) continue;
+        seen[name.toLowerCase()] = true;
+        out.push(name);
+      }
+
+      document.getElementById('list').innerHTML = out.length
+        ? out.map(function (n) {
+            return '<div class="urow">' +
+              '<span class="name">' + n + '</span>' +
+              '<span class="len">' + n.length + '</span>' +
+              '<button data-copy="' + n + '">copy</button></div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Could not make that many that fit ' +
+          'under 16 characters. Turn that option off, or ask for fewer.</p>';
+    }
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      generate();
+    });
+
+    document.getElementById('copy-all').addEventListener('click', function () {
+      var all = Array.from(document.querySelectorAll('#list .name'))
+        .map(function (e) { return e.textContent; }).join('\n');
+      if (!all) { CT.toast('Nothing to copy'); return; }
+      CT.copy(all);
+    });
+
+    document.getElementById('go').addEventListener('click', generate);
+
+    ['style', 'count', 'seed'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', generate);
+      el.addEventListener('change', generate);
+    });
+
+    generate();
+  })();
+  </script>
+</body>
+</html>

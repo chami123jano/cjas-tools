@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wheel Spinner — Cja's Tools</title>
+<meta name="description" content="Put your options on a wheel and let it decide. Fair spins using real randomness. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .stage { position: relative; display: grid; place-items: center; padding: 8px 0 4px; }
+  #wheel { max-width: 100%; height: auto; cursor: pointer; }
+  .pointer {
+    position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 11px solid transparent;
+    border-right: 11px solid transparent; border-top: 20px solid var(--text);
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.3));
+  }
+  .winner {
+    text-align: center; font-size: 27px; font-weight: 700;
+    letter-spacing: -.5px; min-height: 36px; word-break: break-word;
+  }
+  .winner small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+  #entries { min-height: 150px; font-size: 14px; }
+  .tally { display: flex; gap: 7px; flex-wrap: wrap; font-size: 12.5px; }
+  .tally span {
+    padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted);
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="wheel-spinner">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Wheel Spinner</h1>
+        <p>Click the wheel to spin it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="stage">
+          <div class="pointer"></div>
+          <canvas id="wheel" width="420" height="420"></canvas>
+        </div>
+        <div class="winner" id="winner">&mdash;</div>
+        <div class="btns" style="justify-content:center;margin-top:12px">
+          <button class="btn primary" id="spin">Spin</button>
+          <button class="btn" id="remove-winner" hidden>Remove the winner</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="entries">The options, one per line</label>
+          <textarea id="entries" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="shuffle">Shuffle the order</button>
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint" id="count-note"></p>
+      </div>
+
+      <div class="panel" id="tally-panel" hidden>
+        <label style="margin-bottom:8px">Who has won so far</label>
+        <div class="tally" id="tally"></div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn" id="reset-tally">Clear the tally</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The spin is decided before the animation starts.</b>
+          The winner is drawn with your browser's secure randomness, then the
+          wheel is turned to land on it &mdash; rather than spinning with a
+          random speed and reading off wherever it stops. Done the other way,
+          friction and rounding make some segments very slightly more likely.
+          <br><br>
+          Every option gets an equal slice, however long its text is, so a long
+          name is not more or less likely than a short one.
+          <br><br>
+          <b>Remove the winner</b> is there for draws where each name can only
+          win once. The tally keeps count if you are spinning repeatedly to
+          check it feels fair.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var COLOURS = ['#2f6df6', '#27b86a', '#e8a33d', '#d4483b', '#8e5bd4',
+                   '#1fa5a5', '#e8689a', '#5a8f3d', '#c9742a', '#4c6fa5'];
+
+    var SAMPLE = ['Rice and curry', 'Kottu', 'Hoppers', 'Noodles',
+                  'Sandwich', 'Skip lunch'].join('\n');
+
+    var canvas = document.getElementById('wheel');
+    var ctx = canvas.getContext('2d');
+    var angle = 0;
+    var spinning = false;
+    var tally = {};
+    var lastWinner = null;
+
+    function entries() {
+      return document.getElementById('entries').value
+        .split('\n')
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s.length; });
+    }
+
+    function randomInt(max) {
+      /* Rejection sampling, so every segment is exactly equally likely. */
+      if (max <= 0) return 0;
+      var limit = Math.floor(0xFFFFFFFF / max) * max;
+      var buf = new Uint32Array(1);
+      var v;
+      do {
+        crypto.getRandomValues(buf);
+        v = buf[0];
+      } while (v >= limit);
+      return v % max;
+    }
+
+    function draw() {
+      var list = entries();
+      var size = canvas.width;
+      var centre = size / 2;
+      var radius = centre - 6;
+
+      ctx.clearRect(0, 0, size, size);
+
+      if (!list.length) {
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--surface-2');
+        ctx.beginPath();
+        ctx.arc(centre, centre, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#888';
+        ctx.font = '15px -apple-system, "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Add some options below', centre, centre);
+        return;
+      }
+
+      var slice = (Math.PI * 2) / list.length;
+
+      list.forEach(function (text, i) {
+        var start = angle + i * slice;
+        ctx.beginPath();
+        ctx.moveTo(centre, centre);
+        ctx.arc(centre, centre, radius, start, start + slice);
+        ctx.closePath();
+        ctx.fillStyle = COLOURS[i % COLOURS.length];
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,.55)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        /* Text is drawn along the radius of its own slice, shrunk to fit
+           and cut short if it still will not, so a long entry does not
+           spill over its neighbours. */
+        ctx.save();
+        ctx.translate(centre, centre);
+        ctx.rotate(start + slice / 2);
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        var fontSize = Math.max(10, Math.min(19, 420 / list.length * 0.55));
+        ctx.font = '600 ' + fontSize + 'px -apple-system, "Segoe UI", sans-serif';
+
+        var label = text;
+        var room = radius - 46;
+        while (ctx.measureText(label).width > room && label.length > 3) {
+          label = label.slice(0, -2);
+        }
+        if (label !== text) label = label.slice(0, -1) + '…';
+
+        ctx.fillText(label, radius - 14, 0);
+        ctx.restore();
+      });
+
+      /* A hub, so the middle does not look like a pile of points. */
+      ctx.beginPath();
+      ctx.arc(centre, centre, 30, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,.12)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function spin() {
+      var list = entries();
+      if (!list.length) { CT.toast('Add some options first'); return; }
+      if (spinning) return;
+
+      /* The winner is chosen first, then the wheel is turned to land on it.
+         Spinning with a random force and reading off the result lets
+         friction and rounding bias the outcome very slightly. */
+      var winnerIndex = randomInt(list.length);
+      var slice = (Math.PI * 2) / list.length;
+
+      /* The pointer is at the top, which is -90 degrees in canvas terms.
+         The centre of the winning slice has to end up there. */
+      var targetCentre = winnerIndex * slice + slice / 2;
+      var pointerAngle = -Math.PI / 2;
+      var turns = 4 + randomInt(3);
+      var finalAngle = pointerAngle - targetCentre + turns * Math.PI * 2;
+
+      var startAngle = angle % (Math.PI * 2);
+      var change = finalAngle - startAngle;
+      var duration = 3200 + randomInt(900);
+      var startedAt = performance.now();
+
+      spinning = true;
+      document.getElementById('spin').disabled = true;
+      document.getElementById('winner').innerHTML =
+        '&mdash;<small>spinning…</small>';
+
+      function frame(now) {
+        var t = Math.min(1, (now - startedAt) / duration);
+        /* Eased so it slows towards the end instead of stopping dead. */
+        var eased = 1 - Math.pow(1 - t, 4);
+        angle = startAngle + change * eased;
+        draw();
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          spinning = false;
+          document.getElementById('spin').disabled = false;
+          lastWinner = list[winnerIndex];
+          tally[lastWinner] = (tally[lastWinner] || 0) + 1;
+          document.getElementById('winner').innerHTML =
+            lastWinner.replace(/[<>&]/g, '') +
+            '<small>out of ' + list.length + ' options</small>';
+          document.getElementById('remove-winner').hidden = false;
+          paintTally();
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function paintTally() {
+      var names = Object.keys(tally);
+      document.getElementById('tally-panel').hidden = names.length === 0;
+      document.getElementById('tally').innerHTML = names
+        .sort(function (a, b) { return tally[b] - tally[a]; })
+        .map(function (n) {
+          return '<span>' + n.replace(/[<>&]/g, '') + ' × ' + tally[n] + '</span>';
+        }).join('');
+    }
+
+    function paintCount() {
+      var n = entries().length;
+      document.getElementById('count-note').textContent = n
+        ? n + ' option' + (n === 1 ? '' : 's') + ', each with an equal ' +
+          (100 / n).toFixed(1) + '% chance.'
+        : 'Add at least one option.';
+    }
+
+    document.getElementById('spin').addEventListener('click', spin);
+    canvas.addEventListener('click', spin);
+
+    document.getElementById('remove-winner').addEventListener('click', function () {
+      if (!lastWinner) return;
+      var list = entries().filter(function (e) { return e !== lastWinner; });
+      document.getElementById('entries').value = list.join('\n');
+      lastWinner = null;
+      this.hidden = true;
+      document.getElementById('winner').innerHTML = '&mdash;';
+      draw();
+      paintCount();
+    });
+
+    document.getElementById('shuffle').addEventListener('click', function () {
+      var list = entries();
+      for (var i = list.length - 1; i > 0; i--) {
+        var j = randomInt(i + 1);
+        var t = list[i]; list[i] = list[j]; list[j] = t;
+      }
+      document.getElementById('entries').value = list.join('\n');
+      draw();
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('entries').value = SAMPLE;
+      draw();
+      paintCount();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('entries').value = '';
+      tally = {};
+      lastWinner = null;
+      document.getElementById('winner').innerHTML = '&mdash;';
+      document.getElementById('remove-winner').hidden = true;
+      paintTally();
+      draw();
+      paintCount();
+    });
+
+    document.getElementById('reset-tally').addEventListener('click', function () {
+      tally = {};
+      paintTally();
+    });
+
+    document.getElementById('entries').addEventListener('input', function () {
+      draw();
+      paintCount();
+    });
+
+    document.getElementById('entries').value = SAMPLE;
+    draw();
+    paintCount();
+  })();
+  </script>
+</body>
+</html>

@@ -2211,6 +2211,181 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- generators
+
+(function barcodeGenerator() {
+  const t = loadTool('barcode-generator');
+  t.set('kind', 'ean13');
+
+  // check digits verified against published barcodes
+  const cases = [
+    ['590123412345', '7'],
+    ['400638133393', '1'],
+    ['978030640615', '7'],   // ISBN-13 9780306406157
+    ['400399415548', '6']
+  ];
+  cases.forEach(([body, want]) => {
+    t.set('code', body);
+    has(t.text('msg-slot'), 'Check digit ' + want + ' added',
+        'check digit for ' + body + ' is ' + want);
+  });
+
+  // a wrong check digit must be refused loudly, not quietly drawn
+  t.set('code', '5901234123450');
+  has(t.text('msg-slot'), 'does not match', 'a wrong check digit is caught');
+  has(t.text('msg-slot'), 'should be 7', 'and the right one given');
+
+  // a correct full code should be confirmed
+  t.set('code', '5901234123457');
+  has(t.text('msg-slot'), 'is correct', 'a correct check digit is confirmed');
+
+  // the barcode should actually be drawn
+  ok(t.document.querySelector('#box svg') !== null, 'an SVG barcode is drawn');
+  // an EAN-13 is 95 modules, of which roughly half are bars, plus the
+  // background rect - so around 50 is what a correct code looks like
+  const bars = t.document.querySelectorAll('#box svg rect').length;
+  ok(bars > 40 && bars < 70, 'with the right sort of bar count', 'got ' + bars);
+
+  // too few digits
+  t.set('code', '123');
+  has(t.text('msg-slot'), 'needs 12', 'a short code is explained');
+
+  // EAN-8 takes 8 digits
+  t.set('kind', 'ean8').set('code', '9638507');
+  has(t.text('msg-slot'), 'Check digit', 'EAN-8 works too');
+  t.close();
+})();
+
+(function randomNumber() {
+  const t = loadTool('random-number');
+  t.set('min', 1).set('max', 6).set('count', 1);
+  const value = () => parseInt(t.text('out'), 10);
+  ok(value() >= 1 && value() <= 6, 'a single pick is inside the range',
+     'got ' + t.text('out'));
+
+  // many picks, all inside the range
+  t.set('count', 50);
+  const picks = [...t.document.querySelectorAll('#picks i')].map((e) => +e.textContent);
+  ok(picks.length === 50, 'fifty picks produced', 'got ' + picks.length);
+  ok(picks.every((p) => p >= 1 && p <= 6), 'all inside the range');
+
+  // asking for more unique values than exist must cap and say so
+  const opt = (name) => [...t.document.querySelectorAll('#opts .btn')]
+    .find((b) => b.dataset.opt === name);
+  opt('unique').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.text('note'), 'Only 6 different numbers',
+      'asking for too many unique values is explained');
+  const unique = [...t.document.querySelectorAll('#picks i')].map((e) => +e.textContent);
+  ok(unique.length === 6, 'and capped at the range size', 'got ' + unique.length);
+  ok(new Set(unique).size === 6, 'with no repeats');
+
+  // a reversed range should be handled, not produce nothing
+  opt('unique').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  t.set('count', 1).set('min', 10).set('max', 2);
+  ok(value() >= 2 && value() <= 10, 'a backwards range is swapped round',
+     'got ' + t.text('out'));
+  t.close();
+})();
+
+(function wheelSpinner() {
+  const t = loadTool('wheel-spinner');
+  has(t.text('count-note'), '6 options', 'the example options are counted');
+  has(t.text('count-note'), '16.7%', 'with an equal share each');
+  ok(t.byId('wheel') !== null, 'the wheel canvas exists');
+  ok(t.byId('wheel').__ctx.calls.some((c) => c[0] === 'arc'),
+     'segments are drawn');
+
+  t.set('entries', 'one\ntwo');
+  has(t.text('count-note'), '2 options', 'changing the list recounts');
+  has(t.text('count-note'), '50.0%', 'and recalculates the share');
+
+  t.set('entries', '');
+  has(t.text('count-note'), 'at least one', 'an empty list says so');
+  t.close();
+})();
+
+(function usernameGenerator() {
+  const t = loadTool('username-generator');
+  t.set('style', 'adjnoun').set('count', 20);
+  const names = () => [...t.document.querySelectorAll('#list .name')]
+    .map((e) => e.textContent);
+  ok(names().length === 20, 'twenty names produced', 'got ' + names().length);
+  ok(new Set(names()).size === 20, 'all different');
+  ok(names().every((n) => /^[a-z]+$/.test(n)),
+     'plain lowercase letters by default', 'got ' + names()[0]);
+  ok(names().every((n) => n.length <= 16),
+     'the length limit is respected', 'longest was ' +
+     Math.max(...names().map((n) => n.length)));
+
+  // the options should change the shape
+  const opt = (name) => [...t.document.querySelectorAll('#opts .btn')]
+    .find((b) => b.dataset.opt === name);
+  opt('separator').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(names().every((n) => n.indexOf('.') !== -1), 'a separator is added');
+  opt('numbers').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(names().every((n) => /\d\d$/.test(n)), 'digits are added at the end');
+
+  // building from a name should keep that name in it
+  t.set('style', 'fromname').set('seed', 'chamindu');
+  ok(names().every((n) => n.toLowerCase().indexOf('chamindu') !== -1),
+     'the seed name appears in every result');
+
+  t.set('seed', '');
+  has(t.text('list'), 'Enter a name', 'an empty seed is explained');
+  t.close();
+})();
+
+(function fakeData() {
+  const t = loadTool('fake-data');
+  t.set('rows', 30).set('format', 'json').set('flavour', 'lk');
+  const rows = () => JSON.parse(t.byId('out').value);
+  ok(rows().length === 30, 'thirty rows produced', 'got ' + rows().length);
+
+  // emails must be unreachable by design
+  ok(rows().every((r) => /@example\.com$/.test(r.email)),
+     'every email uses the reserved example.com domain');
+
+  // age must agree with the date of birth rather than being independent
+  const fieldBtn = (label) => [...t.document.querySelectorAll('#fields .btn')]
+    .find((b) => b.textContent === label);
+  fieldBtn('date of birth').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  const withDob = rows();
+  ok(withDob.every((r) => {
+    const born = new Date(r.dob);
+    const now = new Date();
+    let age = now.getFullYear() - born.getFullYear();
+    if (now < new Date(now.getFullYear(), born.getMonth(), born.getDate())) age--;
+    return Math.abs(age - r.age) <= 1;
+  }), 'age agrees with the date of birth');
+
+  // the order total must follow from the product and quantity
+  ['product', 'quantity', 'order total'].forEach((l) => {
+    fieldBtn(l).dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  });
+  const withOrders = rows();
+  ok(withOrders.every((r) => {
+    const unit = parseFloat(r.total) / r.quantity;
+    return Number.isFinite(unit) && unit > 0;
+  }), 'the total divides cleanly by the quantity');
+
+  // CSV output must have a header and the right number of lines
+  t.set('format', 'csv');
+  const lines = t.byId('out').value.split('\n');
+  ok(lines.length === 31, 'CSV has a header plus thirty rows', 'got ' + lines.length);
+
+  // SQL output must quote strings and not numbers
+  t.set('format', 'sql');
+  has(t.byId('out').value, 'INSERT INTO people', 'SQL inserts are produced');
+  has(t.byId('out').value, "'", 'with quoted strings');
+
+  // turning every column off must be handled
+  [...t.document.querySelectorAll('#fields .btn.primary')].forEach((b) => {
+    b.dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  });
+  has(t.text('body'), 'at least one column', 'no columns selected is explained');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

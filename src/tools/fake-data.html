@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Data Generator — Cja's Tools</title>
+<meta name="description" content="Make rows of believable fake people and orders for testing, as CSV, JSON or SQL. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-family: ui-monospace, Consolas, monospace; font-size: 12px; min-height: 280px; }
+  .fields { display: flex; gap: 7px; flex-wrap: wrap; }
+  .preview { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .preview th, .preview td { padding: 6px 7px; text-align: left; white-space: nowrap; }
+  .preview thead th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+  }
+  .preview tbody tr { border-bottom: 1px solid var(--border); }
+  .wrap { overflow-x: auto; }
+  .warn {
+    padding: 11px 14px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="fake-data">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Test Data Generator</h1>
+        <p>Rows that look real enough to test with, and are not.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="rows">How many rows</label>
+            <input type="number" id="rows" value="20" min="1" max="2000" step="1">
+          </div>
+          <div class="field">
+            <label for="format">Format</label>
+            <select id="format">
+              <option value="csv" selected>CSV</option>
+              <option value="json">JSON</option>
+              <option value="sql">SQL inserts</option>
+              <option value="jsonl">JSONL</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="flavour">Names</label>
+            <select id="flavour">
+              <option value="lk" selected>Sri Lankan</option>
+              <option value="mixed">Mixed international</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Columns to include</label>
+          <div class="fields" id="fields"></div>
+        </div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn primary" id="go">Generate</button>
+          <button class="btn" id="copy">Copy</button>
+          <button class="btn" id="download">Download</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">A look at the first few rows</label>
+        <div class="wrap">
+          <table class="preview">
+            <thead><tr id="head"></tr></thead>
+            <tbody id="body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">Output</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <p class="hint" id="size-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="warn">
+          <b>These are invented, and some of them are deliberately invalid.</b>
+          Email addresses use <code>example.com</code>, which can never receive
+          mail. Phone numbers use number ranges reserved for fiction. NIC numbers
+          follow the right shape but are not real identities.
+          <br><br>
+          That is on purpose: test data that accidentally works is test data
+          that can accidentally email a real person or charge a real card. If you
+          need something that genuinely validates against a live system, that is
+          a decision to make deliberately, not one to get by accident from a
+          generator.
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why the data is correlated.</b> A row where someone is
+          12 years old with a 20-year employment history is useless for testing,
+          because real bugs hide in plausible data. Ages match dates of birth,
+          cities match districts, and order totals match their items.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var FIRST_LK = ('Nimali Chamindu Kasun Dilani Sanduni Tharindu Ruwan Ishara ' +
+      'Amila Hiruni Pasindu Nadeesha Supun Gayani Lakshan Malsha Dinuka Thilini ' +
+      'Janaka Rashmi Sachith Upeksha Nuwan Hasini').split(' ');
+    var LAST_LK = ('Perera Fernando Silva Jayawardena Bandara Rajapaksa Wickramasinghe ' +
+      'Gunasekara Dissanayake Herath Ratnayake Weerasinghe Senanayake Amarasinghe ' +
+      'Kumara Mendis Ekanayake Pathirana').split(' ');
+
+    var FIRST_MIX = ('Aisha Ben Chloe Daniel Elena Farid Grace Hugo Ines Jonas ' +
+      'Keiko Luis Maya Noor Omar Priya Rosa Samir Tara Viktor').split(' ');
+    var LAST_MIX = ('AndersenBauer Chen Dubois Esposito Fontaine Garcia Haddad ' +
+      'Ivanov Jensen Kowalski Lindqvist Moreau Nakamura Okafor Petrov Rossi ' +
+      'Santos Tanaka Virtanen').split(' ');
+
+    /* District and city kept together, so a row never claims a town is in
+       the wrong district. */
+    var PLACES = [
+      ['Colombo', 'Colombo'], ['Dehiwala', 'Colombo'], ['Moratuwa', 'Colombo'],
+      ['Nugegoda', 'Colombo'], ['Negombo', 'Gampaha'], ['Gampaha', 'Gampaha'],
+      ['Kandy', 'Kandy'], ['Peradeniya', 'Kandy'], ['Galle', 'Galle'],
+      ['Hikkaduwa', 'Galle'], ['Matara', 'Matara'], ['Kurunegala', 'Kurunegala'],
+      ['Jaffna', 'Jaffna'], ['Batticaloa', 'Batticaloa'], ['Anuradhapura', 'Anuradhapura'],
+      ['Badulla', 'Badulla'], ['Ratnapura', 'Ratnapura'], ['Trincomalee', 'Trincomalee']
+    ];
+
+    var PRODUCTS = [
+      ['Ceylon black tea 200g', 980], ['Coconut oil 1L', 1450],
+      ['Red rice 5kg', 1890], ['Cinnamon quills 100g', 760],
+      ['Cashew nuts 250g', 2400], ['King coconut pack', 540],
+      ['Spice mix 100g', 420], ['Jaggery block 500g', 690],
+      ['Rambutan jam 300g', 850], ['Handloom sarong', 3200]
+    ];
+
+    var STATUSES = ['pending', 'paid', 'shipped', 'delivered', 'cancelled', 'refunded'];
+
+    var ALL_FIELDS = [
+      { key: 'id', label: 'id', on: true },
+      { key: 'name', label: 'full name', on: true },
+      { key: 'email', label: 'email', on: true },
+      { key: 'phone', label: 'phone', on: true },
+      { key: 'dob', label: 'date of birth', on: false },
+      { key: 'age', label: 'age', on: true },
+      { key: 'nic', label: 'NIC', on: false },
+      { key: 'city', label: 'city', on: true },
+      { key: 'district', label: 'district', on: false },
+      { key: 'product', label: 'product', on: false },
+      { key: 'quantity', label: 'quantity', on: false },
+      { key: 'total', label: 'order total', on: false },
+      { key: 'status', label: 'status', on: false },
+      { key: 'created', label: 'created at', on: false }
+    ];
+
+    var fields = ALL_FIELDS.map(function (f) { return Object.assign({}, f); });
+    var rowsCache = [];
+
+    function randomInt(max) {
+      if (max <= 0) return 0;
+      var limit = Math.floor(0xFFFFFFFF / max) * max;
+      var buf = new Uint32Array(1);
+      var v;
+      do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
+      return v % max;
+    }
+
+    function pick(list) { return list[randomInt(list.length)]; }
+
+    function pad(n, w) { return String(n).padStart(w || 2, '0'); }
+
+    function makeRow(i) {
+      var lk = document.getElementById('flavour').value === 'lk';
+      var first = pick(lk ? FIRST_LK : FIRST_MIX);
+      var last = pick(lk ? LAST_LK : LAST_MIX);
+      var place = pick(PLACES);
+
+      /* Date of birth first, then age derived from it, so the two can never
+         contradict each other. */
+      var year = 1960 + randomInt(46);
+      var month = randomInt(12);
+      var day = 1 + randomInt(28);
+      var dob = new Date(year, month, day);
+      var now = new Date();
+      var age = now.getFullYear() - year -
+        ((now.getMonth() < month || (now.getMonth() === month && now.getDate() < day)) ? 1 : 0);
+
+      /* An NIC in the right shape with the gender offset applied, using the
+         birth date already chosen. Shape only - not a real identity. */
+      var dayOfYear = Math.floor((dob - new Date(year, 0, 0)) / 86400000);
+      var female = randomInt(2) === 1;
+      var nic = String(year) + pad(dayOfYear + (female ? 500 : 0), 3) +
+                pad(randomInt(100000), 5);
+
+      var product = pick(PRODUCTS);
+      var quantity = 1 + randomInt(6);
+
+      var created = new Date(Date.now() - randomInt(400) * 86400000 -
+                             randomInt(86400000));
+
+      return {
+        id: i + 1,
+        name: first + ' ' + last,
+        /* example.com is reserved and can never receive mail, which is the
+           point - test data should not be able to reach a real person. */
+        email: (first + '.' + last).toLowerCase() + '@example.com',
+        /* 07xx 0xxxxxx is not a live Sri Lankan range. */
+        phone: lk ? '07' + randomInt(10) + ' 0' + pad(randomInt(1000000), 6)
+                  : '+44 7700 ' + pad(randomInt(1000000), 6),
+        dob: dob.getFullYear() + '-' + pad(dob.getMonth() + 1) + '-' + pad(dob.getDate()),
+        age: age,
+        nic: nic,
+        city: place[0],
+        district: place[1],
+        product: product[0],
+        quantity: quantity,
+        /* The total follows from the product and quantity rather than being
+           an unrelated random number. */
+        total: (product[1] * quantity).toFixed(2),
+        status: pick(STATUSES),
+        created: created.toISOString().slice(0, 19).replace('T', ' ')
+      };
+    }
+
+    function active() {
+      return fields.filter(function (f) { return f.on; });
+    }
+
+    function csvCell(v) {
+      var s = String(v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    function sqlValue(v) {
+      if (typeof v === 'number') return String(v);
+      if (/^\d+(\.\d+)?$/.test(String(v))) return String(v);
+      return "'" + String(v).replace(/'/g, "''") + "'";
+    }
+
+    function build() {
+      var count = Math.min(2000, Math.max(1,
+        parseInt(document.getElementById('rows').value, 10) || 1));
+      var cols = active();
+
+      if (!cols.length) {
+        document.getElementById('out').value = '';
+        document.getElementById('head').innerHTML = '';
+        document.getElementById('body').innerHTML =
+          '<tr><td style="color:var(--muted)">Choose at least one column.</td></tr>';
+        document.getElementById('size-note').textContent = '';
+        return;
+      }
+
+      rowsCache = [];
+      for (var i = 0; i < count; i++) rowsCache.push(makeRow(i));
+
+      var format = document.getElementById('format').value;
+      var text;
+
+      if (format === 'csv') {
+        text = cols.map(function (c) { return c.key; }).join(',') + '\n' +
+          rowsCache.map(function (r) {
+            return cols.map(function (c) { return csvCell(r[c.key]); }).join(',');
+          }).join('\n');
+      } else if (format === 'json') {
+        text = JSON.stringify(rowsCache.map(function (r) {
+          var o = {};
+          cols.forEach(function (c) { o[c.key] = r[c.key]; });
+          return o;
+        }), null, 2);
+      } else if (format === 'jsonl') {
+        text = rowsCache.map(function (r) {
+          var o = {};
+          cols.forEach(function (c) { o[c.key] = r[c.key]; });
+          return JSON.stringify(o);
+        }).join('\n');
+      } else {
+        var names = cols.map(function (c) { return c.key; }).join(', ');
+        text = rowsCache.map(function (r) {
+          return 'INSERT INTO people (' + names + ') VALUES (' +
+            cols.map(function (c) { return sqlValue(r[c.key]); }).join(', ') + ');';
+        }).join('\n');
+      }
+
+      document.getElementById('out').value = text;
+
+      document.getElementById('head').innerHTML = cols.map(function (c) {
+        return '<th>' + c.key + '</th>';
+      }).join('');
+      document.getElementById('body').innerHTML = rowsCache.slice(0, 8)
+        .map(function (r) {
+          return '<tr>' + cols.map(function (c) {
+            return '<td>' + String(r[c.key]).replace(/[<>&]/g, '') + '</td>';
+          }).join('') + '</tr>';
+        }).join('');
+
+      var bytes = new Blob([text]).size;
+      document.getElementById('size-note').textContent =
+        count.toLocaleString() + ' rows, ' + cols.length + ' columns, ' +
+        (bytes < 1024 ? bytes + ' B'
+          : bytes < 1048576 ? (bytes / 1024).toFixed(1) + ' KB'
+          : (bytes / 1048576).toFixed(2) + ' MB') + '.';
+    }
+
+    function drawFields() {
+      document.getElementById('fields').innerHTML = fields.map(function (f, i) {
+        return '<button class="btn' + (f.on ? ' primary' : '') +
+          '" data-f="' + i + '">' + f.label + '</button>';
+      }).join('');
+    }
+
+    document.getElementById('fields').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-f]');
+      if (!b) return;
+      fields[+b.dataset.f].on = !fields[+b.dataset.f].on;
+      b.classList.toggle('primary', fields[+b.dataset.f].on);
+      build();
+    });
+
+    ['rows', 'format', 'flavour'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    document.getElementById('go').addEventListener('click', build);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('download').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to download'); return; }
+      var format = document.getElementById('format').value;
+      var ext = { csv: 'csv', json: 'json', jsonl: 'jsonl', sql: 'sql' }[format];
+      var type = { csv: 'text/csv', json: 'application/json',
+                   jsonl: 'application/x-ndjson', sql: 'text/plain' }[format];
+      var blob = new Blob([v], { type: type + ';charset=utf-8' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'test-data.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    drawFields();
+    build();
+  })();
+  </script>
+</body>
+</html>

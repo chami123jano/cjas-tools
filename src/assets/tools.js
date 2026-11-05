@@ -687,6 +687,41 @@ const TOOLS = [
     category: 'time',
     desc: 'Count down to the dates that matter, all on one page.',
     keywords: ['countdown', 'event', 'days until', 'deadline', 'date', 'wedding', 'exam']
+  },
+  {
+    slug: 'barcode-generator',
+    name: 'Barcode Generator',
+    category: 'generators',
+    desc: 'Make a retail barcode from a product number, with the check digit worked out.',
+    keywords: ['barcode', 'ean', 'ean13', 'upc', 'product', 'retail', 'scan']
+  },
+  {
+    slug: 'random-number',
+    name: 'Random Numbers and Dice',
+    category: 'generators',
+    desc: 'Roll dice or pick numbers in a range, with or without repeats.',
+    keywords: ['random', 'number', 'dice', 'roll', 'pick', 'lottery', 'd20']
+  },
+  {
+    slug: 'wheel-spinner',
+    name: 'Wheel Spinner',
+    category: 'generators',
+    desc: 'Put your options on a wheel and let it decide.',
+    keywords: ['wheel', 'spinner', 'random', 'pick', 'decide', 'raffle', 'choose']
+  },
+  {
+    slug: 'username-generator',
+    name: 'Username Generator',
+    category: 'generators',
+    desc: 'Invent usernames and handles that are easy to say and remember.',
+    keywords: ['username', 'handle', 'nickname', 'name', 'generate', 'gamertag', 'login']
+  },
+  {
+    slug: 'fake-data',
+    name: 'Test Data Generator',
+    category: 'generators',
+    desc: 'Make rows of believable fake people and orders for testing.',
+    keywords: ['fake', 'test data', 'sample', 'mock', 'seed', 'csv', 'json', 'dummy']
   }
 ];
 

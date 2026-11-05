@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Barcode Generator — Cja's Tools</title>
+<meta name="description" content="Make a retail barcode (EAN-13, EAN-8 or UPC-A) from a product number, with the check digit worked out for you.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #code { font-family: ui-monospace, Consolas, monospace; font-size: 19px; letter-spacing: 2px; }
+  .barcode-box {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; display: grid; place-items: center; min-height: 170px;
+  }
+  .barcode-box svg { max-width: 100%; height: auto; }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .ok {
+    padding: 11px 14px; border: 1px solid #27b86a; background: #dcf5e7; color: #146b3c;
+    border-radius: var(--radius); font-size: 13px; line-height: 1.6;
+  }
+  html:not([data-theme="light"]) .ok { background:#17402c; color:#6fdca2; }
+  :root[data-theme="dark"] .ok { background:#17402c; color:#6fdca2; }
+</style>
+</head>
+<body data-page="tool" data-slug="barcode-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Barcode Generator</h1>
+        <p>Retail barcodes, with the check digit calculated for you.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="kind">Barcode type</label>
+            <select id="kind">
+              <option value="ean13" selected>EAN-13 — 13 digits, worldwide retail</option>
+              <option value="upca">UPC-A — 12 digits, North America</option>
+              <option value="ean8">EAN-8 — 8 digits, small packages</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="code">Product number</label>
+            <input type="text" id="code" value="590123412345" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <p class="hint" id="hint"></p>
+      </div>
+
+      <div id="msg-slot"></div>
+
+      <div class="panel">
+        <div class="barcode-box" id="box"></div>
+        <div class="row" style="margin-top:14px">
+          <div class="field">
+            <label for="height">Height: <span id="height-val">70</span></label>
+            <input type="range" id="height" min="30" max="150" step="5" value="70" style="width:100%">
+          </div>
+          <div class="field">
+            <label for="scale">Width: <span id="scale-val">2</span>&times;</label>
+            <input type="range" id="scale" min="1" max="5" step="1" value="2" style="width:100%">
+          </div>
+        </div>
+        <div class="btns" id="opts">
+          <button class="btn primary" data-opt="numbers">Show the numbers</button>
+          <button class="btn primary" data-opt="quiet">Keep the blank margins</button>
+        </div>
+        <div class="btns" style="margin-top:11px">
+          <button class="btn primary" id="download-svg">Download SVG</button>
+          <button class="btn" id="download-png">Download PNG</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Only retail barcodes are here, on purpose.</b> EAN and
+          UPC share one small, well-defined digit table that can be checked
+          against any real product on a shelf &mdash; so what this draws is
+          verifiably right. Code 128 and Code 39 need much larger lookup tables,
+          and a single wrong row produces a barcode that looks perfect and will
+          not scan. That silent failure is worse than not offering them.
+          <br><br>
+          <b>The blank margins matter.</b> Scanners need clear space either side
+          to find the edges of the code. Cropping them off is the most common
+          reason a printed barcode fails to read.
+          <br><br>
+          <b>A number you invent is not yours to use commercially.</b> Real
+          product codes are allocated by GS1, and the first digits identify the
+          country and company. These are fine for testing, labelling your own
+          shelves, or internal stock systems.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { numbers: true, quiet: true };
+
+    /* The three EAN digit tables. L is used on the left with odd parity, G
+       on the left with even parity, and R on the right. R is the bitwise
+       complement of L, and G is R reversed - which is how a scanner can tell
+       which way round the label is. */
+    var L = ['0001101', '0011001', '0010011', '0111101', '0100011',
+             '0110001', '0101111', '0111011', '0110111', '0001011'];
+    var G = ['0100111', '0110011', '0011011', '0100001', '0011101',
+             '0111001', '0000101', '0010001', '0001001', '0010111'];
+    var R = ['1110010', '1100110', '1101100', '1000010', '1011100',
+             '1001110', '1010000', '1000100', '1001000', '1110100'];
+
+    /* Which of the six left-hand digits use L and which use G. The pattern
+       itself encodes the first digit, which is why EAN-13 fits thirteen
+       digits into twelve digit-width slots. */
+    var PARITY = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG',
+                  'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+
+    var SPECS = {
+      ean13: { digits: 13, label: 'EAN-13' },
+      upca: { digits: 12, label: 'UPC-A' },
+      ean8: { digits: 8, label: 'EAN-8' }
+    };
+
+    function message(html, kind) {
+      document.getElementById('msg-slot').innerHTML = html
+        ? '<div class="panel"><div class="' + kind + '">' + html + '</div></div>'
+        : '';
+    }
+
+    /* Alternating weights from the right, which is what both EAN and UPC
+       use. Working from the right means the same code handles 8, 12 and 13
+       digit numbers without a special case. */
+    function checkDigit(digits) {
+      var sum = 0;
+      for (var i = digits.length - 1, w = 3; i >= 0; i--, w = (w === 3 ? 1 : 3)) {
+        sum += digits[i] * w;
+      }
+      return (10 - (sum % 10)) % 10;
+    }
+
+    function encodeEan13(digits) {
+      var bits = '101';
+      var parity = PARITY[digits[0]];
+      for (var i = 1; i <= 6; i++) {
+        bits += (parity[i - 1] === 'L' ? L : G)[digits[i]];
+      }
+      bits += '01010';
+      for (var j = 7; j <= 12; j++) bits += R[digits[j]];
+      bits += '101';
+      return bits;
+    }
+
+    function encodeEan8(digits) {
+      var bits = '101';
+      for (var i = 0; i < 4; i++) bits += L[digits[i]];
+      bits += '01010';
+      for (var j = 4; j < 8; j++) bits += R[digits[j]];
+      bits += '101';
+      return bits;
+    }
+
+    function build() {
+      var kind = document.getElementById('kind').value;
+      var spec = SPECS[kind];
+      var raw = document.getElementById('code').value.replace(/\D/g, '');
+
+      document.getElementById('hint').textContent =
+        'Enter ' + (spec.digits - 1) + ' digits and the check digit is added, ' +
+        'or all ' + spec.digits + ' to have it verified.';
+
+      if (!raw) {
+        message('', '');
+        document.getElementById('box').innerHTML = '';
+        return;
+      }
+
+      if (raw.length < spec.digits - 1) {
+        message('That is ' + raw.length + ' digits. ' + spec.label + ' needs ' +
+          (spec.digits - 1) + ' plus a check digit, or ' + spec.digits + ' in total.', 'err');
+        document.getElementById('box').innerHTML = '';
+        return;
+      }
+      if (raw.length > spec.digits) {
+        message('That is ' + raw.length + ' digits, which is too many for ' +
+          spec.label + '.', 'err');
+        document.getElementById('box').innerHTML = '';
+        return;
+      }
+
+      var body = raw.slice(0, spec.digits - 1).split('').map(Number);
+      var expected = checkDigit(body);
+      var supplied = raw.length === spec.digits ? Number(raw[spec.digits - 1]) : null;
+
+      if (supplied !== null && supplied !== expected) {
+        message('<b>The check digit does not match.</b> For ' + body.join('') +
+          ' it should be <b>' + expected + '</b>, not ' + supplied +
+          '. A scanner would reject this code. The barcode below uses the ' +
+          'correct digit.', 'err');
+      } else if (supplied === null) {
+        message('Check digit <b>' + expected + '</b> added, giving ' +
+          body.join('') + expected + '.', 'ok');
+      } else {
+        message('Check digit <b>' + expected + '</b> is correct.', 'ok');
+      }
+
+      var digits = body.concat([expected]);
+
+      /* UPC-A is an EAN-13 with a leading zero, so one encoder covers both
+         and the output is identical to what a retail scanner expects. */
+      var bits = kind === 'ean8'
+        ? encodeEan8(digits)
+        : encodeEan13(kind === 'upca' ? [0].concat(digits) : digits);
+
+      drawBarcode(bits, digits, kind);
+    }
+
+    function drawBarcode(bits, digits, kind) {
+      var scale = parseInt(document.getElementById('scale').value, 10);
+      var barHeight = parseInt(document.getElementById('height').value, 10);
+      document.getElementById('scale-val').textContent = scale;
+      document.getElementById('height-val').textContent = barHeight;
+
+      /* Nine modules of blank space either side is the published minimum.
+         Without it a scanner often cannot find the start of the code. */
+      var quiet = opts.quiet ? 9 : 0;
+      var textRoom = opts.numbers ? 16 : 4;
+
+      var width = (bits.length + quiet * 2) * scale;
+      var height = barHeight + textRoom;
+
+      /* The guard bars at the edges and the middle run below the others, so
+         the printed digits sit between them the way a real label does. */
+      var guards = kind === 'ean8'
+        ? [[0, 3], [31, 36], [64, 67]]
+        : [[0, 3], [45, 50], [92, 95]];
+
+      function isGuard(i) {
+        return guards.some(function (g) { return i >= g[0] && i < g[1]; });
+      }
+
+      var rects = '';
+      for (var i = 0; i < bits.length; i++) {
+        if (bits[i] !== '1') continue;
+        var h = isGuard(i) ? barHeight + (opts.numbers ? 8 : 0) : barHeight;
+        rects += '<rect x="' + ((i + quiet) * scale) + '" y="0" width="' + scale +
+          '" height="' + h + '"/>';
+      }
+
+      var text = '';
+      if (opts.numbers) {
+        var fontSize = Math.max(7, scale * 4.5);
+        var y = barHeight + textRoom - 2;
+
+        function digitText(str, centreModule) {
+          return '<text x="' + ((centreModule + quiet) * scale) + '" y="' + y +
+            '" font-size="' + fontSize + '" text-anchor="middle" ' +
+            'font-family="monospace">' + str + '</text>';
+        }
+
+        if (kind === 'ean8') {
+          text += digitText(digits.slice(0, 4).join(''), 3 + 14);
+          text += digitText(digits.slice(4).join(''), 36 + 14);
+        } else {
+          var all = kind === 'upca' ? digits : digits;
+          /* On EAN-13 the first digit sits outside the bars, to the left. */
+          if (kind === 'ean13') {
+            text += '<text x="' + ((quiet - 6) * scale) + '" y="' + y +
+              '" font-size="' + fontSize + '" text-anchor="middle" ' +
+              'font-family="monospace">' + all[0] + '</text>';
+            text += digitText(all.slice(1, 7).join(''), 3 + 21);
+            text += digitText(all.slice(7).join(''), 50 + 21);
+          } else {
+            text += digitText(all.slice(0, 6).join(''), 3 + 21);
+            text += digitText(all.slice(6).join(''), 50 + 21);
+          }
+        }
+      }
+
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width +
+        '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' +
+        '<rect width="' + width + '" height="' + height + '" fill="#fff"/>' +
+        '<g fill="#000">' + rects + text + '</g></svg>';
+
+      document.getElementById('box').innerHTML = svg;
+      window.__barcodeSvg = svg;
+      window.__barcodeSize = { w: width, h: height };
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      build();
+    });
+
+    ['kind', 'code', 'height', 'scale'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', build);
+      el.addEventListener('change', build);
+    });
+
+    document.getElementById('download-svg').addEventListener('click', function () {
+      if (!window.__barcodeSvg) { CT.toast('Nothing to download'); return; }
+      var blob = new Blob([window.__barcodeSvg], { type: 'image/svg+xml' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'barcode.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById('download-png').addEventListener('click', function () {
+      if (!window.__barcodeSvg) { CT.toast('Nothing to download'); return; }
+      var size = window.__barcodeSize;
+      var img = new Image();
+      var url = URL.createObjectURL(new Blob([window.__barcodeSvg],
+        { type: 'image/svg+xml' }));
+      img.onload = function () {
+        var canvas = document.createElement('canvas');
+        /* Rendered at four times the drawing size, because a barcode at
+           screen resolution often will not scan once printed. */
+        canvas.width = size.w * 4;
+        canvas.height = size.h * 4;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        var a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'barcode.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        CT.toast('Could not make a PNG — use the SVG');
+      };
+      img.src = url;
+    });
+
+    build();
+  })();
+  </script>
+</body>
+</html>
