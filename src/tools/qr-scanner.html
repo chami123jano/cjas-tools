@@ -1,0 +1,424 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Code Scanner — Cja's Tools</title>
+<meta name="description" content="Read a QR code from your camera or an image file. Decoded on your own device, never uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .viewport {
+    position: relative; background: #111; border-radius: var(--radius);
+    overflow: hidden; display: grid; place-items: center; min-height: 260px;
+  }
+  #video { width: 100%; max-height: 420px; display: block; object-fit: cover; }
+  .reticle {
+    position: absolute; inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: 58%; aspect-ratio: 1; border: 3px solid rgba(255,255,255,.8);
+    border-radius: 14px; pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.35);
+  }
+  .reticle.found { border-color: #27b86a; }
+  .idle { color: #aaa; font-size: 14px; padding: 40px 16px; text-align: center; }
+  .drop-zone {
+    border: 2px dashed var(--border); border-radius: var(--radius);
+    padding: 24px 16px; text-align: center; color: var(--muted);
+    font-size: 14px; cursor: pointer;
+  }
+  .drop-zone.over { border-color: var(--accent); background: var(--accent-soft); }
+  .found-box {
+    padding: 15px; border: 1px solid #27b86a; background: #dcf5e7;
+    border-radius: var(--radius);
+  }
+  html:not([data-theme="light"]) .found-box { background:#17402c; }
+  :root[data-theme="dark"] .found-box { background:#17402c; }
+  .found-box .kind {
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px;
+    color: #146b3c; font-weight: 700; margin-bottom: 5px;
+  }
+  html:not([data-theme="light"]) .found-box .kind { color:#6fdca2; }
+  :root[data-theme="dark"] .found-box .kind { color:#6fdca2; }
+  .found-box .value {
+    font-family: ui-monospace, Consolas, monospace; font-size: 14px;
+    word-break: break-all; line-height: 1.5;
+  }
+  .warn {
+    padding: 12px 15px; border: 1px solid #e8a33d; background: rgba(232,163,61,.1);
+    border-radius: var(--radius); font-size: 13.5px; line-height: 1.6;
+  }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+  .hist { font-size: 13px; }
+  .hist div {
+    padding: 8px 2px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; gap: 10px;
+  }
+  .hist div:last-child { border-bottom: none; }
+  .hist span:first-child {
+    font-family: ui-monospace, Consolas, monospace; word-break: break-all;
+  }
+  .hist button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 12.5px; }
+  .hist button:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="qr-scanner">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>QR Code Scanner</h1>
+        <p>Decoded here on your device. No picture is uploaded anywhere.</p>
+      </div>
+
+      <div class="panel">
+        <div class="viewport" id="viewport">
+          <div class="idle" id="idle">The camera is off.<br>Use the buttons below.</div>
+          <video id="video" playsinline hidden></video>
+          <div class="reticle" id="reticle" hidden></div>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="start-cam">Use the camera</button>
+          <button class="btn" id="stop-cam" hidden>Stop the camera</button>
+          <button class="btn" id="switch-cam" hidden>Switch camera</button>
+        </div>
+        <p class="hint" id="cam-note"></p>
+      </div>
+
+      <div id="msg-slot"></div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop">
+          <input type="file" id="file" accept="image/*" hidden>
+          Or click to choose a picture of a QR code, or drag one here
+        </div>
+        <p class="hint" id="file-note"></p>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="found-box">
+          <div class="kind" id="r-kind"></div>
+          <div class="value" id="r-value"></div>
+          <div class="btns" style="margin-top:12px">
+            <button class="btn primary" id="copy">Copy</button>
+            <button class="btn" id="open" hidden>Open it</button>
+          </div>
+        </div>
+        <div id="detail-slot" style="margin-top:12px"></div>
+      </div>
+
+      <div class="panel" id="hist-panel" hidden>
+        <label style="margin-bottom:8px">Everything scanned this visit</label>
+        <div class="hist" id="hist"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Nothing leaves your device.</b> The camera image is
+          read frame by frame in the page and thrown away &mdash; no picture is
+          saved, and nothing is sent anywhere. The history above is kept only in
+          memory and disappears when you close the page.
+          <br><br>
+          <b>Be careful with what a QR code contains.</b> A code is just text,
+          and text can be a link to anywhere. A printed sticker on a parking
+          meter or a restaurant table is trivially easy to replace with
+          someone else's. This tool deliberately shows you the full address and
+          makes you press a button, rather than opening anything for you
+          &mdash; read it before you tap.
+          <br><br>
+          The camera needs permission, and on the website it only works over
+          https. Reading a saved picture needs no permission at all.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/vendor/jsqr.js"></script>
+  <script>
+  (function () {
+    var video = document.getElementById('video');
+    var canvas = document.createElement('canvas');
+    var stream = null;
+    var scanning = false;
+    var facing = 'environment';
+    var history = [];
+    var lastValue = null;
+
+    function message(html, kind) {
+      document.getElementById('msg-slot').innerHTML = html
+        ? '<div class="panel"><div class="' + kind + '">' + html + '</div></div>'
+        : '';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    /* What a QR code actually contains, named plainly. The payload formats
+       are conventions rather than part of the QR standard, so they are
+       recognised by shape. */
+    function describe(text) {
+      if (/^https?:\/\//i.test(text)) return { kind: 'A web address', open: text };
+      if (/^WIFI:/i.test(text)) {
+        var ssid = (text.match(/S:((?:[^;\\]|\\.)*)/) || [])[1] || '';
+        var enc = (text.match(/T:([^;]*)/) || [])[1] || '';
+        var pass = (text.match(/P:((?:[^;\\]|\\.)*)/) || [])[1] || '';
+        return {
+          kind: 'A wifi login',
+          detail: '<b>Network:</b> ' + escapeHtml(ssid.replace(/\\(.)/g, '$1')) +
+            '<br><b>Security:</b> ' + escapeHtml(enc || 'not stated') +
+            (pass ? '<br><b>Password:</b> ' + escapeHtml(pass.replace(/\\(.)/g, '$1')) : '')
+        };
+      }
+      if (/^tel:/i.test(text)) return { kind: 'A phone number', open: text };
+      if (/^SMSTO:/i.test(text)) {
+        var p = text.slice(6).split(':');
+        return { kind: 'A text message',
+          detail: '<b>To:</b> ' + escapeHtml(p[0]) +
+            '<br><b>Message:</b> ' + escapeHtml(p.slice(1).join(':')) };
+      }
+      if (/^mailto:/i.test(text)) return { kind: 'An email address', open: text };
+      if (/^BEGIN:VCARD/i.test(text)) {
+        var name = (text.match(/\nFN:(.*)/) || [])[1] || '';
+        return { kind: 'A contact card',
+          detail: name ? '<b>Name:</b> ' + escapeHtml(name.trim()) : '' };
+      }
+      if (/^BEGIN:VEVENT/i.test(text)) return { kind: 'A calendar event' };
+      if (/^geo:/i.test(text)) return { kind: 'A location' };
+      if (/^upi:\/\//i.test(text) || /^bitcoin:/i.test(text)) {
+        return { kind: 'A payment request',
+          detail: '<b>Check this carefully before paying anything.</b>' };
+      }
+      return { kind: 'Plain text' };
+    }
+
+    function show(text) {
+      if (text === lastValue) return;
+      lastValue = text;
+
+      var d = describe(text);
+      document.getElementById('result-panel').hidden = false;
+      document.getElementById('r-kind').textContent = d.kind;
+      document.getElementById('r-value').textContent = text;
+
+      var openBtn = document.getElementById('open');
+      if (d.open) {
+        openBtn.hidden = false;
+        openBtn.dataset.href = d.open;
+      } else {
+        openBtn.hidden = true;
+        openBtn.dataset.href = '';
+      }
+
+      var warnings = '';
+      if (/^https?:\/\//i.test(text)) {
+        /* A look-alike domain is the whole trick behind a swapped sticker,
+           so the host is pulled out and shown on its own. */
+        var host = '';
+        try { host = new URL(text).hostname; } catch (e) { host = '(unreadable)'; }
+        warnings = '<div class="warn"><b>This will open ' + escapeHtml(host) +
+          '</b>. Read that carefully — a swapped sticker usually points at ' +
+          'an address that looks almost right.</div>';
+      }
+
+      document.getElementById('detail-slot').innerHTML =
+        (d.detail ? '<div class="warn">' + d.detail + '</div>' : '') + warnings;
+
+      if (history.indexOf(text) === -1) {
+        history.unshift(text);
+        history = history.slice(0, 20);
+        paintHistory();
+      }
+
+      CT.toast('Code found');
+    }
+
+    function paintHistory() {
+      document.getElementById('hist-panel').hidden = history.length === 0;
+      document.getElementById('hist').innerHTML = history.map(function (h) {
+        return '<div><span>' + escapeHtml(h.length > 90 ? h.slice(0, 90) + '…' : h) +
+          '</span><button data-copy="' + escapeHtml(h).replace(/"/g, '&quot;') +
+          '">copy</button></div>';
+      }).join('');
+    }
+
+    function tick() {
+      if (!scanning) return;
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        try {
+          var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          /* Both inversion attempts, because a white-on-black code is
+             common on packaging and screens. */
+          var result = jsQR(image.data, image.width, image.height, {
+            inversionAttempts: 'attemptBoth'
+          });
+          document.getElementById('reticle').classList.toggle('found', !!result);
+          if (result && result.data) show(result.data);
+        } catch (e) { /* a frame that cannot be read is not worth reporting */ }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    document.getElementById('start-cam').addEventListener('click', function () {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        message('This browser cannot reach the camera. You can still read a ' +
+                'saved picture below.', 'err');
+        return;
+      }
+      message('', '');
+      document.getElementById('cam-note').textContent = 'Asking for permission…';
+
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing }, audio: false
+      }).then(function (s) {
+        stream = s;
+        video.srcObject = s;
+        video.hidden = false;
+        document.getElementById('idle').hidden = true;
+        document.getElementById('reticle').hidden = false;
+        document.getElementById('start-cam').hidden = true;
+        document.getElementById('stop-cam').hidden = false;
+        document.getElementById('switch-cam').hidden = false;
+        document.getElementById('cam-note').textContent =
+          'Hold the code inside the square. Nothing is recorded.';
+        return video.play();
+      }).then(function () {
+        scanning = true;
+        tick();
+      }).catch(function (e) {
+        var why = e && e.name === 'NotAllowedError'
+          ? 'Camera permission was refused. You can allow it in the address bar, ' +
+            'or read a saved picture below instead.'
+          : e && e.name === 'NotFoundError'
+            ? 'No camera was found on this device. You can still read a saved picture.'
+            : 'The camera could not be started. On the website this only works ' +
+              'over https.';
+        message(why, 'err');
+        document.getElementById('cam-note').textContent = '';
+      });
+    });
+
+    function stopCamera() {
+      scanning = false;
+      if (stream) {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        stream = null;
+      }
+      video.hidden = true;
+      video.srcObject = null;
+      document.getElementById('idle').hidden = false;
+      document.getElementById('reticle').hidden = true;
+      document.getElementById('start-cam').hidden = false;
+      document.getElementById('stop-cam').hidden = true;
+      document.getElementById('switch-cam').hidden = true;
+      document.getElementById('cam-note').textContent = '';
+    }
+
+    document.getElementById('stop-cam').addEventListener('click', stopCamera);
+
+    document.getElementById('switch-cam').addEventListener('click', function () {
+      facing = facing === 'environment' ? 'user' : 'environment';
+      stopCamera();
+      document.getElementById('start-cam').click();
+    });
+
+    /* Releasing the camera when the page is hidden, so the light does not
+       stay on after someone switches away. */
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && stream) stopCamera();
+    });
+
+    function readImage(f) {
+      if (!f) return;
+      if (!/^image\//.test(f.type)) {
+        document.getElementById('file-note').textContent = 'That is not an image file.';
+        return;
+      }
+      document.getElementById('file-note').textContent = 'Reading ' + f.name + '…';
+
+      var url = URL.createObjectURL(f);
+      var img = new Image();
+      img.onload = function () {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+
+        try {
+          var image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          var result = jsQR(image.data, image.width, image.height, {
+            inversionAttempts: 'attemptBoth'
+          });
+          if (result && result.data) {
+            lastValue = null;
+            show(result.data);
+            document.getElementById('file-note').textContent =
+              f.name + ' — code found, read on this device only.';
+          } else {
+            document.getElementById('file-note').textContent =
+              'No QR code found in that picture. Try a closer or sharper photo, ' +
+              'or crop it so the code fills more of the frame.';
+          }
+        } catch (e) {
+          document.getElementById('file-note').textContent =
+            'That image could not be read.';
+        }
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        document.getElementById('file-note').textContent =
+          'That image could not be opened.';
+      };
+      img.src = url;
+    }
+
+    var drop = document.getElementById('drop');
+    var fileInput = document.getElementById('file');
+    drop.addEventListener('click', function () { fileInput.click(); });
+    fileInput.addEventListener('change', function () { readImage(this.files[0]); });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files) readImage(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (lastValue) CT.copy(lastValue);
+    });
+
+    /* Deliberately a second action rather than following the code straight
+       away - the point of showing the address is that it gets read first. */
+    document.getElementById('open').addEventListener('click', function () {
+      var href = this.dataset.href;
+      if (!href) return;
+      window.open(href, '_blank', 'noopener');
+    });
+
+    document.getElementById('hist').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+  })();
+  </script>
+</body>
+</html>

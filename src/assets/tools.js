@@ -722,6 +722,48 @@ const TOOLS = [
     category: 'generators',
     desc: 'Make rows of believable fake people and orders for testing.',
     keywords: ['fake', 'test data', 'sample', 'mock', 'seed', 'csv', 'json', 'dummy']
+  },
+  {
+    slug: 'coin-flip',
+    name: 'Coin Flip',
+    category: 'generators',
+    desc: 'Flip one coin or a hundred, and see how the tally settles.',
+    keywords: ['coin', 'flip', 'toss', 'heads', 'tails', 'random', 'decide']
+  },
+  {
+    slug: 'business-name',
+    name: 'Business Name Ideas',
+    category: 'generators',
+    desc: 'Generate name ideas for a shop or venture, with the domain to check.',
+    keywords: ['business', 'name', 'brand', 'company', 'shop', 'startup', 'idea']
+  },
+  {
+    slug: 'team-picker',
+    name: 'Team Picker',
+    category: 'generators',
+    desc: 'Split a list of names into fair teams, or draw one at random.',
+    keywords: ['team', 'picker', 'random', 'groups', 'split', 'draw', 'shuffle']
+  },
+  {
+    slug: 'qr-scanner',
+    name: 'QR Code Scanner',
+    category: 'generators',
+    desc: 'Read a QR code from your camera or an image, on your own device.',
+    keywords: ['qr', 'scanner', 'read', 'camera', 'decode', 'scan', 'barcode']
+  },
+  {
+    slug: 'morse-code',
+    name: 'Morse Code Translator',
+    category: 'world',
+    desc: 'Translate to and from Morse, and hear it beeped out.',
+    keywords: ['morse', 'code', 'translate', 'sos', 'beep', 'dots', 'dashes']
+  },
+  {
+    slug: 'nato-alphabet',
+    name: 'NATO Phonetic Alphabet',
+    category: 'world',
+    desc: 'Spell anything out the way it is read over a phone or radio.',
+    keywords: ['nato', 'phonetic', 'alphabet', 'spell', 'alpha bravo', 'radio', 'callsign']
   }
 ];
 

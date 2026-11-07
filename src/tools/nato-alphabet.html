@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NATO Phonetic Alphabet — Cja's Tools</title>
+<meta name="description" content="Spell anything out the way it is read over a phone or radio, with the official pronunciations. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-size: 17px; line-height: 1.9; }
+  .spelled { display: flex; flex-wrap: wrap; gap: 7px; }
+  .ch {
+    border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 11px; background: var(--bg); min-width: 54px; text-align: center;
+  }
+  .ch b { display: block; font-size: 17px; font-family: ui-monospace, Consolas, monospace; }
+  .ch span { font-size: 12px; color: var(--muted); }
+  .ch.space { background: var(--surface-2); border-style: dashed; }
+  .key { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .key td { padding: 6px 4px; }
+  .key td:first-child {
+    width: 26px; font-family: ui-monospace, Consolas, monospace; font-weight: 700;
+  }
+  .key td:last-child { color: var(--muted); font-size: 12.5px; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0 22px; }
+</style>
+</head>
+<body data-page="tool" data-slug="nato-alphabet">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>NATO Phonetic Alphabet</h1>
+        <p>For reading a reference number down the phone without repeating it four times.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in">What to spell out</label>
+          <input type="text" id="in" value="CAB-1234" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-s="CAB-1234">A number plate</button>
+          <button class="btn" data-s="chamindu@example.com">An email address</button>
+          <button class="btn" data-s="00300">A postal code</button>
+        </div>
+        <div class="btns" id="opts" style="margin-top:11px">
+          <button class="btn primary" data-opt="caps">Say "capital" where it matters</button>
+          <button class="btn" data-opt="full">Spell out punctuation too</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="spelled" id="spelled"></div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">To read out</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+          <button class="btn" id="speak">Read it aloud</button>
+          <button class="btn" id="stop" hidden>Stop</button>
+        </div>
+        <p class="hint" id="speak-note"></p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">The alphabet</label>
+        <div class="cols" id="key"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The numbers are written normally but said oddly.</b>
+          The word is still "nine", but it is pronounced <b>NIN-er</b>, and four
+          is <b>FOW-er</b> &mdash; because nine is easily heard as five over a
+          bad line, and four as "for". The pronunciation column above is the part
+          that matters when you are reading something out. Aviation and shipping
+          stick to it; nobody will mind if you say the ordinary words.
+          <br><br>
+          <b>Why this alphabet and not another.</b> The words were chosen in the
+          1950s by testing them over deliberately bad radio links with speakers
+          of several languages &mdash; which is why they sound odd. "Quebec" and
+          "Juliett" are spelled the way they are on purpose, and Juliett keeps
+          its double T so French speakers do not read the final letter as silent.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var opts = { caps: true, full: false };
+
+    var LETTERS = {
+      A: ['Alfa', 'AL-fah'], B: ['Bravo', 'BRAH-voh'], C: ['Charlie', 'CHAR-lee'],
+      D: ['Delta', 'DELL-tah'], E: ['Echo', 'ECK-oh'], F: ['Foxtrot', 'FOKS-trot'],
+      G: ['Golf', 'GOLF'], H: ['Hotel', 'hoh-TELL'], I: ['India', 'IN-dee-ah'],
+      J: ['Juliett', 'JEW-lee-ett'], K: ['Kilo', 'KEY-loh'], L: ['Lima', 'LEE-mah'],
+      M: ['Mike', 'MIKE'], N: ['November', 'no-VEM-ber'], O: ['Oscar', 'OSS-cah'],
+      P: ['Papa', 'pah-PAH'], Q: ['Quebec', 'keh-BECK'], R: ['Romeo', 'ROW-me-oh'],
+      S: ['Sierra', 'see-AIR-rah'], T: ['Tango', 'TANG-go'],
+      U: ['Uniform', 'YOU-nee-form'], V: ['Victor', 'VIK-tah'],
+      W: ['Whiskey', 'WISS-key'], X: ['X-ray', 'ECKS-ray'],
+      Y: ['Yankee', 'YANG-key'], Z: ['Zulu', 'ZOO-loo']
+    };
+
+    /* The official spoken forms. Nine and four are deliberately distorted
+       because they are the two most often misheard over a poor connection. */
+    var DIGITS = {
+      '0': ['Zero', 'ZEE-roh'], '1': ['One', 'WUN'], '2': ['Two', 'TOO'],
+      '3': ['Three', 'TREE'], '4': ['Four', 'FOW-er'], '5': ['Five', 'FIFE'],
+      '6': ['Six', 'SIX'], '7': ['Seven', 'SEV-en'], '8': ['Eight', 'AIT'],
+      '9': ['Nine', 'NIN-er']
+    };
+
+    var PUNCTUATION = {
+      '-': 'dash', '.': 'dot', '@': 'at', '_': 'underscore', '/': 'slash',
+      ':': 'colon', ',': 'comma', '+': 'plus', '#': 'hash', '&': 'ampersand',
+      '(': 'open bracket', ')': 'close bracket', "'": 'apostrophe',
+      '!': 'exclamation', '?': 'question mark', '=': 'equals', '*': 'star',
+      '%': 'percent', '$': 'dollar'
+    };
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    function run() {
+      var text = document.getElementById('in').value;
+      var cells = [];
+      var spoken = [];
+
+      Array.from(text).forEach(function (ch) {
+        if (ch === ' ') {
+          cells.push({ ch: '·', word: 'space', space: true });
+          spoken.push('space');
+          return;
+        }
+
+        var upper = ch.toUpperCase();
+
+        if (LETTERS[upper]) {
+          var entry = LETTERS[upper];
+          /* Only worth saying "capital" when the text actually mixes cases -
+             on an all-caps reference number it is just noise. */
+          var mixed = /[a-z]/.test(text) && /[A-Z]/.test(text);
+          var prefix = (opts.caps && mixed && ch === upper) ? 'capital ' : '';
+          cells.push({ ch: ch, word: prefix + entry[0], say: entry[1] });
+          spoken.push(prefix + entry[0]);
+          return;
+        }
+
+        if (DIGITS[ch]) {
+          cells.push({ ch: ch, word: DIGITS[ch][0], say: DIGITS[ch][1] });
+          spoken.push(DIGITS[ch][0]);
+          return;
+        }
+
+        if (opts.full && PUNCTUATION[ch]) {
+          cells.push({ ch: ch, word: PUNCTUATION[ch] });
+          spoken.push(PUNCTUATION[ch]);
+          return;
+        }
+
+        if (PUNCTUATION[ch]) {
+          cells.push({ ch: ch, word: ch, space: true });
+          spoken.push(ch);
+          return;
+        }
+
+        cells.push({ ch: ch, word: '?', space: true });
+        spoken.push(ch);
+      });
+
+      document.getElementById('spelled').innerHTML = cells.length
+        ? cells.map(function (c) {
+            return '<div class="ch' + (c.space ? ' space' : '') + '">' +
+              '<b>' + escapeHtml(c.ch) + '</b>' +
+              '<span>' + escapeHtml(c.word) + '</span></div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Type something above.</p>';
+
+      document.getElementById('out').value = spoken.join(' ');
+
+      var letters = cells.filter(function (c) { return !c.space; }).length;
+      document.getElementById('speak-note').textContent = letters
+        ? letters + ' character' + (letters === 1 ? '' : 's') + ' to read out.'
+        : '';
+    }
+
+    document.getElementById('opts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-opt]');
+      if (!b) return;
+      opts[b.dataset.opt] = !opts[b.dataset.opt];
+      b.classList.toggle('primary', opts[b.dataset.opt]);
+      run();
+    });
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-s]');
+      if (!b) return;
+      document.getElementById('in').value = b.dataset.s;
+      run();
+    });
+
+    document.getElementById('in').addEventListener('input', run);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    /* Uses whatever voices the device already has. There is no cloud
+       service behind this, so nothing is sent anywhere - and on a machine
+       with no voices installed it simply says so. */
+    document.getElementById('speak').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to read'); return; }
+      if (!('speechSynthesis' in window)) {
+        CT.toast('This browser has no speech support');
+        return;
+      }
+      window.speechSynthesis.cancel();
+      var utter = new SpeechSynthesisUtterance(v);
+      /* Slower than normal, since the point is to be understood over a
+         bad line rather than to sound natural. */
+      utter.rate = 0.75;
+      utter.onend = function () {
+        document.getElementById('speak').hidden = false;
+        document.getElementById('stop').hidden = true;
+      };
+      document.getElementById('speak').hidden = true;
+      document.getElementById('stop').hidden = false;
+      window.speechSynthesis.speak(utter);
+    });
+
+    document.getElementById('stop').addEventListener('click', function () {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      document.getElementById('speak').hidden = false;
+      this.hidden = true;
+    });
+
+    /* The table is built from the same maps the translator uses. */
+    var letterKeys = Object.keys(LETTERS);
+    var half = Math.ceil(letterKeys.length / 2);
+    var groups = [
+      letterKeys.slice(0, half),
+      letterKeys.slice(half).concat(Object.keys(DIGITS))
+    ];
+
+    document.getElementById('key').innerHTML = groups.map(function (group) {
+      return '<table class="key"><tbody>' + group.map(function (k) {
+        var e = LETTERS[k] || DIGITS[k];
+        return '<tr><td>' + k + '</td><td>' + e[0] + '</td><td>' + e[1] + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    }).join('');
+
+    run();
+  })();
+  </script>
+</body>
+</html>

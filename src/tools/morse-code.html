@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morse Code Translator — Cja's Tools</title>
+<meta name="description" content="Translate to and from Morse code, and hear it beeped out at a chosen speed. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-family: ui-monospace, Consolas, monospace; font-size: 17px; letter-spacing: 1px; line-height: 1.9; }
+  .key { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .key td { padding: 5px 4px; }
+  .key td:nth-child(2n) {
+    font-family: ui-monospace, Consolas, monospace; color: var(--muted); font-size: 12.5px;
+  }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 20px; }
+  .lamp {
+    width: 100%; height: 56px; border-radius: var(--radius);
+    background: var(--surface-2); transition: background .04s;
+  }
+  .lamp.on { background: #ffd34d; box-shadow: 0 0 22px rgba(255,211,77,.65); }
+  .err {
+    padding: 12px 15px; border: 1px solid var(--danger);
+    border-radius: var(--radius); color: var(--danger); font-size: 13.5px; line-height: 1.6;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="morse-code">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Morse Code Translator</h1>
+        <p>Both directions, and you can hear it.</p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-encode">Text to Morse</button>
+          <button class="btn" id="tab-decode">Morse to text</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="in" id="in-label">Your text</label>
+          <textarea id="in" spellcheck="false">SOS</textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div id="err-slot"></div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out" id="out-label">Morse</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+          <button class="btn" id="swap">Use as input</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="lamp" id="lamp"></div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="wpm">Speed: <span id="wpm-val">15</span> words a minute</label>
+            <input type="range" id="wpm" min="5" max="40" step="1" value="15" style="width:100%">
+          </div>
+          <div class="field">
+            <label for="pitch">Pitch: <span id="pitch-val">700</span> Hz</label>
+            <input type="range" id="pitch" min="300" max="1200" step="50" value="700" style="width:100%">
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="play">Play it</button>
+          <button class="btn" id="stop" hidden>Stop</button>
+        </div>
+        <p class="hint">The lamp flashes along with the sound, so it still works
+          with the volume off.</p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">The full code</label>
+        <div class="cols" id="key"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The spacing is the hard part.</b> A dash is three times
+          a dot, the gap inside a letter is one dot, between letters three, and
+          between words seven. Get those wrong and a listener hears different
+          letters entirely &mdash; which is why this plays it properly rather
+          than just beeping evenly.
+          <br><br>
+          <b>SOS is one symbol, not three letters.</b> It is sent as a single
+          run with no letter gaps, which is why it is written
+          <code>...---...</code> rather than <code>... --- ...</code>. Both are
+          accepted here.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var CODE = {
+      A: '.-', B: '-...', C: '-.-.', D: '-..', E: '.', F: '..-.', G: '--.',
+      H: '....', I: '..', J: '.---', K: '-.-', L: '.-..', M: '--', N: '-.',
+      O: '---', P: '.--.', Q: '--.-', R: '.-.', S: '...', T: '-', U: '..-',
+      V: '...-', W: '.--', X: '-..-', Y: '-.--', Z: '--..',
+      '0': '-----', '1': '.----', '2': '..---', '3': '...--', '4': '....-',
+      '5': '.....', '6': '-....', '7': '--...', '8': '---..', '9': '----.',
+      '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.',
+      '!': '-.-.--', '/': '-..-.', '(': '-.--.', ')': '-.--.-',
+      '&': '.-...', ':': '---...', ';': '-.-.-.', '=': '-...-',
+      '+': '.-.-.', '-': '-....-', '_': '..--.-', '"': '.-..-.',
+      '$': '...-..-', '@': '.--.-.'
+    };
+
+    var REVERSE = {};
+    Object.keys(CODE).forEach(function (k) { REVERSE[CODE[k]] = k; });
+
+    var mode = 'encode';
+    var playing = false;
+    var audioCtx = null;
+    var timers = [];
+
+    function error(msg) {
+      document.getElementById('err-slot').innerHTML =
+        msg ? '<div class="panel"><div class="err">' + msg + '</div></div>' : '';
+    }
+
+    function encode(text) {
+      var unknown = [];
+      var words = text.toUpperCase().trim().split(/\s+/);
+      var out = words.map(function (word) {
+        return Array.from(word).map(function (ch) {
+          if (CODE[ch]) return CODE[ch];
+          if (unknown.indexOf(ch) === -1) unknown.push(ch);
+          return '';
+        }).filter(function (s) { return s; }).join(' ');
+      }).filter(function (s) { return s; }).join(' / ');
+
+      return { text: out, unknown: unknown };
+    }
+
+    /* A few runs are sent deliberately as a single symbol with no letter
+       gaps, so they are not really letter sequences at all. Without this,
+       ...---... reads as "3B" - which is a perfectly valid segmentation and
+       not what anybody means by it. */
+    var PROSIGNS = {
+      '...---...': 'SOS',
+      '.-.-.': '<AR>',
+      '-...-.-': '<SK>',
+      '........': '<error>'
+    };
+
+    function decode(morse) {
+      /* Both a slash and a run of spaces are used in the wild to mean a word
+         gap, so both are accepted. */
+      var normalised = morse
+        .replace(/[•·]/g, '.')
+        .replace(/[–—_]/g, '-')
+        .replace(/\s*\/\s*/g, ' / ')
+        .replace(/\s{3,}/g, ' / ')
+        .trim();
+
+      var unknown = [];
+      var ambiguous = [];
+
+      var out = normalised.split(/\s+\/\s+|\s*\/\s*/).map(function (word) {
+        return word.trim().split(/\s+/).map(function (sym) {
+          if (!sym) return '';
+          if (PROSIGNS[sym]) return PROSIGNS[sym];
+          if (REVERSE[sym]) return REVERSE[sym];
+
+          /* No gaps and not a known prosign, so it has to be split up. The
+             longest valid code is taken each time, but that is only one of
+             several possible readings - so the result is flagged rather
+             than presented as the answer. */
+          var greedy = '';
+          var rest = sym;
+          var ok = true;
+          while (rest.length) {
+            var matched = null;
+            for (var len = Math.min(7, rest.length); len >= 1; len--) {
+              var head = rest.slice(0, len);
+              if (REVERSE[head]) { matched = head; break; }
+            }
+            if (!matched) { ok = false; break; }
+            greedy += REVERSE[matched];
+            rest = rest.slice(matched.length);
+          }
+          if (ok) {
+            if (ambiguous.indexOf(sym) === -1) ambiguous.push(sym);
+            return greedy;
+          }
+          if (unknown.indexOf(sym) === -1) unknown.push(sym);
+          return '?';
+        }).join('');
+      }).filter(function (s) { return s; }).join(' ');
+
+      return { text: out, unknown: unknown, ambiguous: ambiguous };
+    }
+
+    function run() {
+      error('');
+      var text = document.getElementById('in').value;
+      var out = document.getElementById('out');
+
+      if (!text.trim()) {
+        out.value = '';
+        document.getElementById('note').textContent = '';
+        return;
+      }
+
+      var result = mode === 'encode' ? encode(text) : decode(text);
+      out.value = result.text;
+
+      if (result.unknown.length) {
+        error(mode === 'encode'
+          ? 'Morse has no code for ' + result.unknown.map(function (c) {
+              return '"' + c + '"';
+            }).join(', ') + ', so those were left out.'
+          : 'These could not be read as Morse: ' + result.unknown.map(function (c) {
+              return '"' + c + '"';
+            }).join(', ') + '. Check for stray characters.');
+      } else if (result.ambiguous && result.ambiguous.length) {
+        /* Honest about it: a run with no gaps has more than one valid
+           reading, and the one shown is a guess. */
+        error('<b>There are no gaps between letters in ' +
+          result.ambiguous.map(function (s) { return '"' + s + '"'; }).join(', ') +
+          '</b>, so this can be read more than one way. The reading above takes ' +
+          'the longest valid code each time, which is a guess. Put a space ' +
+          'between letters to be certain.');
+      }
+
+      var symbols = (result.text.match(/[.\-]/g) || []).length;
+      document.getElementById('note').textContent = mode === 'encode'
+        ? symbols + ' dots and dashes, about ' +
+          Math.round(estimateSeconds(result.text)) + ' seconds at the current speed.'
+        : result.text.replace(/\s/g, '').length + ' characters.';
+    }
+
+    /* A dot is the unit everything else is measured in. The standard ties it
+       to the word PARIS, which is fifty units long - so at N words a minute
+       one dot is 1200/N milliseconds. */
+    function dotMs() {
+      var wpm = parseInt(document.getElementById('wpm').value, 10) || 15;
+      return 1200 / wpm;
+    }
+
+    function estimateSeconds(morse) {
+      var unit = dotMs();
+      var total = 0;
+      Array.from(morse).forEach(function (ch) {
+        if (ch === '.') total += unit * 2;        /* dot plus its gap */
+        else if (ch === '-') total += unit * 4;   /* dash plus its gap */
+        else if (ch === ' ') total += unit * 2;   /* letter gap tops up to 3 */
+        else if (ch === '/') total += unit * 4;   /* word gap tops up to 7 */
+      });
+      return total / 1000;
+    }
+
+    function stop() {
+      playing = false;
+      timers.forEach(clearTimeout);
+      timers = [];
+      document.getElementById('lamp').classList.remove('on');
+      document.getElementById('play').hidden = false;
+      document.getElementById('stop').hidden = true;
+    }
+
+    function play() {
+      var morse = mode === 'encode'
+        ? document.getElementById('out').value
+        : document.getElementById('in').value;
+
+      if (!morse.replace(/[^.\-]/g, '')) { CT.toast('Nothing to play'); return; }
+      if (playing) return;
+
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) { CT.toast('No audio available here'); return; }
+        audioCtx = new Ctx();
+      } catch (e) { CT.toast('No audio available here'); return; }
+
+      playing = true;
+      document.getElementById('play').hidden = true;
+      document.getElementById('stop').hidden = false;
+
+      var unit = dotMs();
+      var pitch = parseInt(document.getElementById('pitch').value, 10) || 700;
+      var at = 0;
+      var lamp = document.getElementById('lamp');
+
+      function tone(startMs, lengthMs) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = pitch;
+        var t0 = audioCtx.currentTime + startMs / 1000;
+        /* A tiny ramp at each end, or the tone clicks audibly. */
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.3, t0 + 0.005);
+        gain.gain.setValueAtTime(0.3, t0 + lengthMs / 1000 - 0.005);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + lengthMs / 1000);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + lengthMs / 1000 + 0.01);
+
+        timers.push(setTimeout(function () { lamp.classList.add('on'); }, startMs));
+        timers.push(setTimeout(function () {
+          lamp.classList.remove('on');
+        }, startMs + lengthMs));
+      }
+
+      Array.from(morse).forEach(function (ch) {
+        if (ch === '.') { tone(at, unit); at += unit * 2; }
+        else if (ch === '-') { tone(at, unit * 3); at += unit * 4; }
+        else if (ch === ' ') { at += unit * 2; }
+        else if (ch === '/') { at += unit * 4; }
+      });
+
+      timers.push(setTimeout(stop, at + 200));
+    }
+
+    function setMode(m) {
+      mode = m;
+      document.getElementById('in-label').textContent =
+        m === 'encode' ? 'Your text' : 'Morse to read';
+      document.getElementById('out-label').textContent =
+        m === 'encode' ? 'Morse' : 'Text';
+      document.getElementById('tab-encode').classList.toggle('primary', m === 'encode');
+      document.getElementById('tab-decode').classList.toggle('primary', m === 'decode');
+      stop();
+      run();
+    }
+
+    document.getElementById('tab-encode').addEventListener('click', function () {
+      setMode('encode');
+    });
+    document.getElementById('tab-decode').addEventListener('click', function () {
+      setMode('decode');
+    });
+
+    document.getElementById('in').addEventListener('input', run);
+
+    document.getElementById('wpm').addEventListener('input', function () {
+      document.getElementById('wpm-val').textContent = this.value;
+      run();
+    });
+    document.getElementById('pitch').addEventListener('input', function () {
+      document.getElementById('pitch-val').textContent = this.value;
+    });
+
+    document.getElementById('play').addEventListener('click', play);
+    document.getElementById('stop').addEventListener('click', stop);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    document.getElementById('swap').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) return;
+      setMode(mode === 'encode' ? 'decode' : 'encode');
+      document.getElementById('in').value = v;
+      run();
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      setMode('encode');
+      document.getElementById('in').value = 'Ayubowan from Sri Lanka';
+      run();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('in').value = '';
+      run();
+      document.getElementById('in').focus();
+    });
+
+    /* The reference table is built from the same map the translator uses, so
+       they cannot disagree. */
+    var keys = Object.keys(CODE);
+    var perColumn = Math.ceil(keys.length / 3);
+    var columns = [[], [], []];
+    keys.forEach(function (k, i) {
+      columns[Math.floor(i / perColumn)].push(k);
+    });
+    document.getElementById('key').innerHTML = columns.map(function (col) {
+      return '<table class="key"><tbody>' + col.map(function (k) {
+        return '<tr><td>' + (k === '&' ? '&amp;' : k === '<' ? '&lt;' : k) +
+          '</td><td>' + CODE[k] + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    }).join('');
+
+    run();
+  })();
+  </script>
+</body>
+</html>

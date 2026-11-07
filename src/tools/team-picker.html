@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Picker — Cja's Tools</title>
+<meta name="description" content="Split a list of names into fair teams, or draw one at random. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #names { min-height: 170px; font-size: 14px; }
+  .teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .team {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 13px; background: var(--bg);
+  }
+  .team h4 {
+    margin: 0 0 9px; font-size: 13px; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted);
+    display: flex; justify-content: space-between;
+  }
+  .team ol { margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.9; }
+  .drawn {
+    text-align: center; font-size: 31px; font-weight: 700;
+    letter-spacing: -.5px; word-break: break-word;
+  }
+  .drawn small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 5px; }
+  .left { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12.5px; margin-top: 12px; }
+  .left span { padding: 3px 9px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+  .left span.out { text-decoration: line-through; opacity: .5; }
+</style>
+</head>
+<body data-page="tool" data-slug="team-picker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Team Picker</h1>
+        <p>Teams, or one name at a time without repeats.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="names">The names, one per line</label>
+          <textarea id="names" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn" id="sample">Load an example</button>
+          <button class="btn" id="clear">Clear</button>
+        </div>
+        <p class="hint" id="count-note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="btns">
+          <button class="btn primary" id="tab-teams">Split into teams</button>
+          <button class="btn" id="tab-draw">Draw one at a time</button>
+        </div>
+      </div>
+
+      <div id="pane-teams">
+        <div class="panel">
+          <div class="row">
+            <div class="field">
+              <label for="mode">Decide by</label>
+              <select id="mode">
+                <option value="teams" selected>Number of teams</option>
+                <option value="size">People per team</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="n" id="n-label">How many teams</label>
+              <input type="number" id="n" value="2" min="1" max="50" step="1">
+            </div>
+          </div>
+          <div class="btns">
+            <button class="btn primary" id="split">Shuffle and split</button>
+            <button class="btn" id="copy-teams">Copy the teams</button>
+          </div>
+          <p class="hint" id="split-note"></p>
+        </div>
+
+        <div class="panel">
+          <div class="teams" id="teams"></div>
+        </div>
+      </div>
+
+      <div id="pane-draw" hidden>
+        <div class="panel">
+          <div class="drawn" id="drawn">&mdash;<small>Press draw</small></div>
+          <div class="btns" style="justify-content:center;margin-top:16px">
+            <button class="btn primary" id="draw">Draw a name</button>
+            <button class="btn" id="reset-draw">Start again</button>
+          </div>
+          <div class="left" id="left"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The split is genuinely random, then evened out.</b>
+          The list is shuffled with Fisher-Yates and dealt round the teams one
+          at a time, so eleven people across three teams gives four, four and
+          three rather than five, three and three. Which team gets the extra
+          person is itself random.
+          <br><br>
+          <b>Drawing does not repeat anyone</b> until the list is used up, so it
+          works for a raffle or for deciding an order. The chips show who is
+          still in.
+          <br><br>
+          Nothing is saved, so closing the page starts over.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var SAMPLE = ['Nimali', 'Chamindu', 'Kasun', 'Dilani', 'Tharindu', 'Ishara',
+                  'Sanduni', 'Ruwan', 'Amila', 'Hiruni', 'Pasindu'].join('\n');
+
+    var drawn = [];
+
+    function randomInt(max) {
+      if (max <= 0) return 0;
+      var limit = Math.floor(0xFFFFFFFF / max) * max;
+      var buf = new Uint32Array(1);
+      var v;
+      do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
+      return v % max;
+    }
+
+    function names() {
+      return document.getElementById('names').value
+        .split('\n')
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s.length; });
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[<>&]/g, function (c) {
+        return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
+      });
+    }
+
+    /* Fisher-Yates, which gives every ordering an equal chance. Sorting by
+       a random comparator does not, and is the usual mistake here. */
+    function shuffle(list) {
+      var out = list.slice();
+      for (var i = out.length - 1; i > 0; i--) {
+        var j = randomInt(i + 1);
+        var t = out[i]; out[i] = out[j]; out[j] = t;
+      }
+      return out;
+    }
+
+    function paintCount() {
+      var n = names().length;
+      document.getElementById('count-note').textContent = n
+        ? n + ' name' + (n === 1 ? '' : 's') + ' in the list.'
+        : 'Add at least two names.';
+    }
+
+    function split() {
+      var list = names();
+      var host = document.getElementById('teams');
+
+      if (list.length < 2) {
+        host.innerHTML = '<p class="hint" style="margin:0">Add at least two names.</p>';
+        document.getElementById('split-note').textContent = '';
+        return;
+      }
+
+      var mode = document.getElementById('mode').value;
+      var n = Math.max(1, parseInt(document.getElementById('n').value, 10) || 1);
+
+      var teamCount = mode === 'teams'
+        ? Math.min(n, list.length)
+        : Math.ceil(list.length / Math.max(1, n));
+
+      var shuffled = shuffle(list);
+      var teams = [];
+      for (var i = 0; i < teamCount; i++) teams.push([]);
+
+      /* Dealt round one at a time rather than cut into blocks, so the sizes
+         differ by at most one however the numbers fall. */
+      shuffled.forEach(function (name, i) {
+        teams[i % teamCount].push(name);
+      });
+
+      host.innerHTML = teams.map(function (t, i) {
+        return '<div class="team"><h4><span>Team ' + (i + 1) + '</span>' +
+          '<span>' + t.length + '</span></h4><ol>' +
+          t.map(function (p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') +
+          '</ol></div>';
+      }).join('');
+
+      var sizes = teams.map(function (t) { return t.length; });
+      var min = Math.min.apply(null, sizes), max = Math.max.apply(null, sizes);
+      document.getElementById('split-note').textContent =
+        list.length + ' people across ' + teamCount + ' team' +
+        (teamCount === 1 ? '' : 's') + ' — ' +
+        (min === max
+          ? min + ' each, exactly even.'
+          : 'sizes of ' + sizes.join(', ') + '. With ' + list.length +
+            ' people that is as even as it goes.');
+
+      window.__teams = teams;
+    }
+
+    function draw() {
+      var list = names();
+      if (!list.length) { CT.toast('Add some names first'); return; }
+
+      var remaining = list.filter(function (n) { return drawn.indexOf(n) === -1; });
+
+      if (!remaining.length) {
+        document.getElementById('drawn').innerHTML =
+          'Everyone has been drawn<small>press start again</small>';
+        return;
+      }
+
+      var pickedName = remaining[randomInt(remaining.length)];
+      drawn.push(pickedName);
+
+      document.getElementById('drawn').innerHTML =
+        escapeHtml(pickedName) +
+        '<small>' + drawn.length + ' of ' + list.length + ' drawn' +
+        (remaining.length === 1 ? ' — that was the last one' : '') + '</small>';
+
+      paintLeft();
+    }
+
+    function paintLeft() {
+      var list = names();
+      document.getElementById('left').innerHTML = list.map(function (n) {
+        var out = drawn.indexOf(n) !== -1;
+        return '<span class="' + (out ? 'out' : '') + '">' + escapeHtml(n) + '</span>';
+      }).join('');
+    }
+
+    document.getElementById('tab-teams').addEventListener('click', function () {
+      document.getElementById('pane-teams').hidden = false;
+      document.getElementById('pane-draw').hidden = true;
+      this.classList.add('primary');
+      document.getElementById('tab-draw').classList.remove('primary');
+    });
+
+    document.getElementById('tab-draw').addEventListener('click', function () {
+      document.getElementById('pane-teams').hidden = true;
+      document.getElementById('pane-draw').hidden = false;
+      this.classList.add('primary');
+      document.getElementById('tab-teams').classList.remove('primary');
+      paintLeft();
+    });
+
+    document.getElementById('mode').addEventListener('change', function () {
+      document.getElementById('n-label').textContent = this.value === 'teams'
+        ? 'How many teams' : 'People per team';
+      split();
+    });
+
+    document.getElementById('split').addEventListener('click', split);
+    document.getElementById('draw').addEventListener('click', draw);
+
+    document.getElementById('reset-draw').addEventListener('click', function () {
+      drawn = [];
+      document.getElementById('drawn').innerHTML = '&mdash;<small>Press draw</small>';
+      paintLeft();
+    });
+
+    document.getElementById('copy-teams').addEventListener('click', function () {
+      var teams = window.__teams;
+      if (!teams || !teams.length) { CT.toast('Split them first'); return; }
+      CT.copy(teams.map(function (t, i) {
+        return 'Team ' + (i + 1) + '\n' + t.map(function (p) {
+          return '  ' + p;
+        }).join('\n');
+      }).join('\n\n'));
+    });
+
+    document.getElementById('sample').addEventListener('click', function () {
+      document.getElementById('names').value = SAMPLE;
+      drawn = [];
+      paintCount();
+      split();
+      paintLeft();
+    });
+
+    document.getElementById('clear').addEventListener('click', function () {
+      document.getElementById('names').value = '';
+      drawn = [];
+      paintCount();
+      split();
+      paintLeft();
+    });
+
+    document.getElementById('names').addEventListener('input', function () {
+      paintCount();
+      paintLeft();
+    });
+
+    document.getElementById('n').addEventListener('input', split);
+
+    document.getElementById('names').value = SAMPLE;
+    paintCount();
+    split();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coin Flip — Cja's Tools</title>
+<meta name="description" content="Flip one coin or a hundred and watch the tally settle. Fair flips using real randomness. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .coin {
+    width: 150px; height: 150px; border-radius: 50%; margin: 0 auto;
+    display: grid; place-items: center; font-size: 42px; font-weight: 700;
+    background: linear-gradient(145deg, #e8c44d, #b8912a);
+    color: #5c4409; box-shadow: inset 0 -5px 10px rgba(0,0,0,.18), 0 3px 8px rgba(0,0,0,.2);
+    transition: transform .12s;
+    user-select: none; cursor: pointer;
+  }
+  .coin.tails {
+    background: linear-gradient(145deg, #d8dce3, #9aa2ad);
+    color: #333a45;
+  }
+  .coin.flipping { animation: spin .55s linear infinite; }
+  @keyframes spin {
+    0% { transform: rotateY(0deg) scale(1); }
+    50% { transform: rotateY(180deg) scale(.86); }
+    100% { transform: rotateY(360deg) scale(1); }
+  }
+  .verdict { text-align: center; font-size: 27px; font-weight: 700; margin-top: 16px; }
+  .verdict small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
+  .bars { display: flex; gap: 10px; margin-top: 8px; }
+  .bars > div { flex: 1; }
+  .bars .lab { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+  .bars .track { height: 14px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+  .bars .track i { display: block; height: 100%; }
+  .run { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 10px; }
+  .run i {
+    width: 19px; height: 19px; border-radius: 4px; font-size: 10px;
+    display: grid; place-items: center; font-style: normal; font-weight: 700;
+  }
+  .run i.h { background: #e8c44d; color: #5c4409; }
+  .run i.t { background: #9aa2ad; color: #fff; }
+</style>
+</head>
+<body data-page="tool" data-slug="coin-flip">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Coin Flip</h1>
+        <p>Click the coin, or flip a batch at once.</p>
+      </div>
+
+      <div class="panel">
+        <div class="coin" id="coin">?</div>
+        <div class="verdict" id="verdict">&mdash;<small>Click the coin</small></div>
+        <div class="btns" style="justify-content:center;margin-top:16px">
+          <button class="btn primary" id="flip">Flip</button>
+          <button class="btn" data-batch="10">Flip 10</button>
+          <button class="btn" data-batch="100">Flip 100</button>
+          <button class="btn" id="reset">Reset the tally</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">The tally so far</label>
+        <div class="bars">
+          <div>
+            <div class="lab"><span>Heads</span><b id="n-heads">0</b></div>
+            <div class="track"><i id="b-heads" style="width:0%;background:#e8c44d"></i></div>
+          </div>
+          <div>
+            <div class="lab"><span>Tails</span><b id="n-tails">0</b></div>
+            <div class="track"><i id="b-tails" style="width:0%;background:#9aa2ad"></i></div>
+          </div>
+        </div>
+        <p class="hint" id="tally-note" style="margin-top:12px"></p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:6px">The last 60 flips</label>
+        <div class="run" id="run"></div>
+        <p class="hint" id="streak-note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A run of six heads is not unusual.</b> In a hundred
+          flips there is roughly an eight in ten chance of a run of five or more
+          somewhere in it. People expect heads and tails to alternate more than
+          they really do, which is why a fair coin so often feels broken.
+          <br><br>
+          <b>And the next flip is still fifty-fifty.</b> However long the run,
+          the coin has no memory of it. The percentages above drift towards fifty
+          over hundreds of flips, not because anything corrects itself, but
+          because one unusual stretch gets diluted by everything after it.
+          <br><br>
+          Each flip uses your browser's secure randomness, with a rejection step
+          so neither side is favoured.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var heads = 0, tails = 0;
+    var run = [];
+    var busy = false;
+
+    function flipOnce() {
+      /* A single bit from the secure generator. Taking a byte modulo 2 is
+         fine here, but the same helper is used for both paths so the batch
+         and the single flip cannot drift apart. */
+      var buf = new Uint8Array(1);
+      crypto.getRandomValues(buf);
+      return (buf[0] & 1) === 1;
+    }
+
+    function longestRun() {
+      var best = 0, current = 0, prev = null, which = null;
+      run.forEach(function (r) {
+        if (r === prev) current++;
+        else { current = 1; prev = r; }
+        if (current > best) { best = current; which = r; }
+      });
+      return { length: best, side: which };
+    }
+
+    function paint(lastWasHeads) {
+      var total = heads + tails;
+
+      document.getElementById('n-heads').textContent = heads;
+      document.getElementById('n-tails').textContent = tails;
+      document.getElementById('b-heads').style.width =
+        total ? (heads / total * 100) + '%' : '0%';
+      document.getElementById('b-tails').style.width =
+        total ? (tails / total * 100) + '%' : '0%';
+
+      document.getElementById('tally-note').textContent = total
+        ? total + ' flip' + (total === 1 ? '' : 's') + ' — ' +
+          (heads / total * 100).toFixed(1) + '% heads, ' +
+          (tails / total * 100).toFixed(1) + '% tails.' +
+          (total < 30 ? ' Too few to mean anything yet.' : '')
+        : '';
+
+      document.getElementById('run').innerHTML = run.slice(-60).map(function (r) {
+        return '<i class="' + (r ? 'h' : 't') + '">' + (r ? 'H' : 'T') + '</i>';
+      }).join('');
+
+      var lr = longestRun();
+      document.getElementById('streak-note').textContent = lr.length > 1
+        ? 'Longest run so far: ' + lr.length + ' ' +
+          (lr.side ? 'heads' : 'tails') + ' together.' +
+          (lr.length >= 6 ? ' That looks wrong and is completely normal.' : '')
+        : '';
+
+      if (lastWasHeads === null) {
+        document.getElementById('coin').textContent = '?';
+        document.getElementById('coin').classList.remove('tails');
+        document.getElementById('verdict').innerHTML =
+          '&mdash;<small>Click the coin</small>';
+        return;
+      }
+
+      var coin = document.getElementById('coin');
+      coin.textContent = lastWasHeads ? 'H' : 'T';
+      coin.classList.toggle('tails', !lastWasHeads);
+    }
+
+    function single() {
+      if (busy) return;
+      busy = true;
+      var coin = document.getElementById('coin');
+      coin.classList.add('flipping');
+
+      /* The result is drawn immediately; the animation is just for show, so
+         the outcome cannot depend on timing in any way. */
+      var isHeads = flipOnce();
+
+      setTimeout(function () {
+        coin.classList.remove('flipping');
+        if (isHeads) heads++; else tails++;
+        run.push(isHeads);
+        paint(isHeads);
+        document.getElementById('verdict').innerHTML =
+          (isHeads ? 'Heads' : 'Tails') +
+          '<small>flip ' + (heads + tails) + '</small>';
+        busy = false;
+      }, 560);
+    }
+
+    function batch(n) {
+      if (busy) return;
+      var gotHeads = 0;
+      var last = null;
+      for (var i = 0; i < n; i++) {
+        var isHeads = flipOnce();
+        if (isHeads) { heads++; gotHeads++; } else { tails++; }
+        run.push(isHeads);
+        last = isHeads;
+      }
+      /* The strip only shows the last 60, so there is no point keeping
+         thousands of entries in memory. */
+      if (run.length > 500) run = run.slice(-500);
+
+      paint(last);
+      document.getElementById('verdict').innerHTML =
+        gotHeads + ' heads, ' + (n - gotHeads) + ' tails' +
+        '<small>out of ' + n + ' flips</small>';
+    }
+
+    document.getElementById('coin').addEventListener('click', single);
+    document.getElementById('flip').addEventListener('click', single);
+
+    document.querySelectorAll('[data-batch]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        batch(parseInt(b.dataset.batch, 10));
+      });
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      heads = 0; tails = 0; run = [];
+      paint(null);
+      document.getElementById('tally-note').textContent = '';
+      document.getElementById('streak-note').textContent = '';
+    });
+
+    paint(null);
+  })();
+  </script>
+</body>
+</html>

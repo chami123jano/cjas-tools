@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business Name Ideas — Cja's Tools</title>
+<meta name="description" content="Generate name ideas for a shop or venture, with the domain to go and check. Works offline on your own device.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .nrow {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+    align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border);
+  }
+  .nrow:last-child { border-bottom: none; }
+  .nrow .name { font-size: 16px; font-weight: 600; }
+  .nrow .name small {
+    display: block; font-weight: 400; color: var(--muted); font-size: 12px;
+    font-family: ui-monospace, Consolas, monospace; margin-top: 2px;
+  }
+  .nrow .flag { font-size: 11.5px; color: #b8730b; white-space: nowrap; }
+  .nrow button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 12.5px; }
+  .nrow button:hover { color: var(--accent); }
+</style>
+</head>
+<body data-page="tool" data-slug="business-name">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=generators">Generators</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Business Name Ideas</h1>
+        <p>A starting point, not an answer. Some of these will be terrible.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="word">What is the business about?</label>
+            <input type="text" id="word" placeholder="tea, software, bakery" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="kind">Shape</label>
+            <select id="kind">
+              <option value="mixed" selected>A mixture</option>
+              <option value="compound">Two words joined</option>
+              <option value="prefix">Word plus an ending</option>
+              <option value="place">With a place or heritage</option>
+              <option value="abstract">Abstract and made-up</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="count">How many</label>
+            <input type="number" id="count" value="16" min="4" max="60" step="1">
+          </div>
+          <div class="field">
+            <label for="tld">Domain to show</label>
+            <select id="tld">
+              <option value=".lk" selected>.lk</option>
+              <option value=".com">.com</option>
+              <option value=".co">.co</option>
+              <option value=".io">.io</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="go">Generate</button>
+          <button class="btn" id="copy-all">Copy all</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div id="list"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Nothing here is checked for availability</b>, and
+          nothing can be &mdash; asking whether a name is free means sending
+          your ideas to a registrar or a trademark database, and nothing in these
+          tools leaves your device. The domain is shown so you have something to
+          paste into a search, not because it is known to be free.
+          <br><br>
+          <b>Check the trademark register before you print anything.</b> A name
+          being available as a domain says nothing about whether somebody already
+          owns it in your trade. In Sri Lanka that is the National Intellectual
+          Property Office; a business name also has to be registered with the
+          Registrar of Companies.
+          <br><br>
+          <b>Say each one out loud.</b> The names flagged above are ones you will
+          end up spelling over the phone every time &mdash; a doubled letter where
+          two words meet, or a sound with two plausible spellings.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var FIRST = ('Blue Bright Clear Coral Crisp Deep Ember Fern First Golden Green ' +
+      'Harbour Island Ivory Lotus Mango Monsoon North Ocean Palm Pearl Ridge ' +
+      'River Royal Saffron Silver Spice Still Stone Sunrise Teal Tropic True ' +
+      'Verdant Wild Willow').split(' ');
+
+    var SECOND = ('Anchor Arc Atlas Bay Bloom Bridge Cove Craft Crest Delta Field ' +
+      'Forge Garden Gate Grove Harbour Haven Hill House Lane Leaf Line Loom Mill ' +
+      'Nest Orchard Path Peak Point Reef Root Sail Shore Spring Stack Stone Studio ' +
+      'Summit Table Thread Trail Tree Works Yard').split(' ');
+
+    var ENDINGS = ['Co', 'Works', 'Studio', 'Collective', 'Trading', 'Labs',
+                   'Supply', 'House', 'Group', 'Crafts', 'Exports', 'Holdings'];
+
+    var PLACES = ['Ceylon', 'Lanka', 'Serendib', 'Colombo', 'Kandy', 'Galle',
+                  'Ruhunu', 'Sabara', 'Indian Ocean', 'Monsoon'];
+
+    var ABSTRACT_STARTS = ('Au Ava Bro Cala Cera Dura Ela Fina Gala Hela Ira Kava ' +
+      'Lu Mira Nova Ora Pela Quna Rhea Sola Tira Ura Vela Zara').split(' ');
+    var ABSTRACT_ENDS = ('bix dex fia gen hive lux mira nix pod quill rix sence tiva ' +
+      'vera wix xis yra zen').split(' ');
+
+    function randomInt(max) {
+      if (max <= 0) return 0;
+      var limit = Math.floor(0xFFFFFFFF / max) * max;
+      var buf = new Uint32Array(1);
+      var v;
+      do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
+      return v % max;
+    }
+
+    function pick(list) { return list[randomInt(list.length)]; }
+
+    function title(s) {
+      return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    }
+
+    function makeOne(seed, kind) {
+      var shapes = kind === 'mixed'
+        ? ['compound', 'prefix', 'place', 'abstract'][randomInt(4)]
+        : kind;
+
+      if (shapes === 'compound') {
+        if (seed && randomInt(2)) return title(seed) + ' ' + pick(SECOND);
+        return pick(FIRST) + ' ' + pick(SECOND);
+      }
+      if (shapes === 'prefix') {
+        var base = seed && randomInt(2) ? title(seed) : pick(FIRST);
+        return base + ' ' + pick(ENDINGS);
+      }
+      if (shapes === 'place') {
+        var place = pick(PLACES);
+        var other = seed && randomInt(2) ? title(seed) : pick(SECOND);
+        return randomInt(2) ? place + ' ' + other : other + ' of ' + place;
+      }
+      /* Abstract names are built from syllables rather than real words, so
+         they are unlikely to collide with an existing dictionary term. */
+      return title(pick(ABSTRACT_STARTS) + pick(ABSTRACT_ENDS));
+    }
+
+    function domainOf(name, tld) {
+      return name.toLowerCase().replace(/[^a-z0-9]/g, '') + tld;
+    }
+
+    /* The two things that make a name annoying to own: a doubled letter
+       where the words meet, and a sound with more than one spelling. Both
+       mean spelling it out every single time. */
+    function spellingRisk(name) {
+      var flat = name.toLowerCase().replace(/[^a-z]/g, '');
+      var words = name.toLowerCase().split(/\s+/);
+
+      for (var i = 0; i < words.length - 1; i++) {
+        var a = words[i], b = words[i + 1];
+        if (a && b && a[a.length - 1] === b[0]) {
+          return 'doubled "' + b[0] + '" where the words meet';
+        }
+      }
+      if (/ph/.test(flat)) return '"ph" is often typed as "f"';
+      if (/(?:^|[^c])ks/.test(flat)) return '"ks" is often typed as "x"';
+      if (/ee|ea/.test(flat) && /ie/.test(flat)) return 'mixed "ee" and "ie" spellings';
+      if (flat.length > 20) return 'quite long to type';
+      return null;
+    }
+
+    function generate() {
+      var seed = document.getElementById('word').value.trim().replace(/[^a-zA-Z ]/g, '');
+      var kind = document.getElementById('kind').value;
+      var tld = document.getElementById('tld').value;
+      var count = Math.min(60, Math.max(4,
+        parseInt(document.getElementById('count').value, 10) || 16));
+
+      var out = [];
+      var seen = {};
+      var attempts = 0;
+
+      while (out.length < count && attempts < count * 40) {
+        attempts++;
+        var name = makeOne(seed, kind);
+        if (seen[name.toLowerCase()]) continue;
+        seen[name.toLowerCase()] = true;
+        out.push(name);
+      }
+
+      document.getElementById('list').innerHTML = out.length
+        ? out.map(function (n) {
+            var risk = spellingRisk(n);
+            return '<div class="nrow">' +
+              '<span class="name">' + n +
+                '<small>' + domainOf(n, tld) + '</small></span>' +
+              '<span class="flag">' + (risk || '') + '</span>' +
+              '<button data-copy="' + n + '">copy</button>' +
+            '</div>';
+          }).join('')
+        : '<p class="hint" style="margin:0">Could not make that many different ' +
+          'names. Try a different shape.</p>';
+    }
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]');
+      if (b) CT.copy(b.dataset.copy);
+    });
+
+    document.getElementById('copy-all').addEventListener('click', function () {
+      var tld = document.getElementById('tld').value;
+      var all = Array.from(document.querySelectorAll('#list .name'))
+        .map(function (e) {
+          var name = e.childNodes[0].textContent.trim();
+          return name + '  ' + domainOf(name, tld);
+        }).join('\n');
+      if (!all) { CT.toast('Nothing to copy'); return; }
+      CT.copy(all);
+    });
+
+    document.getElementById('go').addEventListener('click', generate);
+
+    ['word', 'kind', 'count', 'tld'].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.addEventListener('input', generate);
+      el.addEventListener('change', generate);
+    });
+
+    generate();
+  })();
+  </script>
+</body>
+</html>

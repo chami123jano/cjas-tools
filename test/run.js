@@ -2386,6 +2386,177 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- generators, part 2 + world
+
+(function coinFlip() {
+  const t = loadTool('coin-flip');
+  has(t.text('verdict'), 'Click the coin', 'it waits to be flipped');
+
+  // a batch of 100 must tally exactly, with no flips lost
+  [...t.document.querySelectorAll('[data-batch]')]
+    .find((b) => b.dataset.batch === '100')
+    .dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  const heads = parseInt(t.text('n-heads'), 10);
+  const tails = parseInt(t.text('n-tails'), 10);
+  ok(heads + tails === 100, 'every flip is counted', 'got ' + heads + '+' + tails);
+  ok(heads > 20 && heads < 80, 'and the split is not absurd', 'got ' + heads + ' heads');
+  has(t.text('tally-note'), '100 flip', 'the tally reports the total');
+
+  // the strip shows the last 60 at most
+  ok(t.document.querySelectorAll('#run i').length === 60,
+     'the strip is capped at 60', 'got ' + t.document.querySelectorAll('#run i').length);
+
+  t.click('reset');
+  has(t.text('n-heads'), '0', 'reset clears the tally');
+  t.close();
+})();
+
+(function businessName() {
+  const t = loadTool('business-name');
+  t.set('word', '').set('kind', 'compound').set('count', 12).set('tld', '.lk');
+  const names = () => [...t.document.querySelectorAll('#list .name')]
+    .map((e) => e.childNodes[0].textContent.trim());
+  ok(names().length === 12, 'twelve ideas produced', 'got ' + names().length);
+  ok(new Set(names()).size === 12, 'all different');
+  has(t.text('list'), '.lk', 'the domain is shown');
+
+  // a seed word should appear in at least some results
+  t.set('word', 'tea').set('kind', 'prefix');
+  ok(names().some((n) => n.toLowerCase().indexOf('tea') !== -1),
+     'the seed word is used');
+
+  // the spelling-risk flag should fire on a doubled letter at a word join
+  t.set('kind', 'compound').set('count', 40).set('word', '');
+  const flags = [...t.document.querySelectorAll('#list .flag')]
+    .map((e) => e.textContent).filter((s) => s);
+  ok(flags.length > 0, 'some names are flagged as awkward to spell',
+     'got ' + flags.length + ' flags');
+  t.close();
+})();
+
+(function teamPicker() {
+  const t = loadTool('team-picker');
+  has(t.text('count-note'), '11 name', 'the example list is counted');
+
+  // eleven people into three teams must be 4,4,3 - not 5,3,3
+  t.set('mode', 'teams').set('n', 3);
+  t.click('split');
+  const sizes = [...t.document.querySelectorAll('#teams .team ol')]
+    .map((o) => o.children.length).sort((a, b) => b - a);
+  ok(sizes.join(',') === '4,4,3', 'eleven across three teams is 4, 4 and 3',
+     'got ' + sizes.join(','));
+  ok(sizes.reduce((a, b) => a + b, 0) === 11, 'and nobody is lost');
+  has(t.text('split-note'), 'as even as it goes', 'the uneven split is explained');
+
+  // nobody should appear twice
+  const all = [...t.document.querySelectorAll('#teams .team li')]
+    .map((li) => li.textContent);
+  ok(new Set(all).size === 11, 'nobody is in two teams');
+
+  // by size instead
+  t.set('mode', 'size').set('n', 4);
+  t.click('split');
+  ok(t.document.querySelectorAll('#teams .team').length === 3,
+     'eleven in groups of four makes three teams',
+     'got ' + t.document.querySelectorAll('#teams .team').length);
+
+  // drawing must not repeat anyone
+  t.click('tab-draw');
+  for (let i = 0; i < 11; i++) t.click('draw');
+  t.click('draw');
+  has(t.text('drawn'), 'Everyone has been drawn', 'drawing stops when the list runs out');
+  t.close();
+})();
+
+(function qrScanner() {
+  const t = loadTool('qr-scanner');
+  ok(t.byId('drop') !== null, 'the image drop zone renders');
+  ok(t.byId('result-panel').hidden, 'no result is shown until something is read');
+  ok(typeof t.window.jsQR === 'function', 'the vendored decoder loaded');
+
+  // the vendored file must carry its Apache-2.0 attribution
+  const vendored = fs.readFileSync(path.join(SRC, 'assets/vendor/jsqr.js'), 'utf8');
+  has(vendored.slice(0, 500), 'Apache License', 'the decoder keeps its licence header');
+  has(vendored.slice(0, 500), 'jsQR', 'and names the library');
+  t.close();
+})();
+
+(function morseCode() {
+  const t = loadTool('morse-code');
+  t.set('in', 'SOS');
+  ok(t.byId('out').value === '... --- ...', 'SOS encodes correctly',
+     'got ' + JSON.stringify(t.byId('out').value));
+
+  t.set('in', 'HELLO WORLD');
+  has(t.byId('out').value, '/', 'a word gap is marked with a slash');
+  ok(t.byId('out').value.indexOf('.... . .-.. .-.. ---') === 0,
+     'HELLO encodes correctly', 'got ' + t.byId('out').value);
+
+  // decoding back
+  t.click('tab-decode');
+  t.set('in', '... --- ...');
+  ok(t.byId('out').value === 'SOS', 'Morse decodes back to SOS',
+     'got ' + t.byId('out').value);
+
+  t.set('in', '.... . .-.. .-.. --- / .-- --- .-. .-.. -..');
+  ok(t.byId('out').value === 'HELLO WORLD', 'a full phrase decodes',
+     'got ' + t.byId('out').value);
+
+  // SOS with no gaps is a single prosign, not a letter sequence. Read as
+  // letters it is validly "3B", so it needs its own entry.
+  t.set('in', '...---...');
+  ok(t.byId('out').value === 'SOS', 'the SOS prosign is recognised',
+     'got ' + t.byId('out').value);
+
+  // any other gapless run is genuinely ambiguous and must say so
+  t.set('in', '.-.-');
+  has(t.text('err-slot'), 'no gaps between letters',
+      'an ambiguous run is flagged rather than guessed at silently');
+  has(t.text('err-slot'), 'is a guess', 'and the reading is called a guess');
+
+  // something that is not Morse at all
+  t.set('in', '..--..--..--xyz');
+  has(t.text('err-slot'), 'could not be read', 'rubbish is reported');
+
+  // an unencodable character on the way in
+  t.click('tab-encode');
+  t.set('in', 'hi අ');
+  has(t.text('err-slot'), 'no code for', 'a character with no Morse is reported');
+  t.close();
+})();
+
+(function natoAlphabet() {
+  const t = loadTool('nato-alphabet');
+  t.set('in', 'CAB');
+  ok(t.byId('out').value === 'Charlie Alfa Bravo', 'letters spell out correctly',
+     'got ' + t.byId('out').value);
+
+  // the digits are written normally but pronounced oddly - the written word
+  // is NINE, said as NIN-er, so both need to appear in the right place
+  t.set('in', '94');
+  ok(t.byId('out').value === 'Nine Four', 'digits use the standard written words',
+     'got ' + t.byId('out').value);
+  has(t.text('key'), 'NIN-er', 'the pronunciation guide shows nine as NIN-er');
+  has(t.text('key'), 'FOW-er', 'and four as FOW-er');
+
+  // "capital" should only appear when the text genuinely mixes cases
+  t.set('in', 'CAB');
+  ok(t.byId('out').value.indexOf('capital') === -1,
+     'all-caps text does not say capital on every letter');
+  t.set('in', 'Cab');
+  has(t.byId('out').value, 'capital Charlie', 'mixed case does mark the capital');
+
+  // punctuation passes through unless asked for
+  t.set('in', 'A-1');
+  ok(t.byId('out').value === 'Alfa - One', 'punctuation is left as a symbol',
+     'got ' + t.byId('out').value);
+  const opt = (name) => [...t.document.querySelectorAll('#opts .btn')]
+    .find((b) => b.dataset.opt === name);
+  opt('full').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  has(t.byId('out').value, 'dash', 'turning it on spells the punctuation out');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {
