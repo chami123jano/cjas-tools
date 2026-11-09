@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Number to Words — Cja's Tools</title>
+<meta name="description" content="Write any number out in English words, in lakhs and crores or in millions, with a cheque mode for rupees and cents. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { font-size: 18px; line-height: 1.6; min-height: 90px; }
+</style>
+</head>
+<body data-page="tool" data-slug="number-to-words">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Number to Words</h1>
+        <p>For cheques, receipts and legal documents, where the amount has to be written out.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="num">Number</label>
+          <input type="text" id="num" value="1,25,750.50" inputmode="decimal" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="system">Group the big numbers in</label>
+            <select id="system">
+              <option value="lk" selected>Lakhs and crores</option>
+              <option value="intl">Millions and billions</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="mode">Write it as</label>
+            <select id="mode">
+              <option value="cheque" selected>A cheque amount</option>
+              <option value="plain">A plain number</option>
+              <option value="ordinal">An ordinal (first, twenty-second)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="case">Capitals</label>
+            <select id="case">
+              <option value="title" selected>Each Word Capitalised</option>
+              <option value="lower">all lower case</option>
+              <option value="upper">ALL CAPITALS</option>
+              <option value="sentence">First word only</option>
+            </select>
+          </div>
+        </div>
+        <label>
+          <input type="checkbox" id="and" checked style="width:auto;margin-right:7px">
+          Say "and" after hundreds (one hundred and five), as in British English
+        </label>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="out">In words</label>
+          <textarea id="out" readonly spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Lakhs and crores.</b> In Sri Lanka and India big numbers are
+          grouped differently: one lakh is 1,00,000 (a hundred thousand) and one crore
+          is 1,00,00,000 (ten million). So 2,50,00,000 is "two crore fifty lakh" here
+          and "twenty-five million" elsewhere &mdash; the same amount either way.
+          Commas can be typed in either style, or not at all.
+          <br><br>
+          <b>On a cheque,</b> cents are written out too, and the line ends with "only"
+          so nothing can be added after it. Draw a line through any space left over.
+          <br><br>
+          Works up to 999 quadrillion, which is more than any cheque book allows.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+      'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen',
+      'seventeen', 'eighteen', 'nineteen'];
+    var TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+    /* 0 to 999. "and" goes between the hundreds and the rest, British style. */
+    function belowThousand(n, useAnd) {
+      var parts = [];
+      var h = Math.floor(n / 100), rest = n % 100;
+      if (h) parts.push(ONES[h] + ' hundred');
+      if (rest) {
+        var words = rest < 20 ? ONES[rest]
+          : TENS[Math.floor(rest / 10)] + (rest % 10 ? '-' + ONES[rest % 10] : '');
+        if (h && useAnd) parts.push('and');
+        parts.push(words);
+      }
+      return parts.join(' ');
+    }
+
+    /* Millions and billions: groups of three digits. Uses BigInt so a
+       15-digit amount is exact rather than rounded by floating point. */
+    var INTL = ['', 'thousand', 'million', 'billion', 'trillion', 'quadrillion'];
+
+    function intlWords(big, useAnd) {
+      if (big === 0n) return 'zero';
+      var groups = [];
+      while (big > 0n) { groups.push(Number(big % 1000n)); big = big / 1000n; }
+      var out = [];
+      for (var i = groups.length - 1; i >= 0; i--) {
+        if (!groups[i]) continue;
+        out.push(belowThousand(groups[i], useAnd) + (INTL[i] ? ' ' + INTL[i] : ''));
+      }
+      /* "one thousand and five": a final group under a hundred, after
+         bigger groups, takes an "and" in British usage. */
+      if (useAnd && groups.length > 1 && groups[0] > 0 && groups[0] < 100) {
+        out[out.length - 1] = 'and ' + out[out.length - 1];
+      }
+      return out.join(' ');
+    }
+
+    /* Lakhs and crores: the last three digits, then pairs. Anything above
+       99 crore is itself counted in crores, so 1,000 crore is "one thousand
+       crore", which is how it is said. */
+    function lkWords(big, useAnd) {
+      if (big === 0n) return 'zero';
+      var crore = big / 10000000n;
+      var rest = Number(big % 10000000n);
+      var out = [];
+      if (crore > 0n) out.push(lkWords(crore, useAnd) + ' crore');
+      var lakh = Math.floor(rest / 100000);
+      var thousand = Math.floor(rest / 1000) % 100;
+      var last = rest % 1000;
+      if (lakh) out.push(belowThousand(lakh, useAnd) + ' lakh');
+      if (thousand) out.push(belowThousand(thousand, useAnd) + ' thousand');
+      if (last) {
+        var w = belowThousand(last, useAnd);
+        if (useAnd && out.length && last < 100) w = 'and ' + w;
+        out.push(w);
+      }
+      return out.join(' ');
+    }
+
+    var ORDINAL = {
+      one: 'first', two: 'second', three: 'third', five: 'fifth', eight: 'eighth',
+      nine: 'ninth', twelve: 'twelfth'
+    };
+
+    function toOrdinal(words) {
+      /* Only the last word changes: twenty-one -> twenty-first. */
+      return words.replace(/([a-z]+)$/, function (w) {
+        if (ORDINAL[w]) return ORDINAL[w];
+        if (/y$/.test(w)) return w.slice(0, -1) + 'ieth';
+        return w + 'th';
+      });
+    }
+
+    function applyCase(s, how) {
+      if (how === 'upper') return s.toUpperCase();
+      if (how === 'lower') return s;
+      if (how === 'sentence') return s.charAt(0).toUpperCase() + s.slice(1);
+      return s.replace(/(^|[\s-])([a-z])/g, function (m, sep, c) { return sep + c.toUpperCase(); })
+        /* "and" is a joining word and stays lower case, as on a printed cheque. */
+        .replace(/ And /g, ' and ');
+    }
+
+    function parse(raw) {
+      var s = String(raw).trim().replace(/[,\s_]/g, '').replace(/^(rs\.?|lkr)/i, '');
+      if (!/^-?\d+(\.\d*)?$|^-?\.\d+$/.test(s)) return null;
+      var neg = s[0] === '-';
+      if (neg) s = s.slice(1);
+      var parts = s.split('.');
+      var whole = parts[0] || '0';
+      var frac = parts[1] || '';
+      if (whole.replace(/^0+/, '').length > 18) return { tooBig: true };
+      return { neg: neg, whole: BigInt(whole), frac: frac };
+    }
+
+    function run() {
+      var p = parse(document.getElementById('num').value);
+      var out = document.getElementById('out');
+      var note = document.getElementById('note');
+      note.textContent = '';
+
+      if (!p) {
+        out.value = '';
+        note.textContent = document.getElementById('num').value.trim()
+          ? 'That is not a number. Digits, one decimal point and commas only.'
+          : '';
+        return;
+      }
+      if (p.tooBig) {
+        out.value = '';
+        note.textContent = 'Too big - this goes up to 999 quadrillion (18 digits).';
+        return;
+      }
+
+      var useAnd = document.getElementById('and').checked;
+      var words = document.getElementById('system').value === 'lk' ? lkWords : intlWords;
+      var mode = document.getElementById('mode').value;
+      var result;
+
+      if (mode === 'cheque') {
+        if (p.neg) { out.value = ''; note.textContent = 'A cheque cannot be for a minus amount.'; return; }
+        /* Cents are rounded to two places, the way the bank reads them. */
+        var cents = p.frac ? Math.round(parseFloat('0.' + p.frac) * 100) : 0;
+        var whole = p.whole;
+        if (cents === 100) { whole += 1n; cents = 0; }
+        result = 'rupees ' + words(whole, useAnd);
+        if (cents) result += ' and cents ' + words(BigInt(cents), useAnd);
+        result += ' only';
+        if (p.frac.length > 2) note.textContent = 'Rounded to ' + cents + ' cents.';
+      } else if (mode === 'ordinal') {
+        if (p.frac || p.neg) {
+          out.value = '';
+          note.textContent = 'Ordinals are for whole numbers above zero: 1st, 2nd, 3rd...';
+          return;
+        }
+        if (p.whole === 0n) { out.value = ''; note.textContent = 'There is no zeroth in everyday English.'; return; }
+        result = toOrdinal(words(p.whole, useAnd));
+      } else {
+        result = words(p.whole, useAnd);
+        if (p.frac) {
+          /* After the point, digits are read one at a time: 3.14 is
+             "three point one four", not "three point fourteen". */
+          result += ' point ' + p.frac.split('').map(function (d) { return ONES[+d]; }).join(' ');
+        }
+        if (p.neg) result = 'minus ' + result;
+      }
+
+      out.value = applyCase(result, document.getElementById('case').value);
+    }
+
+    document.getElementById('num').addEventListener('input', run);
+    ['system', 'mode', 'case', 'and'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', run);
+    });
+    document.getElementById('copy').addEventListener('click', function () {
+      var v = document.getElementById('out').value;
+      if (!v) { CT.toast('Nothing to copy'); return; }
+      CT.copy(v);
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pig Latin Translator — Cja's Tools</title>
+<meta name="description" content="Turn English into Pig Latin and back again. Keeps capitals and punctuation. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="pig-latin">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Pig Latin Translator</h1>
+        <p>Move the first sounds to the end and add "ay". Type on either side.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="ending">Words that start with a vowel get</label>
+            <select id="ending">
+              <option value="way" selected>-way (apple &rarr; appleway)</option>
+              <option value="yay">-yay (apple &rarr; appleyay)</option>
+              <option value="ay">-ay (apple &rarr; appleay)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="hyphen">Join the ending with</label>
+            <select id="hyphen">
+              <option value="" selected>Nothing (ig-pay becomes igpay)</option>
+              <option value="-">A hyphen (easier to turn back)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="english">English</label>
+          <textarea id="english" spellcheck="false">The quick brown fox jumps over the lazy dog. Shh, it's a secret!</textarea>
+        </div>
+        <div class="field">
+          <label for="pig">Pig Latin</label>
+          <textarea id="pig" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy the Pig Latin</button>
+          <button class="btn" id="copy-en">Copy the English</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The rules used.</b> A word starting with consonants moves
+          them all to the end: <i>string</i> becomes <i>ingstray</i>. "Qu" moves as one
+          sound, so <i>quick</i> is <i>ickquay</i>. A Y at the start is a consonant
+          (<i>yellow</i> &rarr; <i>ellowyay</i>), but later in a word it counts as a vowel,
+          so <i>rhythm</i> becomes <i>ythmrhay</i>. Capitals and punctuation stay where
+          they were.
+          <br><br>
+          <b>Turning it back is a best guess</b> without hyphens: <i>eetay</i> could
+          have been <i>tee</i> or <i>eet</i>, and nothing in the word says which. With
+          hyphens and the plain -ay ending, every word turns back exactly. (With -way,
+          <i>eird-way</i> could be <i>weird</i> or <i>eird</i>.)</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var VOWELS = 'aeiou';
+
+    /* Consonant groups that can start an English word, used only when
+       turning Pig Latin back. */
+    var ONSETS = ('bl br ch cl cr dr dw fl fr gh gl gn gr kn ph pl pr ps rh sc sh sk sl sm ' +
+      'sn sp st sw th tr tw wh wr chr phr sch scr shr sph spl spr str thr').split(' ');
+
+    function isVowel(c, index) {
+      c = c.toLowerCase();
+      if (VOWELS.indexOf(c) !== -1) return true;
+      /* Y is a consonant at the start of a word and a vowel anywhere else. */
+      return c === 'y' && index > 0;
+    }
+
+    /* Copies the capital pattern of the original onto the new word: all
+       capitals, first capital, or as typed. */
+    function matchCase(original, word) {
+      if (original.length > 1 && original === original.toUpperCase()) return word.toUpperCase();
+      if (original[0] === original[0].toUpperCase() && original[0] !== original[0].toLowerCase()) {
+        var lower = word.toLowerCase();
+        return lower[0].toUpperCase() + lower.slice(1);
+      }
+      return word.toLowerCase();
+    }
+
+    function wordToPig(word, ending, hyphen) {
+      var i = 0;
+      while (i < word.length && !isVowel(word[i], i)) {
+        /* "qu" stays together: quick -> ickquay, square -> aresquay. */
+        if (word[i].toLowerCase() === 'q' && (word[i + 1] || '').toLowerCase() === 'u') i++;
+        i++;
+      }
+      var result;
+      if (i === 0) result = word + hyphen + ending;
+      else if (i >= word.length) result = word + hyphen + 'ay';   // no vowel at all: "shh"
+      else result = word.slice(i) + hyphen + word.slice(0, i) + 'ay';
+      return matchCase(word, result);
+    }
+
+    function wordFromPig(word, ending, hyphen) {
+      var lower = word.toLowerCase();
+      var plain;
+      var dash = lower.lastIndexOf('-');
+
+      if (dash > 0) {
+        /* Hyphenated form: exact. ig-pay -> pig, apple-way -> apple. */
+        var stem = word.slice(0, dash);
+        var tail = lower.slice(dash + 1);
+        /* With -way or -yay, a word that started with w or y looks the
+           same as one that started with a vowel, so that case is a guess. */
+        if (tail === ending) {
+          return { word: matchCase(word, stem), guessed: ending !== 'ay' };
+        }
+        if (/ay$/.test(tail)) plain = tail.slice(0, -2) + stem;
+        else return { word: word, guessed: false };
+        return { word: matchCase(word, plain), guessed: false };
+      }
+
+      if (ending !== 'ay' && lower.length > ending.length &&
+          lower.slice(-ending.length) === ending) {
+        return { word: matchCase(word, word.slice(0, -ending.length)), guessed: true };
+      }
+      if (!/ay$/.test(lower) || lower.length < 3) return { word: word, guessed: false };
+
+      var body = word.slice(0, -2);
+      var lowBody = body.toLowerCase();
+      var take;
+      if (/qu$/.test(lowBody) && lowBody.length > 2) {
+        /* "qu" moved together, along with an s before it: square -> aresquay. */
+        take = /squ$/.test(lowBody) && lowBody.length > 3 ? 3 : 2;
+      } else {
+        /* The consonants just before "ay" were the start of the word - but
+           only as many as can begin an English word. In "ingstray" the run
+           is n-g-s-t-r, and the start was "str", not "ngstr". */
+        var run = 0;
+        while (run < lowBody.length && !isVowel(lowBody[lowBody.length - 1 - run], 1)) run++;
+        if (run === 0 || run === lowBody.length) return { word: matchCase(word, body), guessed: true };
+        take = 1;
+        for (var n = Math.min(3, run); n > 1; n--) {
+          if (ONSETS.indexOf(lowBody.slice(-n)) !== -1) { take = n; break; }
+        }
+      }
+      plain = body.slice(-take) + body.slice(0, -take);
+      return { word: matchCase(word, plain), guessed: true };
+    }
+
+    /* Splits text into words and everything between them, so spaces,
+       punctuation and line breaks pass through untouched. An apostrophe
+       inside a word (it's, don't) stays with the word. */
+    function mapWords(text, fn, withHyphens) {
+      var re = withHyphens ? /[A-Za-z]+(?:'[A-Za-z]+)*(?:-[A-Za-z]+)?/g
+                           : /[A-Za-z]+(?:'[A-Za-z]+)*/g;
+      return text.replace(re, fn);
+    }
+
+    var en = document.getElementById('english');
+    var pig = document.getElementById('pig');
+    var note = document.getElementById('note');
+
+    function settings() {
+      return {
+        ending: document.getElementById('ending').value,
+        hyphen: document.getElementById('hyphen').value
+      };
+    }
+
+    function toPig() {
+      var s = settings();
+      pig.value = mapWords(en.value, function (w) {
+        return wordToPig(w, s.ending, s.hyphen);
+      }, false);
+      note.textContent = '';
+    }
+
+    function toEnglish() {
+      var s = settings();
+      var guesses = 0;
+      en.value = mapWords(pig.value, function (w) {
+        var r = wordFromPig(w, s.ending, s.hyphen);
+        if (r.guessed) guesses++;
+        return r.word;
+      }, true);
+      note.textContent = guesses
+        ? 'Some words could have come from two different English words, so this is a best guess. Check the odd word.'
+        : '';
+    }
+
+    en.addEventListener('input', toPig);
+    pig.addEventListener('input', toEnglish);
+    ['ending', 'hyphen'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', toPig);
+    });
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!pig.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(pig.value);
+    });
+    document.getElementById('copy-en').addEventListener('click', function () {
+      if (!en.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(en.value);
+    });
+
+    toPig();
+  })();
+  </script>
+</body>
+</html>

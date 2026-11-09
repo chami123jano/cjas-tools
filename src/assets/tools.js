@@ -764,6 +764,41 @@ const TOOLS = [
     category: 'world',
     desc: 'Spell anything out the way it is read over a phone or radio.',
     keywords: ['nato', 'phonetic', 'alphabet', 'spell', 'alpha bravo', 'radio', 'callsign']
+  },
+  {
+    slug: 'braille',
+    name: 'Braille Translator',
+    category: 'world',
+    desc: 'Text to Unified English Braille and back, letter by letter.',
+    keywords: ['braille', 'blind', 'dots', 'ueb', 'translate', 'accessibility']
+  },
+  {
+    slug: 'pig-latin',
+    name: 'Pig Latin Translator',
+    category: 'world',
+    desc: 'Move the first sounds to the end and add "ay". Works both ways.',
+    keywords: ['pig latin', 'igpay', 'secret language', 'word game', 'translate']
+  },
+  {
+    slug: 'alcohol-abv',
+    name: 'Alcohol Strength Converter',
+    category: 'world',
+    desc: 'ABV, US proof and British proof, plus pure alcohol in a drink or a mix.',
+    keywords: ['abv', 'proof', 'alcohol', 'units', 'standard drink', 'arrack', 'beer', 'wine']
+  },
+  {
+    slug: 'tip-calculator',
+    name: 'Tip Calculator',
+    category: 'world',
+    desc: 'The tip, the total and what each person pays, with service charge checked.',
+    keywords: ['tip', 'gratuity', 'service charge', 'restaurant', 'split', 'bill']
+  },
+  {
+    slug: 'number-to-words',
+    name: 'Number to Words',
+    category: 'world',
+    desc: 'Write any amount out in words, in lakhs and crores or millions. Cheque mode.',
+    keywords: ['number to words', 'cheque', 'check', 'amount in words', 'lakh', 'crore', 'spell number']
   }
 ];
 

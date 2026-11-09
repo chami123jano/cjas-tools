@@ -6,7 +6,8 @@
    so a script error, a missing file or a page that renders nothing shows up
    here even when every logic test passes.
 
-   Run with: node test/browser.js
+   Run with: node test/browser.js           (every page)
+         or: node test/browser.js braille   (just the pages named)
    Screenshots of every tool land in test/screenshots/ for a visual check. */
 
 const fs = require('fs');
@@ -71,7 +72,9 @@ function slugs() {
     args: ['--no-first-run', '--no-default-browser-check', '--disable-extensions']
   });
 
-  const list = ['index'].concat(slugs());
+  /* node test/browser.js braille pig-latin  - checks only those pages. */
+  const only = process.argv.slice(2);
+  const list = only.length ? only : ['index'].concat(slugs());
   const report = [];
 
   for (const slug of list) {

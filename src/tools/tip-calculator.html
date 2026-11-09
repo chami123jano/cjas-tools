@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tip Calculator — Cja's Tools</title>
+<meta name="description" content="Work out a tip, the total and each person's share, with rounding and a check for a service charge already on the bill. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .tips { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tips th, .tips td { padding: 8px 6px; text-align: right; border-bottom: 1px solid var(--border); }
+  .tips th:first-child, .tips td:first-child { text-align: left; }
+  .tips th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .tips tr.on td { color: var(--accent); font-weight: 650; }
+  .tips tbody tr { cursor: pointer; }
+</style>
+</head>
+<body data-page="tool" data-slug="tip-calculator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Tip Calculator</h1>
+        <p>How much to leave, and what each person puts in.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="bill">Bill amount</label>
+            <input type="number" id="bill" value="4850" min="0" step="0.01">
+          </div>
+          <div class="field">
+            <label for="cur">Currency</label>
+            <select id="cur">
+              <option value="Rs." selected>Rs. (Sri Lankan rupee)</option>
+              <option value="$">$</option>
+              <option value="€">€</option>
+              <option value="£">£</option>
+              <option value="₹">₹</option>
+              <option value="AED">AED</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="people">People sharing</label>
+            <input type="number" id="people" value="3" min="1" step="1">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="pct">Tip: <span id="pct-label">10%</span></label>
+            <input type="range" id="pct" min="0" max="30" step="1" value="10">
+          </div>
+          <div class="field">
+            <label for="round">Round each person's share up to</label>
+            <select id="round">
+              <option value="0" selected>Don't round</option>
+              <option value="1">The nearest 1</option>
+              <option value="10">The nearest 10</option>
+              <option value="50">The nearest 50</option>
+              <option value="100">The nearest 100</option>
+            </select>
+          </div>
+        </div>
+        <label style="margin-top:6px">
+          <input type="checkbox" id="service" style="width:auto;margin-right:7px">
+          The bill already has a service charge on it
+        </label>
+        <div class="row" id="service-row" hidden style="margin-top:10px">
+          <div class="field">
+            <label for="service-pct">Service charge (%)</label>
+            <input type="number" id="service-pct" value="10" min="0" max="50" step="0.5">
+          </div>
+          <div class="field">
+            <label for="service-where">The bill amount above is</label>
+            <select id="service-where">
+              <option value="incl" selected>The final total, charge included</option>
+              <option value="excl">Before the charge was added</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div class="stat"><b id="s-tip">0</b><span>Tip</span></div>
+          <div class="stat"><b id="s-total">0</b><span>Total to pay</span></div>
+          <div class="stat"><b id="s-each">0</b><span>Each person</span></div>
+          <div class="stat"><b id="s-eff">0%</b><span>Real tip, after rounding</span></div>
+        </div>
+        <div class="result" id="verdict" style="margin-top:14px">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Other amounts at a glance (click one to use it)</label>
+        <table class="tips">
+          <thead><tr><th>Tip</th><th>Tip amount</th><th>Total</th><th>Each</th></tr></thead>
+          <tbody id="table"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Check for a service charge first.</b> Many restaurants and
+          hotels in Sri Lanka add a service charge to the bill, usually 10%. If it is
+          there, you have already paid something towards the staff, and anything more
+          is up to you. Tick the box above and the tool shows what you have paid in
+          service in total.
+          <br><br>
+          <b>The tip is worked out on the food and drink only</b> &mdash; not on top of the
+          service charge, which would be charging a percentage of a percentage.
+          <br><br>
+          For splitting a bill where people had different things, use the
+          <a href="bill-splitter.html">Bill Splitter</a>.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    var TABLE_PCTS = [0, 5, 10, 12, 15, 18, 20, 25];
+
+    function val(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+
+    function money(n) {
+      /* Always two decimals, the way a bill is printed. */
+      return document.getElementById('cur').value + ' ' +
+        n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function work(pct) {
+      var bill = val('bill');
+      var people = Math.floor(val('people'));
+      var roundTo = parseFloat(document.getElementById('round').value);
+      if (!isFinite(bill) || bill < 0 || !isFinite(people) || people < 1) return null;
+
+      /* What the food and drink cost, before any service charge. */
+      var base = bill, service = 0;
+      if (document.getElementById('service').checked) {
+        var sp = val('service-pct');
+        if (!isFinite(sp) || sp < 0) return null;
+        if (document.getElementById('service-where').value === 'incl') {
+          base = bill / (1 + sp / 100);
+          service = bill - base;
+        } else {
+          service = bill * sp / 100;
+        }
+      }
+      var payable = base + service;
+
+      var tip = base * pct / 100;
+      var total = payable + tip;
+      var each = total / people;
+
+      if (roundTo > 0) {
+        /* Round each share up, then let the tip absorb the difference, so
+           the server gets the extra rather than it vanishing. */
+        each = Math.ceil(each / roundTo - 1e-9) * roundTo;
+        total = each * people;
+        tip = total - payable;
+      }
+
+      return {
+        base: base, service: service, payable: payable, tip: tip,
+        total: total, each: each, people: people,
+        realPct: base > 0 ? tip / base * 100 : 0,
+        servicePct: base > 0 ? service / base * 100 : 0
+      };
+    }
+
+    function run() {
+      var pct = val('pct');
+      document.getElementById('pct-label').textContent = pct + '%';
+      document.getElementById('service-row').hidden = !document.getElementById('service').checked;
+
+      var r = work(pct);
+      var ids = ['s-tip', 's-total', 's-each', 's-eff'];
+      if (!r) {
+        ids.forEach(function (id) { document.getElementById(id).textContent = '—'; });
+        document.getElementById('verdict').innerHTML =
+          '&mdash;<small>Enter a bill of zero or more and at least one person</small>';
+        document.getElementById('table').innerHTML = '';
+        return;
+      }
+
+      document.getElementById('s-tip').textContent = money(r.tip);
+      document.getElementById('s-total').textContent = money(r.total);
+      document.getElementById('s-each').textContent = money(r.each);
+      document.getElementById('s-eff').textContent = CT.num(r.realPct, 1) + '%';
+
+      var line = r.people === 1
+        ? 'Pay ' + money(r.total)
+        : r.people + ' people pay ' + money(r.each) + ' each';
+      var detail = 'Food and drink ' + money(r.base);
+      if (r.service > 0) {
+        detail += ', service charge ' + money(r.service) + ', tip ' + money(r.tip) +
+          '. Staff get ' + CT.num(r.servicePct + r.realPct, 1) + '% on top of the food in all';
+      } else {
+        detail += ', tip ' + money(r.tip);
+      }
+      document.getElementById('verdict').innerHTML = line + '<small>' + detail + '</small>';
+
+      document.getElementById('table').innerHTML = TABLE_PCTS.map(function (p) {
+        var t = work(p);
+        return '<tr data-pct="' + p + '"' + (p === pct ? ' class="on"' : '') + '>' +
+          '<td>' + p + '%</td><td>' + money(t.tip) + '</td><td>' + money(t.total) +
+          '</td><td>' + money(t.each) + '</td></tr>';
+      }).join('');
+    }
+
+    ['bill', 'people', 'pct', 'service-pct'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', run);
+    });
+    ['cur', 'round', 'service', 'service-where'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', run);
+    });
+
+    document.getElementById('table').addEventListener('click', function (e) {
+      var tr = e.target.closest('[data-pct]');
+      if (!tr) return;
+      document.getElementById('pct').value = tr.dataset.pct;
+      run();
+    });
+
+    run();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alcohol Strength Converter — Cja's Tools</title>
+<meta name="description" content="Convert between ABV, US proof and old British proof, and work out the pure alcohol in a drink or a mix. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="alcohol-abv">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Alcohol Strength Converter</h1>
+        <p>ABV, US proof and British proof are three ways of saying the same thing. Type in any one.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="abv">ABV (% alcohol by volume)</label>
+            <input type="number" id="abv" value="40" min="0" max="100" step="0.1">
+          </div>
+          <div class="field">
+            <label for="us">US proof</label>
+            <input type="number" id="us" min="0" max="200" step="0.1">
+          </div>
+          <div class="field">
+            <label for="uk">British proof (old system)</label>
+            <input type="number" id="uk" min="0" max="175" step="0.1">
+          </div>
+        </div>
+        <div class="btns" id="presets">
+          <button class="btn" data-abv="5">Beer, 5%</button>
+          <button class="btn" data-abv="12.5">Wine, 12.5%</button>
+          <button class="btn" data-abv="33">Arrack, about 33%</button>
+          <button class="btn" data-abv="40">Whisky, 40%</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">How much alcohol is in a drink</label>
+        <div class="row">
+          <div class="field">
+            <label for="vol">Amount (ml)</label>
+            <input type="number" id="vol" value="30" min="0" step="1">
+          </div>
+          <div class="field">
+            <label for="count">How many</label>
+            <input type="number" id="count" value="1" min="1" step="1">
+          </div>
+        </div>
+        <div class="btns" id="sizes">
+          <button class="btn" data-ml="30">A 30 ml shot</button>
+          <button class="btn" data-ml="150">Glass of wine, 150 ml</button>
+          <button class="btn" data-ml="330">Small bottle, 330 ml</button>
+          <button class="btn" data-ml="625">Large bottle, 625 ml</button>
+          <button class="btn" data-ml="750">Full bottle, 750 ml</button>
+        </div>
+        <div class="stats" style="margin-top:14px">
+          <div class="stat"><b id="s-ml">0</b><span>ml of pure alcohol</span></div>
+          <div class="stat"><b id="s-g">0</b><span>grams of pure alcohol</span></div>
+          <div class="stat"><b id="s-std">0</b><span>standard drinks (10 g each)</span></div>
+          <div class="stat"><b id="s-units">0</b><span>UK units (8 g each)</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">Mixing: what strength do you end up with?</label>
+        <div class="row">
+          <div class="field">
+            <label for="m-vol">Spirit (ml)</label>
+            <input type="number" id="m-vol" value="60" min="0" step="1">
+          </div>
+          <div class="field">
+            <label for="m-abv">Spirit ABV (%)</label>
+            <input type="number" id="m-abv" value="40" min="0" max="100" step="0.1">
+          </div>
+          <div class="field">
+            <label for="m-mixer">Mixer, water or ice melt (ml)</label>
+            <input type="number" id="m-mixer" value="180" min="0" step="1">
+          </div>
+        </div>
+        <div class="result" id="mix">&mdash;</div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The three scales.</b> ABV is the percentage of the drink
+          that is alcohol, and it is what labels in Sri Lanka and most countries
+          show. US proof is simply double the ABV. The old British proof came from
+          the strength at which gunpowder soaked in the spirit would still light:
+          100&deg; proof is 57.15% ABV, so British proof is ABV &times; 1.75.
+          <br><br>
+          <b>"Standard drink" means different amounts in different countries.</b>
+          The World Health Organization uses 10 g of pure alcohol, which is what is
+          shown here, and the UK counts in units of 8 g. Alcohol weighs 0.789 g per
+          ml. These figures are arithmetic from the label, not advice about how
+          much is safe to drink.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* 100 degrees British proof was defined as 57.15% ABV. */
+    var UK_PER_ABV = 100 / 57.15;
+    var DENSITY = 0.789;   // grams per ml of pure ethanol
+
+    function val(id) {
+      var v = parseFloat(document.getElementById(id).value);
+      return isFinite(v) ? v : NaN;
+    }
+    function round(n, places) {
+      var f = Math.pow(10, places);
+      return Math.round(n * f) / f;
+    }
+
+    var abvEl = document.getElementById('abv');
+    var usEl = document.getElementById('us');
+    var ukEl = document.getElementById('uk');
+
+    /* Whichever box was typed in drives the other two. */
+    function fromAbv(abv) {
+      if (!isFinite(abv)) return;
+      usEl.value = round(abv * 2, 2);
+      ukEl.value = round(abv * UK_PER_ABV, 2);
+      document.getElementById('m-abv').value = round(abv, 2);
+      drink();
+      mix();
+    }
+
+    function drink() {
+      var abv = val('abv');
+      var ml = val('vol') * Math.max(1, Math.floor(val('count')) || 1);
+      if (!isFinite(abv) || !isFinite(ml) || abv < 0 || abv > 100 || ml < 0) {
+        ['s-ml', 's-g', 's-std', 's-units'].forEach(function (id) {
+          document.getElementById(id).textContent = '—';
+        });
+        return;
+      }
+      var pureMl = ml * abv / 100;
+      var grams = pureMl * DENSITY;
+      document.getElementById('s-ml').textContent = CT.num(pureMl, 1);
+      document.getElementById('s-g').textContent = CT.num(grams, 1);
+      document.getElementById('s-std').textContent = CT.num(grams / 10, 1);
+      document.getElementById('s-units').textContent = CT.num(grams / 8, 1);
+    }
+
+    function mix() {
+      var vol = val('m-vol'), abv = val('m-abv'), mixer = val('m-mixer');
+      var out = document.getElementById('mix');
+      if (![vol, abv, mixer].every(isFinite) || vol < 0 || mixer < 0 || abv < 0 || abv > 100) {
+        out.innerHTML = '&mdash;<small>Enter amounts of zero or more</small>';
+        return;
+      }
+      var total = vol + mixer;
+      if (total <= 0) { out.innerHTML = '&mdash;<small>Nothing in the glass yet</small>'; return; }
+      /* Mixing alcohol with water shrinks the total slightly, by up to
+         about 3%. The simple sum is what everyone uses, and the difference
+         is smaller than the error in a home measure. */
+      var final = vol * abv / total;
+      out.innerHTML = CT.num(final, 1) + '% ABV' +
+        '<small>' + CT.num(total, 0) + ' ml in the glass, about as strong as ' +
+        (final < 3 ? 'a light shandy'
+          : final < 7 ? 'a beer'
+          : final < 16 ? 'a wine'
+          : final < 25 ? 'a fortified wine or liqueur'
+          : 'a spirit') + '</small>';
+    }
+
+    abvEl.addEventListener('input', function () { fromAbv(val('abv')); });
+    usEl.addEventListener('input', function () {
+      var v = val('us');
+      if (!isFinite(v)) return;
+      abvEl.value = round(v / 2, 2);
+      ukEl.value = round(v / 2 * UK_PER_ABV, 2);
+      document.getElementById('m-abv').value = round(v / 2, 2);
+      drink(); mix();
+    });
+    ukEl.addEventListener('input', function () {
+      var v = val('uk');
+      if (!isFinite(v)) return;
+      var abv = v / UK_PER_ABV;
+      abvEl.value = round(abv, 2);
+      usEl.value = round(abv * 2, 2);
+      document.getElementById('m-abv').value = round(abv, 2);
+      drink(); mix();
+    });
+
+    ['vol', 'count'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', drink);
+    });
+    ['m-vol', 'm-abv', 'm-mixer'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', mix);
+    });
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-abv]');
+      if (!b) return;
+      abvEl.value = b.dataset.abv;
+      fromAbv(val('abv'));
+    });
+    document.getElementById('sizes').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ml]');
+      if (!b) return;
+      document.getElementById('vol').value = b.dataset.ml;
+      drink();
+    });
+
+    fromAbv(val('abv'));
+  })();
+  </script>
+</body>
+</html>

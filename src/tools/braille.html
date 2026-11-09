@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Braille Translator — Cja's Tools</title>
+<meta name="description" content="Turn text into Unified English Braille (uncontracted) and read Braille back as text. Works offline.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #braille { font-size: 30px; line-height: 1.7; letter-spacing: 2px; }
+  .key { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 7px; }
+  .cell {
+    border: 1px solid var(--border); border-radius: 9px; background: var(--bg);
+    padding: 6px 4px; text-align: center;
+  }
+  .cell b { display: block; font-size: 26px; line-height: 1.2; }
+  .cell span { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body data-page="tool" data-slug="braille">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=world">World</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Braille Translator</h1>
+        <p>Type on either side. Letter-by-letter Unified English Braille, the standard for English in most of the world.</p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="text">Text</label>
+          <textarea id="text" spellcheck="false">Hello World 2026</textarea>
+        </div>
+        <div class="field">
+          <label for="braille">Braille</label>
+          <textarea id="braille" spellcheck="false"></textarea>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy the Braille</button>
+          <button class="btn" id="copy-text">Copy the text</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:10px">The cells</label>
+        <div class="key" id="key"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This is uncontracted Braille (Grade 1).</b> Every letter
+          gets its own cell. Most adult readers use contracted Braille (Grade 2),
+          where common words and letter groups have shortcuts &mdash; "and" is a single
+          cell. Grade 1 is what learners start on, and anyone who reads Grade 2
+          can read it too.
+          <br><br>
+          <b>The three signs that are not letters.</b> &#x2820; before a letter makes it a
+          capital, and two of them make the whole word capitals. &#x283C; switches to
+          numbers: the letters a to j then mean 1 to 0. &#x2830; after a number means
+          "letters again" when the next letter could be mistaken for a digit.
+          <br><br>
+          <b>To print it for a reader,</b> the dots have to be raised. Ordinary
+          printers cannot do that, so this is for learning, labelling with a
+          Braille label maker, or sending to someone with a Braille display.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    /* Each cell is written as its raised dots, numbered the standard way:
+       1-2-3 down the left column, 4-5-6 down the right. The Unicode Braille
+       block is laid out so that dot n adds 2^(n-1) to U+2800. */
+    function cell(dots) {
+      var code = 0x2800;
+      String(dots).split('').forEach(function (d) { code += 1 << (parseInt(d, 10) - 1); });
+      return String.fromCharCode(code);
+    }
+
+    var LETTER_DOTS = {
+      a: '1', b: '12', c: '14', d: '145', e: '15', f: '124', g: '1245', h: '125',
+      i: '24', j: '245', k: '13', l: '123', m: '134', n: '1345', o: '135',
+      p: '1234', q: '12345', r: '1235', s: '234', t: '2345', u: '136',
+      v: '1236', w: '2456', x: '1346', y: '13456', z: '1356'
+    };
+    var PUNCT_DOTS = {
+      ',': '2', ';': '23', ':': '25', '.': '256', '!': '235', '?': '236',
+      "'": '3', '-': '36', '/': '34'
+    };
+
+    var CAPITAL = cell('6');
+    var NUMBER = cell('3456');
+    var LETTERS_AGAIN = cell('56');
+
+    var LETTER = {}, FROM_CELL = {}, PUNCT = {}, FROM_PUNCT = {};
+    Object.keys(LETTER_DOTS).forEach(function (k) {
+      LETTER[k] = cell(LETTER_DOTS[k]);
+      FROM_CELL[LETTER[k]] = k;
+    });
+    Object.keys(PUNCT_DOTS).forEach(function (k) {
+      PUNCT[k] = cell(PUNCT_DOTS[k]);
+      FROM_PUNCT[PUNCT[k]] = k;
+    });
+
+    /* 1 to 9 are a to i, and 0 is j. */
+    var DIGIT_LETTER = { '1': 'a', '2': 'b', '3': 'c', '4': 'd', '5': 'e',
+                         '6': 'f', '7': 'g', '8': 'h', '9': 'i', '0': 'j' };
+    var LETTER_DIGIT = {};
+    Object.keys(DIGIT_LETTER).forEach(function (d) { LETTER_DIGIT[DIGIT_LETTER[d]] = d; });
+
+    function isDigit(c) { return c >= '0' && c <= '9'; }
+
+    function toBraille(text) {
+      var unknown = [];
+      /* Line by line, then word by word, because capital-word signs belong
+         to a whole word. */
+      return {
+        braille: text.split('\n').map(function (line) {
+          return line.split(' ').map(function (word) {
+            var letters = word.replace(/[^A-Za-z]/g, '');
+            var allCaps = letters.length > 1 && letters === letters.toUpperCase();
+            var w = allCaps ? CAPITAL + CAPITAL : '';
+            var inNumber = false;
+
+            for (var i = 0; i < word.length; i++) {
+              var ch = word[i];
+              var lower = ch.toLowerCase();
+
+              if (isDigit(ch)) {
+                if (!inNumber) { w += NUMBER; inNumber = true; }
+                w += LETTER[DIGIT_LETTER[ch]];
+                continue;
+              }
+              /* A comma or full stop between digits stays part of the
+                 number, as in 1,250.75. */
+              if (inNumber && (ch === ',' || ch === '.') && isDigit(word[i + 1] || '')) {
+                w += PUNCT[ch];
+                continue;
+              }
+              if (LETTER[lower]) {
+                /* After a number, a to j would be read as more digits. */
+                if (inNumber && LETTER_DIGIT[lower]) w += LETTERS_AGAIN;
+                inNumber = false;
+                if (!allCaps && ch !== lower) w += CAPITAL;
+                w += LETTER[lower];
+                continue;
+              }
+              inNumber = false;
+              if (PUNCT[ch]) { w += PUNCT[ch]; continue; }
+              if (unknown.indexOf(ch) === -1) unknown.push(ch);
+              w += ch;
+            }
+            return w;
+          }).join(' ');
+        }).join('\n'),
+        unknown: unknown
+      };
+    }
+
+    function toText(braille) {
+      var unknown = [];
+      var out = braille.split('\n').map(function (line) {
+        /* The blank Braille cell U+2800 is a space too. */
+        return line.split(/[ ⠀]/).map(function (word) {
+          var w = '';
+          var capsWord = false, capNext = false, inNumber = false;
+          var cells = Array.from(word);
+          for (var i = 0; i < cells.length; i++) {
+            var c = cells[i];
+            if (c === CAPITAL) {
+              if (cells[i + 1] === CAPITAL) { capsWord = true; i++; }
+              else capNext = true;
+              continue;
+            }
+            if (c === NUMBER) { inNumber = true; continue; }
+            if (c === LETTERS_AGAIN) { inNumber = false; continue; }
+            if (inNumber && FROM_CELL[c] && LETTER_DIGIT[FROM_CELL[c]]) {
+              w += LETTER_DIGIT[FROM_CELL[c]];
+              continue;
+            }
+            if (inNumber && (FROM_PUNCT[c] === ',' || FROM_PUNCT[c] === '.')) {
+              w += FROM_PUNCT[c];
+              continue;
+            }
+            inNumber = false;
+            if (FROM_CELL[c]) {
+              var l = FROM_CELL[c];
+              w += (capsWord || capNext) ? l.toUpperCase() : l;
+              capNext = false;
+              continue;
+            }
+            if (FROM_PUNCT[c]) { w += FROM_PUNCT[c]; continue; }
+            if (c >= '⠀' && c <= '⣿' && unknown.indexOf(c) === -1) unknown.push(c);
+            w += c;
+          }
+          return w;
+        }).join(' ');
+      }).join('\n');
+      return { text: out, unknown: unknown };
+    }
+
+    var textEl = document.getElementById('text');
+    var brailleEl = document.getElementById('braille');
+    var note = document.getElementById('note');
+
+    function fromText() {
+      var r = toBraille(textEl.value);
+      brailleEl.value = r.braille;
+      note.textContent = r.unknown.length
+        ? 'Left as they are, because there is no Grade 1 cell for them: ' + r.unknown.join(' ')
+        : '';
+    }
+
+    function fromBraille() {
+      var r = toText(brailleEl.value);
+      textEl.value = r.text;
+      note.textContent = r.unknown.length
+        ? 'Not recognised (these may be Grade 2 contractions): ' + r.unknown.join(' ')
+        : '';
+    }
+
+    textEl.addEventListener('input', fromText);
+    brailleEl.addEventListener('input', fromBraille);
+
+    document.getElementById('copy').addEventListener('click', function () {
+      if (!brailleEl.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(brailleEl.value);
+    });
+    document.getElementById('copy-text').addEventListener('click', function () {
+      if (!textEl.value) { CT.toast('Nothing to copy'); return; }
+      CT.copy(textEl.value);
+    });
+
+    var keyItems = Object.keys(LETTER).map(function (k) { return [LETTER[k], k]; })
+      .concat([[CAPITAL, 'capital'], [NUMBER, 'number'], [LETTERS_AGAIN, 'letters']])
+      .concat(Object.keys(PUNCT).map(function (k) { return [PUNCT[k], k]; }));
+    document.getElementById('key').innerHTML = keyItems.map(function (it) {
+      return '<div class="cell"><b>' + it[0] + '</b><span>' +
+        it[1].replace(/[<>&]/g, '') + '</span></div>';
+    }).join('');
+
+    fromText();
+  })();
+  </script>
+</body>
+</html>

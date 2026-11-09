@@ -2557,6 +2557,210 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- braille
+
+(function () {
+  const t = loadTool('braille');
+  t.set('text', 'Hi 42');
+  ok(t.byId('braille').value === '⠠⠓⠊ ⠼⠙⠃',
+     'capital sign, letters and a number sign come out right',
+     'got ' + t.byId('braille').value);
+
+  t.set('text', 'NASA');
+  ok(t.byId('braille').value.indexOf('⠠⠠') === 0,
+     'an all-capitals word gets the double capital sign');
+
+  // a letter a-j straight after digits needs the "letters again" sign
+  t.set('text', '3a');
+  ok(t.byId('braille').value === '⠼⠉⠰⠁',
+     'a letter after a number is marked so it is not read as a digit',
+     'got ' + t.byId('braille').value);
+
+  // round trip through the Braille box
+  const words = 'Hello World, 1,250.75 is NOT a-b?';
+  t.set('text', words);
+  const br = t.byId('braille').value;
+  t.set('braille', br);
+  ok(t.byId('text').value === words, 'text survives a round trip through Braille',
+     'got ' + t.byId('text').value);
+
+  t.set('text', 'café');
+  has(t.text('note'), 'é', 'characters with no Grade 1 cell are pointed out');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- pig latin
+
+(function () {
+  const t = loadTool('pig-latin');
+  t.set('english', 'pig apple string quick yellow rhythm square');
+  ok(t.byId('pig').value === 'igpay appleway ingstray ickquay ellowyay ythmrhay aresquay',
+     'the consonant, vowel, qu and y rules all apply',
+     'got ' + t.byId('pig').value);
+
+  t.set('english', 'Hello, World! NASA');
+  ok(t.byId('pig').value === 'Ellohay, Orldway! ASANAY',
+     'capitals and punctuation stay where they were', 'got ' + t.byId('pig').value);
+
+  // reversing without hyphens is a guess, but the common cases come back
+  t.set('pig', 'Ethay ickquay ownbray oxfay umpsjay overway ethay azylay ogday ingstray');
+  ok(t.byId('english').value === 'The quick brown fox jumps over the lazy dog string',
+     'Pig Latin turns back into the original English', 'got ' + t.byId('english').value);
+  has(t.text('note'), 'best guess', 'and says it is a guess');
+
+  // with hyphens and -way, a w-word and a vowel word look alike: say so
+  t.set('hyphen', '-');
+  t.set('english', 'weird thee eat');
+  const hy = t.byId('pig').value;
+  ok(hy === 'eird-way ee-thay eat-way', 'the hyphen style joins with a dash', 'got ' + hy);
+  t.set('pig', hy);
+  has(t.text('note'), 'best guess', 'eird-way is flagged as ambiguous');
+
+  // with hyphens and the plain -ay ending it is exact
+  t.set('ending', 'ay');
+  t.set('english', 'weird thee eat');
+  const exact = t.byId('pig').value;
+  ok(exact === 'eird-way ee-thay eat-ay', 'the -ay ending keeps them apart', 'got ' + exact);
+  t.set('pig', exact);
+  ok(t.byId('english').value === 'weird thee eat', 'and reverses exactly',
+     'got ' + t.byId('english').value);
+  ok(t.text('note') === '', 'with no guess warning');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- alcohol strength
+
+(function () {
+  const t = loadTool('alcohol-abv');
+  t.set('abv', '40');
+  ok(t.byId('us').value === '80', '40% ABV is 80 US proof', 'got ' + t.byId('us').value);
+  ok(t.byId('uk').value === '69.99', 'and 69.99 British proof', 'got ' + t.byId('uk').value);
+
+  t.set('uk', '100');
+  ok(t.byId('abv').value === '57.15', '100 British proof is 57.15% ABV', 'got ' + t.byId('abv').value);
+  t.set('us', '100');
+  ok(t.byId('abv').value === '50', '100 US proof is 50% ABV');
+
+  // 330 ml of 5% beer: 16.5 ml pure, 13.0 g, 1.3 standard drinks
+  t.set('abv', '5');
+  t.set('vol', '330');
+  ok(t.text('s-ml') === '16.5', 'pure alcohol in a small beer', 'got ' + t.text('s-ml'));
+  ok(t.text('s-g') === '13', 'its weight in grams', 'got ' + t.text('s-g'));
+  ok(t.text('s-std') === '1.3', 'and standard drinks', 'got ' + t.text('s-std'));
+  t.set('count', '2');
+  ok(t.text('s-ml') === '33', 'two of them doubles it', 'got ' + t.text('s-ml'));
+
+  // 60 ml of 40% plus 180 ml mixer is 10%
+  t.set('m-abv', '40');
+  t.set('m-vol', '60');
+  t.set('m-mixer', '180');
+  has(t.text('mix'), '10% ABV', 'mixing works out the final strength');
+  has(t.text('mix'), '240 ml', 'and the volume in the glass');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- tip calculator
+
+(function () {
+  const t = loadTool('tip-calculator');
+  t.set('bill', '1000');
+  t.set('people', '4');
+  t.set('pct', '10');
+  has(t.text('s-tip'), '100.00', '10% of 1,000 is 100');
+  has(t.text('s-total'), '1,100.00', 'the total adds it on');
+  has(t.text('s-each'), '275.00', 'and splits it four ways');
+
+  // rounding each share up puts the extra into the tip
+  t.set('people', '3');
+  t.set('round', '50');
+  has(t.text('s-each'), '400.00', '366.67 each rounds up to 400');
+  has(t.text('s-total'), '1,200.00', 'so 1,200 in total');
+  has(t.text('s-tip'), '200.00', 'and the tip absorbs the difference');
+  has(t.text('s-eff'), '20', 'the real tip is shown as 20%');
+
+  // a service charge already in the total: the tip is on the food only
+  t.set('round', '0');
+  t.set('people', '1');
+  t.set('bill', '1100');
+  t.set('service', true);
+  t.set('service-pct', '10');
+  ok(!t.byId('service-row').hidden, 'the service charge settings appear');
+  has(t.text('verdict'), '1,000.00', 'food is worked back out of the total');
+  has(t.text('s-tip'), '100.00', 'the tip is on the food, not on top of the charge');
+  has(t.text('verdict'), '20% on top', 'and staff get 20% in all');
+
+  ok(t.byId('table').querySelectorAll('tr').length === 8, 'the quick table lists eight tip levels');
+  t.set('bill', '-5');
+  has(t.text('verdict'), 'zero or more', 'a minus bill is refused');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- number to words
+
+(function () {
+  const t = loadTool('number-to-words');
+  t.set('mode', 'cheque');
+  t.set('system', 'lk');
+  t.set('case', 'title');
+  t.set('num', '1,25,750.50');
+  ok(t.byId('out').value ===
+     'Rupees One Lakh Twenty-Five Thousand Seven Hundred and Fifty and Cents Fifty Only',
+     'a cheque amount in lakhs with cents', 'got ' + t.byId('out').value);
+
+  t.set('case', 'lower');
+  t.set('mode', 'plain');
+  t.set('num', '25000000');
+  ok(t.byId('out').value === 'two crore fifty lakh', '2,50,00,000 is two crore fifty lakh',
+     'got ' + t.byId('out').value);
+  t.set('system', 'intl');
+  ok(t.byId('out').value === 'twenty-five million', 'and twenty-five million elsewhere',
+     'got ' + t.byId('out').value);
+
+  t.set('num', '1005');
+  ok(t.byId('out').value === 'one thousand and five', 'British "and" after the thousands',
+     'got ' + t.byId('out').value);
+  t.set('and', false);
+  t.set('num', '115');
+  ok(t.byId('out').value === 'one hundred fifteen', 'the "and" can be turned off',
+     'got ' + t.byId('out').value);
+  t.set('and', true);
+
+  // BigInt keeps 18-digit numbers exact
+  t.set('num', '999999999999999999');
+  has(t.byId('out').value, 'nine hundred and ninety-nine quadrillion', 'the biggest number works');
+  ok(/ninety-nine$/.test(t.byId('out').value), 'and ends exactly, with no rounding',
+     'got ' + t.byId('out').value);
+  t.set('num', '1000000000000000000');
+  has(t.text('note'), 'Too big', 'nineteen digits is refused');
+
+  t.set('system', 'lk');
+  t.set('num', '10000000000');
+  ok(t.byId('out').value === 'one thousand crore', 'above 99 crore counts in crores',
+     'got ' + t.byId('out').value);
+
+  t.set('num', '-3.14');
+  ok(t.byId('out').value === 'minus three point one four',
+     'decimals are read digit by digit', 'got ' + t.byId('out').value);
+
+  t.set('mode', 'ordinal');
+  [['1', 'first'], ['22', 'twenty-second'], ['40', 'fortieth'],
+   ['112', 'one hundred and twelfth']].forEach(([n, w]) => {
+    t.set('num', n);
+    ok(t.byId('out').value === w, n + ' as an ordinal is ' + w, 'got ' + t.byId('out').value);
+  });
+
+  t.set('mode', 'cheque');
+  t.set('num', '0.999');
+  ok(t.byId('out').value === 'rupees one only', 'cents round up into a whole rupee',
+     'got ' + t.byId('out').value);
+  t.set('num', 'Rs. 500');
+  ok(t.byId('out').value === 'rupees five hundred only', 'a typed Rs. prefix is ignored',
+     'got ' + t.byId('out').value);
+  t.set('num', 'abc');
+  has(t.text('note'), 'not a number', 'nonsense is refused');
+  t.close();
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {
