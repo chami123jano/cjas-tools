@@ -13,6 +13,10 @@
     border-radius: var(--radius); background: var(--bg);
     font-family: ui-monospace, Consolas, "Courier New", monospace;
     user-select: none; min-height: 140px;
+    /* Ordinary spaces kept and allowed to wrap. Rendering them as
+       non-breaking spaces turned the whole passage into one unbreakable line
+       that ran off the side of the window. */
+    white-space: pre-wrap; word-break: break-word;
   }
   .passage span { position: relative; }
   .passage .done { color: var(--muted); }
@@ -210,7 +214,7 @@
       var html = '';
       for (var i = 0; i < passage.length; i++) {
         var ch = passage[i];
-        var shown = ch === ' ' ? '&nbsp;' : ch.replace(/[<>&]/g, function (c) {
+        var shown = ch === ' ' ? ' ' : ch.replace(/[<>&]/g, function (c) {
           return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c];
         });
         var cls;
