@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crop Image — Cja's Tools</title>
+<meta name="description" content="Cut a picture down to the part you want, freely or to a set shape such as square or 16:9. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .stage { position: relative; display: inline-block; max-width: 100%; touch-action: none; user-select: none; }
+  .stage canvas { display: block; max-width: 100%; height: auto; }
+  .box {
+    position: absolute; border: 2px solid #fff; cursor: move;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.6);
+  }
+  .box i {
+    position: absolute; width: 16px; height: 16px; background: #fff;
+    border: 1px solid #333; border-radius: 3px;
+  }
+  .box i[data-h="nw"] { left: -9px; top: -9px; cursor: nwse-resize; }
+  .box i[data-h="ne"] { right: -9px; top: -9px; cursor: nesw-resize; }
+  .box i[data-h="sw"] { left: -9px; bottom: -9px; cursor: nesw-resize; }
+  .box i[data-h="se"] { right: -9px; bottom: -9px; cursor: nwse-resize; }
+  .stage-wrap { text-align: center; overflow: hidden; padding: 10px 0; }
+</style>
+</head>
+<body data-page="tool" data-slug="image-crop">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Crop Image</h1>
+        <p>Drag the box to choose the part to keep. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel" id="editor" hidden>
+        <div class="btns" id="ratios">
+          <button class="btn primary" data-r="0">Free</button>
+          <button class="btn" data-r="1">Square</button>
+          <button class="btn" data-r="1.3333">4:3</button>
+          <button class="btn" data-r="1.7778">16:9</button>
+          <button class="btn" data-r="0.75">3:4 (portrait)</button>
+          <button class="btn" data-r="0.7778">Passport 35 × 45</button>
+        </div>
+        <div class="stage-wrap">
+          <div class="stage" id="stage">
+            <canvas id="view"></canvas>
+            <div class="box" id="box">
+              <i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="cx">From left (px)</label><input type="number" id="cx" min="0" step="1"></div>
+          <div class="field"><label for="cy">From top (px)</label><input type="number" id="cy" min="0" step="1"></div>
+          <div class="field"><label for="cw">Width (px)</label><input type="number" id="cw" min="1" step="1"></div>
+          <div class="field"><label for="ch">Height (px)</label><input type="number" id="ch" min="1" step="1"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="format">Save as</label>
+            <select id="format">
+              <option value="same" selected>The same type as the original</option>
+              <option value="image/jpeg">JPG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save the cropped picture</button>
+          <button class="btn" id="reset">Reset the box</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Moving the box:</b> drag inside it. <b>Resizing:</b> drag a
+          corner. With a shape chosen, the corners keep that shape. For an exact
+          size, type the numbers in pixels underneath.
+          <br><br>
+          Cropping only removes; the pixels you keep are not changed at all. To
+          make the result a particular size afterwards, use
+          <a href="image-resize.html">Resize Image</a>.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var rect = { x: 0, y: 0, width: 1, height: 1 };   // in the picture's own pixels
+    var ratio = 0;                                     // 0 = free
+    var view = document.getElementById('view');
+    var box = document.getElementById('box');
+
+    if (!CJA_IMG.canEncode('image/webp')) {
+      document.querySelector('#format option[value="image/webp"]').disabled = true;
+    }
+
+    /* Screen pixels per picture pixel, for the preview as it is shown. */
+    function scale() {
+      var shown = view.getBoundingClientRect().width;
+      return shown > 0 ? shown / source.width : 1;
+    }
+
+    function draw() {
+      var s = scale();
+      box.style.left = rect.x * s + 'px';
+      box.style.top = rect.y * s + 'px';
+      box.style.width = rect.width * s + 'px';
+      box.style.height = rect.height * s + 'px';
+      document.getElementById('cx').value = rect.x;
+      document.getElementById('cy').value = rect.y;
+      document.getElementById('cw').value = rect.width;
+      document.getElementById('ch').value = rect.height;
+    }
+
+    function setRect(r) {
+      rect = CJA_IMG.clampRect(r, source.width, source.height);
+      draw();
+    }
+
+    function resetBox() {
+      if (ratio) setRect(CJA_IMG.ratioRect(source.width, source.height, ratio));
+      else {
+        /* Start a little inside the edges so the box is easy to see and grab. */
+        var mx = Math.round(source.width * 0.1), my = Math.round(source.height * 0.1);
+        setRect({ x: mx, y: my, width: source.width - 2 * mx, height: source.height - 2 * my });
+      }
+    }
+
+    /* Dragging: inside the box moves it, a corner resizes from the
+       opposite corner, which stays put. */
+    var drag = null;
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      box.setPointerCapture(e.pointerId);
+      drag = { handle: e.target.dataset.h || 'move', sx: e.clientX, sy: e.clientY,
+               start: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } };
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var s = scale();
+      var dx = (e.clientX - drag.sx) / s, dy = (e.clientY - drag.sy) / s;
+      var st = drag.start;
+      if (drag.handle === 'move') {
+        setRect({
+          x: Math.max(0, Math.min(st.x + dx, source.width - st.width)),
+          y: Math.max(0, Math.min(st.y + dy, source.height - st.height)),
+          width: st.width, height: st.height
+        });
+        return;
+      }
+      var left = drag.handle.indexOf('w') !== -1, top = drag.handle[0] === 'n';
+      var fx = left ? st.x + st.width : st.x;            // fixed corner
+      var fy = top ? st.y + st.height : st.y;
+      var w = Math.max(8, left ? st.width - dx : st.width + dx);
+      var h = Math.max(8, top ? st.height - dy : st.height + dy);
+      /* Room available on each side of the fixed corner. */
+      w = Math.min(w, left ? fx : source.width - fx);
+      h = Math.min(h, top ? fy : source.height - fy);
+      if (ratio) {
+        if (w / h > ratio) w = h * ratio; else h = w / ratio;
+      }
+      setRect({ x: left ? fx - w : fx, y: top ? fy - h : fy, width: w, height: h });
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      box.addEventListener(ev, function () { drag = null; });
+    });
+
+    ['cx', 'cy', 'cw', 'ch'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        var r = {
+          x: +document.getElementById('cx').value || 0,
+          y: +document.getElementById('cy').value || 0,
+          width: +document.getElementById('cw').value || 1,
+          height: +document.getElementById('ch').value || 1
+        };
+        if (ratio) {
+          if (id === 'ch') r.width = r.height * ratio; else r.height = r.width / ratio;
+        }
+        setRect(r);
+      });
+    });
+
+    document.getElementById('ratios').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-r]');
+      if (!b) return;
+      ratio = parseFloat(b.dataset.r);
+      document.querySelectorAll('#ratios .btn').forEach(function (x) {
+        x.classList.toggle('primary', x === b);
+      });
+      if (source) resetBox();
+    });
+    document.getElementById('reset').addEventListener('click', resetBox);
+    window.addEventListener('resize', function () { if (source) draw(); });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var c = CJA_IMG.canvas(rect.width, rect.height);
+      c.getContext('2d').drawImage(source.img, rect.x, rect.y, rect.width, rect.height,
+        0, 0, rect.width, rect.height);
+      var f = document.getElementById('format').value;
+      var type = f !== 'same' ? f : (CJA_IMG.TYPES[source.type] ? source.type : 'image/png');
+      CJA_IMG.toBlob(c, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-cropped'));
+        CT.toast('Saved, ' + rect.width + ' × ' + rect.height + ' pixels');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        view.width = s.width;
+        view.height = s.height;
+        view.getContext('2d').drawImage(s.img, 0, 0);
+        /* Keep tall pictures from running off the bottom of the screen. */
+        view.style.maxHeight = '520px';
+        view.style.width = 'auto';
+        document.getElementById('editor').hidden = false;
+        resetBox();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

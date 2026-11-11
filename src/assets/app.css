@@ -411,3 +411,22 @@ textarea { min-height: 160px; resize: vertical; line-height: 1.6; }
   .hero h1 { font-size: 23px; }
   .grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------- image tools: the drop zone and the result preview ---------- */
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius);
+  padding: 30px 16px; text-align: center; color: var(--muted);
+  font-size: 14px; cursor: pointer; overflow-wrap: anywhere;
+}
+.drop-zone b { color: var(--text); font-size: 15px; }
+.drop-zone span { display: block; margin-top: 5px; font-size: 12.5px; }
+.drop-zone:hover, .drop-zone:focus-visible, .drop-zone.over {
+  border-color: var(--accent); background: var(--accent-soft); outline: none;
+}
+.preview {
+  margin: 14px 0; padding: 10px; border-radius: var(--radius);
+  border: 1px solid var(--border); text-align: center;
+  /* A chequerboard, so see-through parts of a picture are visible. */
+  background: repeating-conic-gradient(#8882 0% 25%, transparent 0% 50%) 50% / 18px 18px;
+}
+.preview img, .preview canvas { max-width: 100%; max-height: 460px; height: auto; display: inline-block; }

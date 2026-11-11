@@ -2761,6 +2761,65 @@ pending.push(function currencyLive() {
   t.close();
 })();
 
+// ---------------------------------------------------------------- image helpers
+// The pixel work is tested in a real browser by test/images.js; these are
+// the sizes and names, which need to be exactly right.
+
+(function () {
+  const t = loadTool('image-resize');
+  const IMG = t.window.CJA_IMG;
+  ok(!!IMG, 'the image helper loads on image pages');
+
+  const f = IMG.fit(4000, 3000, 1600, 1600);
+  ok(f.width === 1600 && f.height === 1200, 'fit: 4000x3000 into 1600 is 1600x1200', JSON.stringify(f));
+  const tall = IMG.fit(1000, 3000, 1600, 1600);
+  ok(tall.width === 533 && tall.height === 1600, 'fit: a tall picture is limited by its height', JSON.stringify(tall));
+  const no = IMG.fit(800, 600, 1600, 1600);
+  ok(no.width === 800 && no.height === 600, 'fit: never enlarges unless asked');
+  const yes = IMG.fit(800, 600, 1600, 1600, true);
+  ok(yes.width === 1600 && yes.height === 1200, 'fit: enlarges when asked');
+  const one = IMG.fit(800, 600, 400, 0);
+  ok(one.width === 400 && one.height === 300, 'fit: a missing limit means no limit on that side');
+  const tiny = IMG.fit(5000, 2, 100, 100);
+  ok(tiny.height === 1, 'fit: never rounds a side down to zero');
+
+  const c = IMG.clampRect({ x: -50, y: 10, width: 9999, height: 20 }, 800, 600);
+  ok(c.x === 0 && c.width === 800 && c.y === 10 && c.height === 20, 'clampRect pulls a box back inside',
+     JSON.stringify(c));
+  const c2 = IMG.clampRect({ x: 790, y: 590, width: 50, height: 50 }, 800, 600);
+  ok(c2.width === 10 && c2.height === 10, 'clampRect trims at the far edges', JSON.stringify(c2));
+
+  const sq = IMG.ratioRect(2400, 1600, 1);
+  ok(sq.width === 1600 && sq.height === 1600 && sq.x === 400 && sq.y === 0,
+     'ratioRect: the biggest centred square', JSON.stringify(sq));
+  const wide = IMG.ratioRect(1000, 1000, 16 / 9);
+  ok(wide.width === 1000 && wide.height === 563 && wide.y === 219, 'ratioRect: 16:9 in a square',
+     JSON.stringify(wide));
+
+  ok(IMG.rename('holiday.photo.JPEG', 'png') === 'holiday.photo.png', 'rename swaps only the last extension');
+  ok(IMG.rename('scan', 'jpg', '-small') === 'scan-small.jpg', 'rename adds a suffix to a name with no extension');
+  ok(IMG.rename('', 'png') === 'image.png', 'rename gives a name when there is none');
+
+  ok(IMG.bytes(512) === '512 bytes', 'bytes: under 1 KB');
+  ok(IMG.bytes(1536) === '1.5 KB', 'bytes: KB with one decimal');
+  ok(IMG.bytes(204800) === '200 KB', 'bytes: whole KB when large');
+  ok(IMG.bytes(5 * 1024 * 1024) === '5.00 MB', 'bytes: MB');
+  ok(IMG.escape('<b>&"') === '&lt;b&gt;&amp;&quot;', 'file names are escaped before going on the page');
+  t.close();
+})();
+
+(function () {
+  // every image page has a drop zone, a hidden file input and loads the helper
+  ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners'].forEach((slug) => {
+    const t = loadTool(slug);
+    ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
+       slug + ' has a drop zone and file input');
+    ok(t.byId('file').getAttribute('accept') === 'image/*', slug + ' asks only for pictures');
+    ok(!!t.window.CJA_IMG, slug + ' loads the image helper');
+    t.close();
+  });
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

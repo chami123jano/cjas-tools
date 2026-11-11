@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Convert Image — Cja's Tools</title>
+<meta name="description" content="Turn a picture into JPG, PNG or WebP. Opens GIF, BMP and more. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="image-convert">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Convert Image</h1>
+        <p>Change a picture to JPG, PNG or WebP. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF, BMP, ICO or SVG</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="format">Convert to</label>
+            <select id="format">
+              <option value="image/jpeg" selected>JPG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </div>
+          <div class="field" id="quality-field">
+            <label for="quality">Quality: <span id="q-label">90</span></label>
+            <input type="range" id="quality" min="10" max="100" value="90">
+          </div>
+          <div class="field" id="bg-field">
+            <label for="bg">Fill see-through areas with</label>
+            <input type="color" id="bg" value="#ffffff">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="stats">
+          <div class="stat"><b id="s-from">—</b><span>From</span></div>
+          <div class="stat"><b id="s-to">—</b><span>To</span></div>
+          <div class="stat"><b id="s-size">—</b><span>New file size</span></div>
+          <div class="stat"><b id="s-dims">—</b><span>Pixels</span></div>
+        </div>
+        <p class="hint" id="note" style="margin-top:12px"></p>
+        <div class="preview"><img id="preview" alt="The converted picture"></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which format?</b> JPG for photos &mdash; small and opens
+          everywhere. PNG for screenshots, logos and anything with sharp text or
+          see-through parts; it never loses detail, but photos come out large.
+          WebP does both jobs in a smaller file, and every current browser and
+          phone opens it, though some older programs do not.
+          <br><br>
+          <b>An animated GIF</b> becomes a still picture of its first frame.
+          <br><br>
+          <b>HEIC photos from an iPhone</b> cannot be opened here, because Windows
+          browsers cannot read them. On the iPhone, Settings &rsaquo; Camera &rsaquo;
+          Formats &rsaquo; Most Compatible makes it save JPG instead.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null, output = null, busy = 0;
+
+    if (!CJA_IMG.canEncode('image/webp')) {
+      document.querySelector('#format option[value="image/webp"]').disabled = true;
+    }
+
+    function typeName(t) {
+      if (CJA_IMG.TYPES[t]) return CJA_IMG.TYPES[t].name;
+      var m = /^image\/(?:x-)?([a-z0-9.+-]+)/i.exec(t || '');
+      return m ? m[1].replace('svg+xml', 'svg').replace('vnd.microsoft.icon', 'ico').toUpperCase() : '?';
+    }
+
+    function settings() {
+      var type = document.getElementById('format').value;
+      var lossy = CJA_IMG.TYPES[type].lossy;
+      document.getElementById('quality-field').hidden = !lossy;
+      document.getElementById('bg-field').hidden = type !== 'image/jpeg';
+      return type;
+    }
+
+    function run() {
+      var type = settings();
+      if (!source) return;
+      var run = ++busy;
+      /* An SVG with no size of its own reports 0 x 0; give it a sensible one. */
+      var w = source.width || 1024, h = source.height || 1024;
+      var c = CJA_IMG.canvas(w, h);
+      c.getContext('2d').drawImage(source.img, 0, 0, w, h);
+      var q = parseInt(document.getElementById('quality').value, 10) / 100;
+
+      CJA_IMG.toBlob(c, type, q, document.getElementById('bg').value).then(function (blob) {
+        if (run !== busy) return;
+        output = blob;
+        document.getElementById('result-panel').hidden = false;
+        document.getElementById('s-from').textContent = typeName(source.type) + ', ' + CJA_IMG.bytes(source.size);
+        document.getElementById('s-to').textContent = typeName(blob.type);
+        document.getElementById('s-size').textContent = CJA_IMG.bytes(blob.size);
+        document.getElementById('s-dims').textContent = w + ' × ' + h;
+        var note = '';
+        if (blob.type !== type) {
+          note = 'This browser could not write ' + typeName(type) + ', so it was saved as ' +
+            typeName(blob.type) + ' instead.';
+        } else if (source.type === type) {
+          note = 'It was already ' + typeName(type) + '. Saving it again gives a fresh copy at the quality chosen.';
+        } else if (type === 'image/png' && source.type === 'image/jpeg') {
+          note = 'PNG keeps every pixel exactly, so a photo usually gets bigger, not smaller.';
+        }
+        document.getElementById('note').textContent = note;
+        var img = document.getElementById('preview');
+        if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+        img.dataset.url = URL.createObjectURL(blob);
+        img.src = img.dataset.url;
+      }).catch(function (e) {
+        if (run === busy) document.getElementById('note').textContent = e.message;
+      });
+    }
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels, ' + CJA_IMG.bytes(s.size) +
+          ' &middot; click to choose another</span>';
+        run();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    document.getElementById('quality').addEventListener('input', function () {
+      document.getElementById('q-label').textContent = this.value;
+    });
+    ['format', 'quality', 'bg'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', run);
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!output) return;
+      var ext = CJA_IMG.TYPES[output.type] ? CJA_IMG.TYPES[output.type].ext : 'png';
+      CJA_IMG.download(output, CJA_IMG.rename(source.name, ext));
+    });
+
+    settings();
+  })();
+  </script>
+</body>
+</html>

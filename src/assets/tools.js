@@ -799,6 +799,41 @@ const TOOLS = [
     category: 'world',
     desc: 'Write any amount out in words, in lakhs and crores or millions. Cheque mode.',
     keywords: ['number to words', 'cheque', 'check', 'amount in words', 'lakh', 'crore', 'spell number']
+  },
+  {
+    slug: 'image-compress',
+    name: 'Compress Image',
+    category: 'image',
+    desc: 'Make a photo smaller in file size, or squeeze it under a limit like 200 KB.',
+    keywords: ['compress', 'reduce', 'smaller', 'kb', 'file size', 'jpg', 'photo', 'shrink']
+  },
+  {
+    slug: 'image-convert',
+    name: 'Convert Image',
+    category: 'image',
+    desc: 'Turn a picture into JPG, PNG or WebP.',
+    keywords: ['convert', 'jpg', 'png', 'webp', 'gif', 'bmp', 'format', 'image']
+  },
+  {
+    slug: 'image-resize',
+    name: 'Resize Image',
+    category: 'image',
+    desc: 'Change the width and height in pixels or by percentage.',
+    keywords: ['resize', 'scale', 'pixels', 'width', 'height', 'smaller', 'bigger', 'photo']
+  },
+  {
+    slug: 'image-crop',
+    name: 'Crop Image',
+    category: 'image',
+    desc: 'Cut a picture down to the part you want, freely or to a set shape.',
+    keywords: ['crop', 'cut', 'trim', 'square', '16:9', 'passport', 'photo']
+  },
+  {
+    slug: 'round-corners',
+    name: 'Round Corners',
+    category: 'image',
+    desc: 'Rounded corners, or a circle for a profile picture.',
+    keywords: ['round', 'corners', 'circle', 'profile picture', 'rounded', 'avatar']
   }
 ];
 

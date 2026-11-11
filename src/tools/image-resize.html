@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resize Image — Cja's Tools</title>
+<meta name="description" content="Change a picture's width and height in pixels or by percentage, keeping its shape. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="image-resize">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Resize Image</h1>
+        <p>Make a picture bigger or smaller in pixels. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="by">Resize by</label>
+            <select id="by">
+              <option value="px" selected>Pixels</option>
+              <option value="pct">Percentage</option>
+            </select>
+          </div>
+          <div class="field" data-by="px">
+            <label for="w">Width</label>
+            <input type="number" id="w" min="1" max="16000" step="1">
+          </div>
+          <div class="field" data-by="px">
+            <label for="h">Height</label>
+            <input type="number" id="h" min="1" max="16000" step="1">
+          </div>
+          <div class="field" data-by="pct" hidden>
+            <label for="pct">Percentage of the original</label>
+            <input type="number" id="pct" value="50" min="1" max="800" step="1">
+          </div>
+        </div>
+        <label data-by="px">
+          <input type="checkbox" id="lock" checked style="width:auto;margin-right:7px">
+          Keep the shape (change one side and the other follows)
+        </label>
+        <div class="btns" id="presets" style="margin-top:11px">
+          <button class="btn" data-long="1920">Longest side 1920</button>
+          <button class="btn" data-long="1280">1280</button>
+          <button class="btn" data-long="800">800</button>
+          <button class="btn" data-pct="50">Half size</button>
+          <button class="btn" data-pct="25">Quarter size</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="format">Save as</label>
+            <select id="format">
+              <option value="same" selected>The same type as the original</option>
+              <option value="image/jpeg">JPG</option>
+              <option value="image/png">PNG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="stats">
+          <div class="stat"><b id="s-before">—</b><span>Before</span></div>
+          <div class="stat"><b id="s-after">—</b><span>After</span></div>
+          <div class="stat"><b id="s-size">—</b><span>New file size</span></div>
+        </div>
+        <p class="hint" id="note" style="margin-top:12px"></p>
+        <div class="preview"><img id="preview" alt="The resized picture"></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Making a picture smaller</b> always looks good. It is
+          shrunk in halves, step by step, which keeps fine lines and text sharper
+          than shrinking in one go.
+          <br><br>
+          <b>Making it bigger cannot add detail</b> that was never there &mdash; it
+          will look soft. For printing, it is usually better to print the original
+          at a smaller size.
+          <br><br>
+          <b>Unlocking the shape</b> lets width and height change separately, which
+          stretches or squashes the picture. To change the shape without stretching,
+          use <a href="image-crop.html">Crop Image</a> instead.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null, output = null, busy = 0;
+    var wEl = document.getElementById('w'), hEl = document.getElementById('h');
+
+    if (!CJA_IMG.canEncode('image/webp')) {
+      document.querySelector('#format option[value="image/webp"]').disabled = true;
+    }
+
+    function target() {
+      if (!source) return null;
+      if (document.getElementById('by').value === 'pct') {
+        var p = parseFloat(document.getElementById('pct').value);
+        if (!(p > 0)) return null;
+        return {
+          width: Math.max(1, Math.round(source.width * p / 100)),
+          height: Math.max(1, Math.round(source.height * p / 100))
+        };
+      }
+      var w = parseInt(wEl.value, 10), h = parseInt(hEl.value, 10);
+      if (!(w > 0) || !(h > 0)) return null;
+      return { width: w, height: h };
+    }
+
+    /* Halves the picture repeatedly until the next step would pass the
+       target, then does the last step exactly. One big jump skips pixels
+       and makes thin lines break up. */
+    function resample(img, sw, sh, tw, th) {
+      var cur = img, cw = sw, ch = sh;
+      while (cw / 2 >= tw && ch / 2 >= th) {
+        var half = CJA_IMG.canvas(Math.round(cw / 2), Math.round(ch / 2));
+        var hctx = half.getContext('2d');
+        hctx.imageSmoothingQuality = 'high';
+        hctx.drawImage(cur, 0, 0, half.width, half.height);
+        cur = half; cw = half.width; ch = half.height;
+      }
+      var out = CJA_IMG.canvas(tw, th);
+      var ctx = out.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(cur, 0, 0, tw, th);
+      return out;
+    }
+
+    function outType() {
+      var f = document.getElementById('format').value;
+      if (f !== 'same') return f;
+      return CJA_IMG.TYPES[source.type] ? source.type : 'image/png';
+    }
+
+    function run() {
+      var t = target();
+      if (!t) return;
+      if (t.width > 16000 || t.height > 16000 || t.width * t.height > 120e6) {
+        document.getElementById('note').textContent =
+          'That is too big for a browser to hold in memory. Keep it under 16000 pixels a side.';
+        return;
+      }
+      var run = ++busy;
+      var c = resample(source.img, source.width, source.height, t.width, t.height);
+      var type = outType();
+      CJA_IMG.toBlob(c, type, 0.92).then(function (blob) {
+        if (run !== busy) return;
+        output = blob;
+        document.getElementById('result-panel').hidden = false;
+        document.getElementById('s-before').textContent = source.width + ' × ' + source.height;
+        document.getElementById('s-after').textContent = t.width + ' × ' + t.height;
+        document.getElementById('s-size').textContent = CJA_IMG.bytes(blob.size);
+        var stretched = Math.abs(t.width / t.height - source.width / source.height) >
+          0.01 * (source.width / source.height);
+        var bigger = t.width > source.width || t.height > source.height;
+        document.getElementById('note').textContent =
+          (stretched ? 'The shape has changed, so the picture is stretched. ' : '') +
+          (bigger ? 'Enlarged pictures look softer than the original.' : '');
+        var img = document.getElementById('preview');
+        if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+        img.dataset.url = URL.createObjectURL(blob);
+        img.src = img.dataset.url;
+      });
+    }
+
+    function showMode() {
+      var by = document.getElementById('by').value;
+      document.querySelectorAll('[data-by]').forEach(function (el) {
+        el.hidden = el.dataset.by !== by;
+      });
+    }
+
+    wEl.addEventListener('input', function () {
+      var w = parseInt(wEl.value, 10);
+      if (source && document.getElementById('lock').checked && w > 0) {
+        hEl.value = Math.max(1, Math.round(w * source.height / source.width));
+      }
+    });
+    hEl.addEventListener('input', function () {
+      var h = parseInt(hEl.value, 10);
+      if (source && document.getElementById('lock').checked && h > 0) {
+        wEl.value = Math.max(1, Math.round(h * source.width / source.height));
+      }
+    });
+    ['w', 'h', 'pct', 'format'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', run);
+    });
+    document.getElementById('by').addEventListener('change', function () { showMode(); run(); });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!output) return;
+      /* The new size goes in the name: photo-800x600.jpg. */
+      var t = target();
+      CJA_IMG.download(output, CJA_IMG.rename(source.name, CJA_IMG.TYPES[output.type].ext,
+        t ? '-' + t.width + 'x' + t.height : ''));
+    });
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b || !source) { if (b) CT.toast('Choose a picture first'); return; }
+      if (b.dataset.pct) {
+        document.getElementById('by').value = 'pct';
+        document.getElementById('pct').value = b.dataset.pct;
+      } else {
+        var long = parseInt(b.dataset.long, 10);
+        var size = CJA_IMG.fit(source.width, source.height, long, long, true);
+        document.getElementById('by').value = 'px';
+        wEl.value = size.width;
+        hEl.value = size.height;
+      }
+      showMode();
+      run();
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels, ' + CJA_IMG.bytes(s.size) +
+          ' &middot; click to choose another</span>';
+        /* Start at half size, a common need, rather than a no-op. */
+        wEl.value = Math.max(1, Math.round(s.width / 2));
+        hEl.value = Math.max(1, Math.round(s.height / 2));
+        run();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    showMode();
+  })();
+  </script>
+</body>
+</html>

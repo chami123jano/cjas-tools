@@ -5,7 +5,9 @@
   "scripts": {
     "test": "node test/run.js",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "test:browser": "node test/browser.js",
+    "test:images": "node test/images.js"
   },
   "keywords": [],
   "author": "",
