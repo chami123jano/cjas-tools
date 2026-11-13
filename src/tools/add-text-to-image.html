@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add Text to Image — Cja's Tools</title>
+<meta name="description" content="Write a caption, date or message on a picture, in any colour and size, and drag it into place. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { cursor: grab; touch-action: none; }
+  #out.dragging { cursor: grabbing; }
+</style>
+</head>
+<body data-page="tool" data-slug="add-text-to-image">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Add Text to Image</h1>
+        <p>Type your words, then drag them where you want them. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="text">Text (Enter starts a new line)</label>
+          <textarea id="text" rows="2">Happy Birthday!</textarea>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="font">Font</label>
+            <select id="font">
+              <option value="Segoe UI, Arial, sans-serif" selected>Plain (Segoe UI)</option>
+              <option value="Georgia, 'Times New Roman', serif">Classic (Georgia)</option>
+              <option value="Impact, 'Arial Black', sans-serif">Bold poster (Impact)</option>
+              <option value="'Segoe Script', 'Brush Script MT', cursive">Handwritten (Segoe Script)</option>
+              <option value="Consolas, 'Courier New', monospace">Typewriter (Consolas)</option>
+              <option value="'Iskoola Pota', 'Nirmala UI', sans-serif">Sinhala / Tamil (Iskoola Pota)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="size">Size: <span id="size-label">12</span></label>
+            <input type="range" id="size" min="2" max="30" value="12">
+          </div>
+          <div class="field">
+            <label for="colour">Colour</label>
+            <input type="color" id="colour" value="#ffffff">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="effect">To stand out</label>
+            <select id="effect">
+              <option value="outline" selected>Dark outline</option>
+              <option value="shadow">Soft shadow</option>
+              <option value="box">Box behind the text</option>
+              <option value="none">Nothing</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="align">Line up multiple lines</label>
+            <select id="align">
+              <option value="center" selected>Centred</option>
+              <option value="left">Left</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" id="bold" checked style="width:auto;margin-right:7px">
+              Bold
+            </label>
+          </div>
+        </div>
+        <div class="btns" id="places">
+          <button class="btn" data-p="0.5,0.12">Top</button>
+          <button class="btn" data-p="0.5,0.5">Middle</button>
+          <button class="btn" data-p="0.5,0.88">Bottom</button>
+          <button class="btn" data-p="0.2,0.9">Bottom left</button>
+          <button class="btn" data-p="0.8,0.9">Bottom right</button>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Size is a share of the picture's width,</b> so the text
+          looks the same on a small phone photo and a large camera one.
+          <br><br>
+          <b>The fonts are the ones already on this computer.</b> Sinhala and Tamil
+          need a font that has those letters; Iskoola Pota and Nirmala UI come with
+          Windows. If the letters show as boxes, the font is missing on this device.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var out = document.getElementById('out');
+    var pos = { x: 0.5, y: 0.88 };   // centre of the text, as a share of the picture
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function render() {
+      document.getElementById('size-label').textContent = v('size');
+      if (!source) return;
+      var w = source.width, h = source.height;
+      out.width = w;
+      out.height = h;
+      var ctx = out.getContext('2d');
+      ctx.drawImage(source.img, 0, 0);
+
+      var lines = v('text').split('\n');
+      if (!v('text').trim()) return;
+      var px = Math.max(8, Math.round(w * parseInt(v('size'), 10) / 100 / 2));
+      ctx.font = (document.getElementById('bold').checked ? 'bold ' : '') + px + 'px ' + v('font');
+      ctx.textBaseline = 'middle';
+      var align = v('align');
+      ctx.textAlign = align;
+
+      var lineH = px * 1.25;
+      var widths = lines.map(function (l) { return ctx.measureText(l).width; });
+      var blockW = Math.max.apply(null, widths);
+      var blockH = lineH * lines.length;
+      /* Keep the whole block on the picture. */
+      var cx = Math.min(Math.max(pos.x * w, blockW / 2), w - blockW / 2);
+      var cy = Math.min(Math.max(pos.y * h, blockH / 2), h - blockH / 2);
+      var x = align === 'left' ? cx - blockW / 2 : align === 'right' ? cx + blockW / 2 : cx;
+      var top = cy - blockH / 2 + lineH / 2;
+
+      var effect = v('effect');
+      if (effect === 'box') {
+        var pad = px * 0.4;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(cx - blockW / 2 - pad, cy - blockH / 2 - pad / 2, blockW + pad * 2, blockH + pad);
+      }
+      ctx.fillStyle = v('colour');
+      ctx.lineJoin = 'round';
+      lines.forEach(function (line, i) {
+        var y = top + i * lineH;
+        ctx.save();
+        if (effect === 'shadow') {
+          ctx.shadowColor = 'rgba(0,0,0,0.7)';
+          ctx.shadowBlur = px / 4;
+          ctx.shadowOffsetX = ctx.shadowOffsetY = px / 12;
+        }
+        if (effect === 'outline') {
+          ctx.lineWidth = Math.max(2, px / 8);
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+          ctx.strokeText(line, x, y);
+        }
+        ctx.fillText(line, x, y);
+        ctx.restore();
+      });
+      ctx.textAlign = 'start';
+    }
+
+    /* Drag anywhere on the picture to move the text there. */
+    var dragging = false;
+    function moveTo(e) {
+      var r = out.getBoundingClientRect();
+      pos.x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      pos.y = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+      render();
+    }
+    out.addEventListener('pointerdown', function (e) {
+      dragging = true;
+      out.classList.add('dragging');
+      out.setPointerCapture(e.pointerId);
+      moveTo(e);
+    });
+    out.addEventListener('pointermove', function (e) { if (dragging) moveTo(e); });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      out.addEventListener(ev, function () { dragging = false; out.classList.remove('dragging'); });
+    });
+
+    ['text', 'size', 'colour'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['font', 'effect', 'align', 'bold'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+    document.getElementById('places').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-p]');
+      if (!b) return;
+      var p = b.dataset.p.split(',');
+      pos = { x: +p[0], y: +p[1] };
+      render();
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      var type = source.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      CJA_IMG.toBlob(out, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-text'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('result-panel').hidden = false;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

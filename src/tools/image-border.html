@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add a Border — Cja's Tools</title>
+<meta name="description" content="Put a plain, double or photo-print border around a picture, in any colour. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="image-border">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Add a Border</h1>
+        <p>A frame around a picture. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="style">Style</label>
+            <select id="style">
+              <option value="plain" selected>Plain</option>
+              <option value="double">Double line</option>
+              <option value="print">Photo print (deeper at the bottom)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="size">Thickness: <span id="size-label">4</span>% of the shorter side</label>
+            <input type="range" id="size" min="1" max="25" value="4">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="colour">Border colour</label>
+            <input type="color" id="colour" value="#ffffff">
+          </div>
+          <div class="field" id="line-field" hidden>
+            <label for="line">Inner line colour</label>
+            <input type="color" id="line" value="#222222">
+          </div>
+        </div>
+        <div class="btns" id="swatches">
+          <button class="btn" data-c="#ffffff">White</button>
+          <button class="btn" data-c="#000000">Black</button>
+          <button class="btn" data-c="#f4ecd8">Cream</button>
+          <button class="btn" data-c="#8a6d3b">Wood</button>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The border is added outside the picture,</b> so none of
+          the picture is covered and the result is bigger by the border on each side.
+          The thickness is measured against the shorter side, so a border looks the
+          same on a small picture and a large one.
+          <br><br>
+          <b>Photo print</b> leaves a deeper strip at the bottom, the classic place
+          to write a date or a name.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var out = document.getElementById('out');
+
+    /* Border widths for each side, in pixels. */
+    function sides(w, h, style, pct) {
+      var b = Math.max(1, Math.round(Math.min(w, h) * pct / 100));
+      return { top: b, right: b, left: b, bottom: style === 'print' ? b * 4 : b };
+    }
+
+    function render() {
+      var style = document.getElementById('style').value;
+      var pct = parseInt(document.getElementById('size').value, 10);
+      document.getElementById('size-label').textContent = pct;
+      document.getElementById('line-field').hidden = style !== 'double';
+      if (!source) return;
+
+      var w = source.width, h = source.height;
+      var s = sides(w, h, style, pct);
+      out.width = w + s.left + s.right;
+      out.height = h + s.top + s.bottom;
+      var ctx = out.getContext('2d');
+      ctx.fillStyle = document.getElementById('colour').value;
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(source.img, s.left, s.top);
+
+      if (style === 'double') {
+        /* A thin line set a third of the way into the border. */
+        var lw = Math.max(1, Math.round(s.top / 6));
+        var gap = Math.round(s.top / 3);
+        ctx.strokeStyle = document.getElementById('line').value;
+        ctx.lineWidth = lw;
+        ctx.strokeRect(s.left - gap - lw / 2, s.top - gap - lw / 2,
+          w + 2 * gap + lw, h + 2 * gap + lw);
+      }
+
+      document.getElementById('result-panel').hidden = false;
+      document.getElementById('note').textContent = w + ' × ' + h + ' becomes ' +
+        out.width + ' × ' + out.height + ' pixels.';
+    }
+
+    ['style', 'colour', 'line'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+      document.getElementById(id).addEventListener('change', render);
+    });
+    document.getElementById('size').addEventListener('input', render);
+    document.getElementById('swatches').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-c]');
+      if (!b) return;
+      document.getElementById('colour').value = b.dataset.c;
+      render();
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      var type = source.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      CJA_IMG.toBlob(out, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-border'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

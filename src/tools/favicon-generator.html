@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Favicon Generator — Cja's Tools</title>
+<meta name="description" content="Make a website icon (favicon.ico and the PNG sizes phones use) from a picture or a letter. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .icons { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .icon { text-align: center; font-size: 12px; color: var(--muted); }
+  .icon canvas {
+    display: block; margin: 0 auto 6px; border: 1px solid var(--border); border-radius: 4px;
+    background: repeating-conic-gradient(#8882 0% 25%, transparent 0% 50%) 50% / 10px 10px;
+    image-rendering: pixelated;
+  }
+  .icon button { margin-top: 4px; }
+  .tab-demo {
+    display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px;
+    border: 1px solid var(--border); border-bottom: none; border-radius: 9px 9px 0 0;
+    background: var(--bg); font-size: 13px;
+  }
+  .tab-demo canvas { width: 16px; height: 16px; }
+  #snippet { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body data-page="tool" data-slug="favicon-generator">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Favicon Generator</h1>
+        <p>The little icon in a browser tab, from a picture or from a letter.</p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="from">Make it from</label>
+            <select id="from">
+              <option value="letter" selected>A letter or emoji</option>
+              <option value="picture">A picture</option>
+            </select>
+          </div>
+          <div class="field" data-from="letter">
+            <label for="letter">Letters (one to three)</label>
+            <input type="text" id="letter" value="C" maxlength="3">
+          </div>
+          <div class="field" data-from="letter">
+            <label for="bg">Background</label>
+            <input type="color" id="bg" value="#3b6fe0">
+          </div>
+          <div class="field" data-from="letter">
+            <label for="fg">Letter colour</label>
+            <input type="color" id="fg" value="#ffffff">
+          </div>
+        </div>
+        <div class="row" data-from="letter">
+          <div class="field">
+            <label for="shape">Shape</label>
+            <select id="shape">
+              <option value="rounded" selected>Rounded square</option>
+              <option value="square">Square</option>
+              <option value="circle">Circle</option>
+            </select>
+          </div>
+        </div>
+        <div data-from="picture" hidden>
+          <div class="drop-zone" id="drop" tabindex="0" role="button">
+            <b>Choose a picture</b>, drag one here, or paste one
+            <span>Square works best. Anything else is centred and fitted.</span>
+          </div>
+          <input type="file" id="file" accept="image/*" hidden>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="tab-demo"><canvas id="tab" width="16" height="16"></canvas> My website</div>
+        <div class="icons" id="icons" style="margin-top:16px"></div>
+        <div class="btns" style="margin-top:14px">
+          <button class="btn primary" id="save-ico">Save favicon.ico</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <div class="field">
+          <label for="snippet">Put this inside &lt;head&gt; on your website</label>
+          <textarea id="snippet" readonly rows="5" spellcheck="false"></textarea>
+        </div>
+        <div class="btns"><button class="btn" id="copy">Copy</button></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which files you need.</b> favicon.ico is the one every
+          browser looks for; it holds the 16, 32 and 48 pixel sizes inside one file.
+          The 180 pixel PNG is what an iPhone uses when someone adds your site to the
+          home screen. The 192 and 512 sizes are for a site with a web app
+          manifest, which lists them for Android. Put them all in your website's
+          top folder.
+          <br><br>
+          <b>At 16 pixels, detail disappears.</b> A bold letter or a simple shape
+          reads far better in a browser tab than a shrunken photo or a full logo.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var SIZES = [16, 32, 48, 180, 192, 512];
+    var ICO_SIZES = [16, 32, 48];
+    var NAMES = { 180: 'apple-touch-icon.png', 192: 'icon-192.png', 512: 'icon-512.png',
+                  16: 'favicon-16.png', 32: 'favicon-32.png', 48: 'favicon-48.png' };
+    var picture = null;
+    var master = null;   // the 512 pixel drawing everything is scaled from
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function shapePath(ctx, s, shape) {
+      ctx.beginPath();
+      if (shape === 'circle') ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2);
+      else if (shape === 'rounded') {
+        var r = s * 0.2;
+        ctx.moveTo(r, 0);
+        ctx.arcTo(s, 0, s, s, r); ctx.arcTo(s, s, 0, s, r);
+        ctx.arcTo(0, s, 0, 0, r); ctx.arcTo(0, 0, s, 0, r);
+        ctx.closePath();
+      } else ctx.rect(0, 0, s, s);
+    }
+
+    function drawMaster() {
+      var S = 512;
+      var c = CJA_IMG.canvas(S, S);
+      var ctx = c.getContext('2d');
+      if (v('from') === 'picture') {
+        if (!picture) return null;
+        var f = CJA_IMG.fit(picture.width, picture.height, S, S, true);
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(picture.img, (S - f.width) / 2, (S - f.height) / 2, f.width, f.height);
+        return c;
+      }
+      shapePath(ctx, S, v('shape'));
+      ctx.fillStyle = v('bg');
+      ctx.fill();
+      var text = Array.from(v('letter').trim()).slice(0, 3).join('');
+      if (text) {
+        var count = Array.from(text).length;
+        ctx.font = 'bold ' + Math.round(S * (count === 1 ? 0.62 : count === 2 ? 0.46 : 0.34)) +
+          'px Segoe UI, Arial, sans-serif';
+        ctx.fillStyle = v('fg');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        /* Capital letters sit slightly high on the middle line; nudge down. */
+        ctx.fillText(text, S / 2, S * 0.53);
+      }
+      return c;
+    }
+
+    /* Each size is scaled down from the large drawing in halves, which keeps
+       the small sizes crisp instead of speckled. */
+    function sized(s) {
+      var cur = master;
+      while (cur.width / 2 >= s) {
+        var half = CJA_IMG.canvas(cur.width / 2, cur.height / 2);
+        var hc = half.getContext('2d');
+        hc.imageSmoothingQuality = 'high';
+        hc.drawImage(cur, 0, 0, half.width, half.height);
+        cur = half;
+      }
+      var c = CJA_IMG.canvas(s, s);
+      var ctx = c.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(cur, 0, 0, s, s);
+      return c;
+    }
+
+    function render() {
+      var from = v('from');
+      document.querySelectorAll('[data-from]').forEach(function (el) {
+        el.hidden = el.dataset.from !== from;
+      });
+      master = drawMaster();
+      var box = document.getElementById('icons');
+      if (!master) {
+        box.innerHTML = '<p class="hint" style="margin:0">Choose a picture to see the icons.</p>';
+        document.getElementById('tab').getContext('2d').clearRect(0, 0, 16, 16);
+        return;
+      }
+      box.innerHTML = '';
+      SIZES.forEach(function (s) {
+        var c = sized(s);
+        var shownAt = s <= 48 ? s * 2 : Math.min(s, 96);
+        c.style.width = c.style.height = shownAt + 'px';
+        var d = document.createElement('div');
+        d.className = 'icon';
+        d.appendChild(c);
+        d.appendChild(document.createTextNode(s + ' × ' + s));
+        var b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = 'Save';
+        b.style.display = 'block';
+        b.addEventListener('click', function () {
+          CJA_IMG.toBlob(c, 'image/png').then(function (blob) { CJA_IMG.download(blob, NAMES[s]); });
+        });
+        d.appendChild(b);
+        box.appendChild(d);
+      });
+      var tab = document.getElementById('tab').getContext('2d');
+      tab.clearRect(0, 0, 16, 16);
+      tab.drawImage(sized(16), 0, 0);
+    }
+
+    /* An .ico file is a small directory followed by the images. Since
+       Windows Vista each image may simply be a PNG, which every browser
+       reads. All numbers are little-endian. */
+    function buildIco(pngs) {
+      var count = pngs.length;
+      var headerSize = 6 + 16 * count;
+      var total = headerSize + pngs.reduce(function (n, p) { return n + p.data.length; }, 0);
+      var buf = new Uint8Array(total);
+      var dv = new DataView(buf.buffer);
+      dv.setUint16(0, 0, true);       // reserved
+      dv.setUint16(2, 1, true);       // 1 = icon
+      dv.setUint16(4, count, true);
+      var offset = headerSize;
+      pngs.forEach(function (p, i) {
+        var e = 6 + 16 * i;
+        dv.setUint8(e, p.size >= 256 ? 0 : p.size);       // width (0 means 256)
+        dv.setUint8(e + 1, p.size >= 256 ? 0 : p.size);   // height
+        dv.setUint8(e + 2, 0);                            // no palette
+        dv.setUint8(e + 3, 0);
+        dv.setUint16(e + 4, 1, true);                     // colour planes
+        dv.setUint16(e + 6, 32, true);                    // bits per pixel
+        dv.setUint32(e + 8, p.data.length, true);
+        dv.setUint32(e + 12, offset, true);
+        buf.set(p.data, offset);
+        offset += p.data.length;
+      });
+      return buf;
+    }
+
+    document.getElementById('save-ico').addEventListener('click', function () {
+      if (!master) { CT.toast('Choose a picture first'); return; }
+      Promise.all(ICO_SIZES.map(function (s) {
+        return CJA_IMG.toBlob(sized(s), 'image/png').then(function (b) { return b.arrayBuffer(); })
+          .then(function (ab) { return { size: s, data: new Uint8Array(ab) }; });
+      })).then(function (pngs) {
+        var ico = buildIco(pngs);
+        CJA_IMG.download(new Blob([ico], { type: 'image/x-icon' }), 'favicon.ico');
+        document.getElementById('note').textContent = 'favicon.ico saved, ' +
+          CJA_IMG.bytes(ico.length) + ', holding the 16, 32 and 48 pixel sizes.';
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    document.getElementById('snippet').value = [
+      '<link rel="icon" href="/favicon.ico" sizes="any">',
+      '<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">',
+      '<link rel="apple-touch-icon" href="/apple-touch-icon.png">'
+    ].join('\n');
+    document.getElementById('copy').addEventListener('click', function () {
+      CT.copy(document.getElementById('snippet').value);
+    });
+
+    ['letter', 'bg', 'fg'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['from', 'shape'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (picture) URL.revokeObjectURL(picture.url);
+        picture = s;
+        document.getElementById('from').value = 'picture';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

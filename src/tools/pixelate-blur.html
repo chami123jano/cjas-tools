@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixelate or Blur — Cja's Tools</title>
+<meta name="description" content="Hide faces, number plates or ID numbers in a picture by blurring or pixelating just those parts. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { cursor: crosshair; touch-action: none; }
+</style>
+</head>
+<body data-page="tool" data-slug="pixelate-blur">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Pixelate or Blur</h1>
+        <p>Drag over the parts to hide &mdash; a face, a number plate, an ID number. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="mode">Effect</label>
+            <select id="mode">
+              <option value="pixel" selected>Pixelate (big squares)</option>
+              <option value="blur">Blur</option>
+              <option value="solid">Solid black box</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="strength">Strength: <span id="s-label">5</span></label>
+            <input type="range" id="strength" min="1" max="10" value="5">
+          </div>
+          <div class="field">
+            <label for="area">Apply to</label>
+            <select id="area">
+              <option value="parts" selected>The parts I drag over</option>
+              <option value="all">The whole picture</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <p class="hint" id="count" style="margin-top:0"></p>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+          <button class="btn" id="undo">Undo the last box</button>
+          <button class="btn" id="clear">Clear all boxes</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>For anything truly private, use the solid box.</b> Light
+          blur and small pixels can sometimes be partly reversed, or read by eye from
+          a distance &mdash; especially numbers and text. Strong pixelation is safe
+          for faces; a black box is the only sure choice for an NIC or bank number.
+          <br><br>
+          <b>The saved picture is a new file</b> with the hidden parts really
+          replaced. Nothing underneath is kept, unlike covering something with a
+          shape in a document.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var boxes = [];          // in picture pixels
+    var dragging = null;     // the box being drawn
+    var out = document.getElementById('out');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* Hides one rectangle of the picture on ctx. */
+    function hide(ctx, r) {
+      var mode = v('mode');
+      var k = parseInt(v('strength'), 10);
+      var scale = Math.max(source.width, source.height);
+      if (mode === 'solid') {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(r.x, r.y, r.width, r.height);
+        return;
+      }
+      if (mode === 'pixel') {
+        /* Shrink the area to a few blocks, then stretch it back with
+           smoothing off, so each block becomes one flat colour. */
+        var block = Math.max(2, Math.round(scale * k / 400));
+        var sw = Math.max(1, Math.ceil(r.width / block));
+        var sh = Math.max(1, Math.ceil(r.height / block));
+        var tiny = CJA_IMG.canvas(sw, sh);
+        tiny.getContext('2d').drawImage(source.img, r.x, r.y, r.width, r.height, 0, 0, sw, sh);
+        /* Clipped to the box: the last row and column of blocks can
+           overhang, and must not paint over anything outside it. */
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(r.x, r.y, r.width, r.height);
+        ctx.clip();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tiny, 0, 0, sw, sh, r.x, r.y, sw * block, sh * block);
+        ctx.restore();
+        return;
+      }
+      /* Blur: drawn through a blur filter, clipped to the box. The extra
+         margin stops the edges of the box fading to see-through. */
+      var radius = Math.max(2, Math.round(scale * k / 300));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(r.x, r.y, r.width, r.height);
+      ctx.clip();
+      ctx.filter = 'blur(' + radius + 'px)';
+      ctx.drawImage(source.img, 0, 0);
+      ctx.drawImage(source.img, 0, 0);
+      ctx.restore();
+    }
+
+    function render() {
+      document.getElementById('s-label').textContent = v('strength');
+      if (!source) return;
+      var ctx = out.getContext('2d');
+      ctx.filter = 'none';
+      ctx.drawImage(source.img, 0, 0);
+      var all = v('area') === 'all';
+      var list = all ? [{ x: 0, y: 0, width: source.width, height: source.height }] : boxes.slice();
+      if (!all && dragging) list.push(dragging);
+      list.forEach(function (r) { if (r.width > 0 && r.height > 0) hide(ctx, r); });
+      if (!all && dragging) {
+        ctx.strokeStyle = '#ffd400';
+        ctx.lineWidth = Math.max(2, source.width / 400);
+        ctx.strokeRect(dragging.x, dragging.y, dragging.width, dragging.height);
+      }
+      document.getElementById('count').textContent = all
+        ? 'The whole picture is covered.'
+        : boxes.length
+          ? boxes.length + ' part' + (boxes.length === 1 ? '' : 's') + ' hidden. Drag again to add more.'
+          : 'Drag a box over anything you want to hide.';
+    }
+
+    function point(e) {
+      var r = out.getBoundingClientRect();
+      return {
+        x: Math.min(source.width, Math.max(0, (e.clientX - r.left) / r.width * source.width)),
+        y: Math.min(source.height, Math.max(0, (e.clientY - r.top) / r.height * source.height))
+      };
+    }
+    var start = null;
+    out.addEventListener('pointerdown', function (e) {
+      if (!source || v('area') === 'all') return;
+      out.setPointerCapture(e.pointerId);
+      start = point(e);
+      dragging = { x: start.x, y: start.y, width: 0, height: 0 };
+    });
+    out.addEventListener('pointermove', function (e) {
+      if (!start) return;
+      var p = point(e);
+      dragging = CJA_IMG.clampRect({
+        x: Math.min(start.x, p.x), y: Math.min(start.y, p.y),
+        width: Math.abs(p.x - start.x), height: Math.abs(p.y - start.y)
+      }, source.width, source.height);
+      render();
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      out.addEventListener(ev, function () {
+        if (!start) return;
+        /* A click without a drag is ignored rather than hiding one pixel. */
+        if (dragging && dragging.width > 3 && dragging.height > 3) boxes.push(dragging);
+        start = null;
+        dragging = null;
+        render();
+      });
+    });
+
+    document.getElementById('undo').addEventListener('click', function () { boxes.pop(); render(); });
+    document.getElementById('clear').addEventListener('click', function () { boxes = []; render(); });
+    ['mode', 'area'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+    document.getElementById('strength').addEventListener('input', render);
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      if (v('area') !== 'all' && !boxes.length) { CT.toast('Drag over the parts to hide first'); return; }
+      var type = source.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      CJA_IMG.toBlob(out, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-hidden'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        boxes = [];
+        out.width = s.width;
+        out.height = s.height;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('result-panel').hidden = false;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

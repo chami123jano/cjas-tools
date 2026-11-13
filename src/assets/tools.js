@@ -834,6 +834,41 @@ const TOOLS = [
     category: 'image',
     desc: 'Rounded corners, or a circle for a profile picture.',
     keywords: ['round', 'corners', 'circle', 'profile picture', 'rounded', 'avatar']
+  },
+  {
+    slug: 'image-border',
+    name: 'Add a Border',
+    category: 'image',
+    desc: 'A plain, double or photo-print frame around a picture.',
+    keywords: ['border', 'frame', 'polaroid', 'edge', 'outline', 'photo']
+  },
+  {
+    slug: 'add-text-to-image',
+    name: 'Add Text to Image',
+    category: 'image',
+    desc: 'Write a caption or message on a picture and drag it into place.',
+    keywords: ['text', 'caption', 'write on photo', 'meme', 'words', 'label', 'sinhala']
+  },
+  {
+    slug: 'image-watermark',
+    name: 'Watermark Image',
+    category: 'image',
+    desc: 'Your name or logo on a picture, in a corner or repeated across it.',
+    keywords: ['watermark', 'copyright', 'logo', 'protect', 'stamp', 'brand']
+  },
+  {
+    slug: 'favicon-generator',
+    name: 'Favicon Generator',
+    category: 'image',
+    desc: 'A website tab icon (favicon.ico and PNG sizes) from a picture or a letter.',
+    keywords: ['favicon', 'ico', 'icon', 'website', 'apple touch icon', 'tab icon']
+  },
+  {
+    slug: 'pixelate-blur',
+    name: 'Pixelate or Blur',
+    category: 'image',
+    desc: 'Hide faces, number plates or ID numbers in a picture.',
+    keywords: ['pixelate', 'blur', 'hide', 'censor', 'redact', 'face', 'number plate', 'nic']
   }
 ];
 

@@ -2810,7 +2810,8 @@ pending.push(function currencyLive() {
 
 (function () {
   // every image page has a drop zone, a hidden file input and loads the helper
-  ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners'].forEach((slug) => {
+  ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners',
+   'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
        slug + ' has a drop zone and file input');
@@ -2818,6 +2819,23 @@ pending.push(function currencyLive() {
     ok(!!t.window.CJA_IMG, slug + ' loads the image helper');
     t.close();
   });
+})();
+
+// ---------------------------------------------------------------- favicon generator
+// The icon files are checked byte by byte in a real browser (test/images.js).
+
+(function () {
+  const t = loadTool('favicon-generator');
+  ok(t.byId('snippet').value.indexOf('<link rel="icon" href="/favicon.ico"') === 0,
+     'favicon: gives the HTML to paste');
+  ok(t.byId('snippet').value.indexOf('manifest') === -1,
+     'favicon: does not point at a manifest file it does not make');
+  ok(!!t.window.CJA_IMG && t.byId('file').getAttribute('accept') === 'image/*',
+     'favicon: can take a picture');
+  t.set('from', 'picture');
+  ok(!t.$('[data-from="picture"]').hidden && t.$('[data-from="letter"]').hidden,
+     'favicon: switching to a picture shows the picture chooser');
+  t.close();
 })();
 
 // ---------------------------------------------------------------- report

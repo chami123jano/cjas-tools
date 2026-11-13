@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watermark Image — Cja's Tools</title>
+<meta name="description" content="Put your name or logo on a picture, in a corner or repeated across it, so it cannot be passed off as someone else's. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="image-watermark">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Watermark Image</h1>
+        <p>Your name or logo on a picture before you share it. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose the picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="kind">Watermark</label>
+            <select id="kind">
+              <option value="text" selected>Text</option>
+              <option value="logo">A logo picture</option>
+            </select>
+          </div>
+          <div class="field" data-kind="text">
+            <label for="text">Text</label>
+            <input type="text" id="text" value="© Cja's Tools">
+          </div>
+          <div class="field" data-kind="logo" hidden>
+            <label>Logo (a PNG with a see-through background works best)</label>
+            <button class="btn" id="logo-btn" type="button">Choose a logo</button>
+            <input type="file" id="logo" accept="image/*" hidden>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="place">Where</label>
+            <select id="place">
+              <option value="br" selected>Bottom right</option>
+              <option value="bl">Bottom left</option>
+              <option value="tr">Top right</option>
+              <option value="tl">Top left</option>
+              <option value="c">Centre</option>
+              <option value="tile">Repeated all over</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="size">Size: <span id="size-label">20</span>% of the width</label>
+            <input type="range" id="size" min="5" max="80" value="20">
+          </div>
+          <div class="field">
+            <label for="opacity">Strength: <span id="opacity-label">50</span>%</label>
+            <input type="range" id="opacity" min="5" max="100" value="50">
+          </div>
+          <div class="field" data-kind="text">
+            <label for="colour">Colour</label>
+            <input type="color" id="colour" value="#ffffff">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A corner mark</b> is easy to crop off. If the picture
+          really matters &mdash; a product photo, a property listing, artwork &mdash;
+          repeat it across the whole picture at a low strength, around 20 to 30%.
+          It stays readable to people but is hard to remove.
+          <br><br>
+          <b>Keep the original.</b> The watermark is part of the saved picture's
+          pixels and cannot be taken off again.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null, logo = null;
+    var out = document.getElementById('out');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* The mark as its own small canvas, so it can be placed once or tiled. */
+    function makeMark(width) {
+      if (v('kind') === 'logo') {
+        if (!logo) return null;
+        var size = CJA_IMG.fit(logo.width, logo.height, width, 0, true);
+        var lc = CJA_IMG.canvas(size.width, size.height);
+        lc.getContext('2d').drawImage(logo.img, 0, 0, size.width, size.height);
+        return lc;
+      }
+      var text = v('text').trim();
+      if (!text) return null;
+      var probe = CJA_IMG.canvas(1, 1).getContext('2d');
+      probe.font = 'bold 100px Segoe UI, Arial, sans-serif';
+      /* Font size chosen so the text comes out the requested width. */
+      var px = Math.max(8, 100 * width / probe.measureText(text).width);
+      var tc = CJA_IMG.canvas(width, px * 1.4);
+      var ctx = tc.getContext('2d');
+      ctx.font = 'bold ' + px + 'px Segoe UI, Arial, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = Math.max(1, px / 14);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.strokeText(text, tc.width / 2, tc.height / 2);
+      ctx.fillStyle = v('colour');
+      ctx.fillText(text, tc.width / 2, tc.height / 2);
+      return tc;
+    }
+
+    function render() {
+      var kind = v('kind');
+      document.querySelectorAll('[data-kind]').forEach(function (el) {
+        el.hidden = el.dataset.kind !== kind;
+      });
+      document.getElementById('size-label').textContent = v('size');
+      document.getElementById('opacity-label').textContent = v('opacity');
+      if (!source) return;
+
+      var w = source.width, h = source.height;
+      out.width = w; out.height = h;
+      var ctx = out.getContext('2d');
+      ctx.drawImage(source.img, 0, 0);
+
+      var markW = Math.max(10, Math.round(w * parseInt(v('size'), 10) / 100));
+      var mark = makeMark(markW);
+      if (!mark) return;
+
+      ctx.globalAlpha = parseInt(v('opacity'), 10) / 100;
+      var place = v('place');
+      var margin = Math.round(Math.min(w, h) * 0.03);
+
+      if (place === 'tile') {
+        /* Rotated rows, offset like bricks, covering past the edges so the
+           corners are not left bare after the rotation. */
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.rotate(-Math.PI / 6);
+        var stepX = mark.width * 1.6, stepY = mark.height * 2.6;
+        var reach = Math.sqrt(w * w + h * h) / 2 + Math.max(stepX, stepY);
+        var row = 0;
+        for (var y = -reach; y < reach; y += stepY, row++) {
+          for (var x = -reach + (row % 2) * stepX / 2; x < reach; x += stepX) {
+            ctx.drawImage(mark, x - mark.width / 2, y - mark.height / 2);
+          }
+        }
+        ctx.restore();
+      } else {
+        var mx = place === 'c' ? (w - mark.width) / 2
+          : place.indexOf('l') === 1 ? margin : w - mark.width - margin;
+        var my = place === 'c' ? (h - mark.height) / 2
+          : place[0] === 't' ? margin : h - mark.height - margin;
+        ctx.drawImage(mark, mx, my);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    ['text', 'size', 'opacity', 'colour'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['kind', 'place'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('logo-btn').addEventListener('click', function () {
+      document.getElementById('logo').click();
+    });
+    document.getElementById('logo').addEventListener('change', function () {
+      var f = this.files[0];
+      this.value = '';
+      if (!f) return;
+      CJA_IMG.load(f).then(function (l) {
+        if (logo) URL.revokeObjectURL(logo.url);
+        logo = l;
+        document.getElementById('logo-btn').textContent = l.name;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      var type = source.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      CJA_IMG.toBlob(out, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-watermarked'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('result-panel').hidden = false;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>
