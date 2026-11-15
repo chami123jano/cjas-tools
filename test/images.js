@@ -100,7 +100,14 @@ async function captureSaves(page) {
     window.CJA_IMG.__real = real;
   });
 }
-const saved = (page) => page.evaluate(() => window.__saved);
+/* Waits for n saves (encoding a big JPG can take a moment on a busy
+   machine), then returns everything saved so far. */
+async function saved(page, n = 1) {
+  if (n > 0) {
+    await page.waitForFunction((n) => window.__saved.length >= n, { timeout: 5000 }, n).catch(() => {});
+  }
+  return page.evaluate(() => window.__saved);
+}
 
 (async () => {
   if (!EDGE) { console.log('Microsoft Edge was not found.'); process.exit(2); }
@@ -510,7 +517,8 @@ const saved = (page) => page.evaluate(() => window.__saved);
     ok(await changed(page, 0, 0, 2400, 1600) === 0, 'pixelate: clear restores the picture');
 
     await page.click('#save');
-    ok((await saved(page)).length === 0, 'pixelate: will not save with nothing hidden');
+    await wait(500);
+    ok((await saved(page, 0)).length === 0, 'pixelate: will not save with nothing hidden');
 
     await page.select('#mode', 'blur');
     await page.select('#area', 'all');
@@ -522,6 +530,191 @@ const saved = (page) => page.evaluate(() => window.__saved);
     await wait(800);
     const s = await saved(page);
     ok(s.length === 1 && s[0].name === 'photo-hidden.png', 'pixelate: saves photo-hidden.png', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- rotate and flip
+  {
+    const page = await open('rotate-flip');
+    await give(page, small);   // 400 x 300, red block in the top-left corner
+    const red = (p) => p[0] > 200 && p[1] < 60 && p[2] < 60;
+    let img = await shown(page, '#out');
+    ok(img && img.w === 400 && img.h === 300 && red(img.topLeft), 'rotate: starts as the original');
+
+    await page.click('#turns [data-turn="90"]');
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && img.w === 300 && img.h === 400, 'rotate: turning right swaps width and height', JSON.stringify(img && [img.w, img.h]));
+    ok(red(await pixel(page, 297, 2)), 'rotate: the top-left corner goes to the top right');
+
+    // mirror after a turn still mirrors left-right on screen
+    await page.click('#turns [data-flip="h"]');
+    await wait(150);
+    ok(red(await pixel(page, 2, 2)), 'rotate: mirror after a turn flips left-right as seen');
+
+    await page.click('#reset');
+    await page.click('#turns [data-turn="180"]');
+    await wait(150);
+    ok(red(await pixel(page, 397, 297)), 'rotate: upside down puts the corner bottom right');
+    await page.click('#turns [data-flip="v"]');
+    await wait(150);
+    ok(red(await pixel(page, 397, 2)), 'rotate: flip top to bottom');
+
+    // straightening with trim gives a smaller picture with no empty corners
+    await page.click('#reset');
+    await page.$eval('#fine', (e) => { e.value = 10; e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && img.w < 400 && img.h < 300 && img.corner[3] === 255 && img.bottomRight[3] === 255,
+       'rotate: trimming leaves no see-through corners', JSON.stringify(img && [img.w, img.h, img.corner, img.bottomRight]));
+    await page.select('#corners', 'fill');
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && img.w > 400 && img.h > 300 && img.bottomRight[0] === 255 && img.bottomRight[1] === 255,
+       'rotate: "keep everything" grows the picture and fills the corners', JSON.stringify(img && [img.w, img.h, img.bottomRight]));
+    await page.click('#save');
+    await wait(400);
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'small-rotated.jpg', 'rotate: saves small-rotated.jpg', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- photo filters
+  {
+    const page = await open('photo-filters');
+    await give(page, small);
+    let img = await shown(page, '#out');
+    const orig = img.centre;
+    await page.click('#looks [data-look="bw"]');
+    await wait(150);
+    img = await shown(page, '#out');
+    const c = img.centre;
+    ok(Math.abs(c[0] - c[1]) <= 2 && Math.abs(c[1] - c[2]) <= 2, 'filters: black and white has no colour', JSON.stringify(c));
+    ok(await page.$eval('#grayscale', (e) => e.value) === '100', 'filters: a look sets the sliders');
+
+    await page.click('#looks [data-look="none"]');
+    await page.$eval('#brightness', (e) => { e.value = 160; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img.centre[0] + img.centre[1] + img.centre[2] > orig[0] + orig[1] + orig[2] + 60,
+       'filters: brightness lightens', JSON.stringify([orig, img.centre]));
+    ok(!(await page.$$eval('#looks .btn.primary', (b) => b.length)), 'filters: moving a slider clears the look');
+
+    // holding the button shows the original
+    await page.$eval('#hold', (e) => e.scrollIntoView({ block: 'center' }));
+    const hold = await (await page.$('#hold')).boundingBox();
+    await page.mouse.move(hold.x + 5, hold.y + 5);
+    await page.mouse.down();
+    await wait(100);
+    img = await shown(page, '#out');
+    ok(Math.abs(img.centre[0] - orig[0]) <= 2, 'filters: holding shows the original');
+    await page.mouse.up();
+    await wait(100);
+    img = await shown(page, '#out');
+    ok(img.centre[0] > orig[0] + 10, 'filters: letting go shows the edit again');
+
+    await page.$eval('#warmth', (e) => { e.value = 50; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await wait(150);
+    const warm = (await shown(page, '#out')).centre;
+    ok(warm[0] - warm[2] > img.centre[0] - img.centre[2], 'filters: warmth adds orange', JSON.stringify([img.centre, warm]));
+
+    await page.$eval('#blur', (e) => { e.value = 20; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await wait(200);
+    ok((await shown(page, '#out')).corner[3] === 255, 'filters: soften keeps the edges solid');
+    await page.click('#save');
+    await wait(400);
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'small-edited.jpg', 'filters: saves small-edited.jpg', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- colour picker
+  {
+    const page = await open('image-color-picker');
+    await give(page, small);   // red block is the top-left 100 x 75
+    await page.$eval('#view', (e) => e.scrollIntoView({ block: 'center' }));
+    const box = await (await page.$('#view')).boundingBox();
+    await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.1);
+    await wait(100);
+    const hex = await text(page, 'hex');
+    ok(/^#F[A-F0-9]0[0-9A-F]0[0-9A-F]$/.test(hex) || /^#(F|E)[0-9A-F]{5}$/.test(hex) && parseInt(hex.slice(3, 5), 16) < 40,
+       'picker: clicking the red corner reads red', hex);
+    ok(/^rgb\(\d+, \d+, \d+\)$/.test(await text(page, 'rgb')), 'picker: gives RGB');
+    ok(/^hsl\((35\d|[0-9]|1[0-9]), \d+%, \d+%\)$/.test(await text(page, 'hsl')), 'picker: and HSL with a red hue', await text(page, 'hsl'));
+    ok(/^Pixel 40, 30/.test(await text(page, 'where')), 'picker: says which pixel', await text(page, 'where'));
+
+    // the palette finds the red block among the main colours
+    const chips = await page.$$eval('#palette .chip', (cs) => cs.map((c) => c.dataset.hex));
+    ok(chips.length >= 2 && chips.length <= 8, 'picker: lists the main colours', chips.join(' '));
+    ok(chips.some((h) => parseInt(h.slice(1, 3), 16) > 200 && parseInt(h.slice(3, 5), 16) < 60),
+       'picker: the red block is one of them', chips.join(' '));
+    const shares = await page.$$eval('#palette .chip span', (s) => s.map((x) => parseInt(x.textContent, 10)));
+    ok(shares.every((n, i) => i === 0 || n <= shares[i - 1]), 'picker: biggest share first', shares.join(','));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- passport photo
+  {
+    const page = await open('passport-photo');
+    await give(page, photo);   // 2400 x 1600
+    ok(!(await page.$eval('#editor-panel', (e) => e.hidden)), 'passport: the editor opens');
+    const fw = await page.$eval('#frame', (e) => [e.width, e.height]);
+    ok(Math.abs(fw[0] / fw[1] - 35 / 45) < 0.01, 'passport: the frame is 35:45', JSON.stringify(fw));
+
+    // 4 x 6 at 300 dpi is 1200 x 1800, and six 35 x 45 photos fit
+    let sh = await page.$eval('#sheet', (e) => [e.width, e.height]);
+    ok(sh[0] === 1200 && sh[1] === 1800, 'passport: a 4x6 sheet is 1200 x 1800 pixels', JSON.stringify(sh));
+    ok(await page.$eval('#copies', (e) => e.value) === '6', 'passport: six photos fit on 4x6');
+    ok(/6 photos of 35 × 45 mm/.test(await text(page, 'sheet-note')), 'passport: and says so', await text(page, 'sheet-note'));
+
+    await page.select('#paper', 'a4');
+    await wait(300);
+    sh = await page.$eval('#sheet', (e) => [e.width, e.height]);
+    ok(sh[0] === 2480 && sh[1] === 3508, 'passport: A4 is 2480 x 3508', JSON.stringify(sh));
+    ok(await page.$eval('#copies', (e) => e.value) === '30', 'passport: thirty fit on A4', await page.$eval('#copies', (e) => e.value));
+
+    await page.select('#size', '51x51');
+    await page.select('#paper', '4x6');
+    await page.select('#copies', '2');
+    await wait(300);
+    ok(/2 photos of 51 × 51 mm/.test(await text(page, 'sheet-note')), 'passport: 2x2 inch, two copies');
+    // the photo at 300 dpi: 51 mm is 602 px; the third slot stays white
+    const sheetPx = await page.evaluate(() => {
+      const c = document.getElementById('sheet');
+      const d = c.getContext('2d');
+      return [Array.from(d.getImageData(600, 1700, 1, 1).data), Array.from(d.getImageData(c.width / 2, 300, 1, 1).data)];
+    });
+    ok(sheetPx[0][0] === 255 && sheetPx[0][1] === 255, 'passport: unused space stays white');
+
+    // dragging the photo changes what is framed, and stays inside the photo
+    await page.select('#size', '35x45');
+    await wait(200);
+    await page.$eval('#frame-wrap', (e) => e.scrollIntoView({ block: 'center' }));
+    const before = await page.evaluate(() => Array.from(document.getElementById('frame').getContext('2d').getImageData(5, 5, 1, 1).data));
+    const fb = await (await page.$('#frame-wrap')).boundingBox();
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(fb.x + fb.width / 2 + 3000, fb.y + fb.height / 2 + 3000, { steps: 4 });
+    await page.mouse.up();
+    await wait(200);
+    const after = await page.evaluate(() => Array.from(document.getElementById('frame').getContext('2d').getImageData(5, 5, 1, 1).data));
+    ok(after[0] > 200 && after[1] < 60, 'passport: dragging far moves to the photo edge (the red corner)', JSON.stringify([before, after]));
+
+    await page.$eval('#tilt', (e) => { e.value = 10; e.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('change')); });
+    await wait(200);
+    const corners = await page.evaluate(() => {
+      const c = document.getElementById('frame'), d = c.getContext('2d');
+      return [d.getImageData(0, 0, 1, 1).data, d.getImageData(c.width - 1, c.height - 1, 1, 1).data]
+        .map((p) => Array.from(p));
+    });
+    ok(corners.every((p) => !(p[0] === 255 && p[1] === 255 && p[2] === 255)),
+       'passport: straightening leaves no blank corners', JSON.stringify(corners));
+
+    await page.click('#save-one');
+    await page.click('#save-sheet');
+    const s = await saved(page, 2);
+    ok(s.length === 2 && s[0].name === 'passport-photo-35x45mm.jpg' && s[1].name === 'passport-photos-4x6.jpg',
+       'passport: saves one photo and the sheet', JSON.stringify(s));
     await page.close();
   }
 

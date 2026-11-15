@@ -2811,7 +2811,8 @@ pending.push(function currencyLive() {
 (function () {
   // every image page has a drop zone, a hidden file input and loads the helper
   ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners',
-   'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur'].forEach((slug) => {
+   'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur',
+   'rotate-flip', 'photo-filters', 'image-color-picker', 'passport-photo'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
        slug + ' has a drop zone and file input');

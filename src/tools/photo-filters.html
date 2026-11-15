@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Filters — Cja's Tools</title>
+<meta name="description" content="Brightness, contrast, colour, black and white, sepia and ready-made looks for a photo. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 20px; }
+</style>
+</head>
+<body data-page="tool" data-slug="photo-filters">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Photo Filters</h1>
+        <p>Brighten a dark photo, warm it up, or make it black and white. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="btns" id="looks">
+          <button class="btn primary" data-look="none">Original</button>
+          <button class="btn" data-look="bw">Black and white</button>
+          <button class="btn" data-look="sepia">Old photo</button>
+          <button class="btn" data-look="vivid">Vivid</button>
+          <button class="btn" data-look="warm">Warm</button>
+          <button class="btn" data-look="cool">Cool</button>
+          <button class="btn" data-look="fade">Faded</button>
+          <button class="btn" data-look="dark">Brighten a dark photo</button>
+        </div>
+        <div class="sliders" id="sliders" style="margin-top:14px"></div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+          <button class="btn" id="hold">Hold to see the original</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Start with a look, then fine-tune</b> with the sliders.
+          Every slider is measured from the original, so 100 means unchanged.
+          <br><br>
+          <b>Brightening cannot recover detail that is pure black or pure white</b>
+          in the original &mdash; a very dark photo will look grainy when lifted.
+          Raising contrast a little at the same time usually looks more natural than
+          brightness alone.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var SLIDERS = [
+      { id: 'brightness', label: 'Brightness', min: 20, max: 200, base: 100, unit: '' },
+      { id: 'contrast', label: 'Contrast', min: 20, max: 200, base: 100, unit: '' },
+      { id: 'saturate', label: 'Colour strength', min: 0, max: 250, base: 100, unit: '' },
+      { id: 'warmth', label: 'Warmth (blue to orange)', min: -50, max: 50, base: 0, unit: '' },
+      { id: 'grayscale', label: 'Black and white', min: 0, max: 100, base: 0, unit: '%' },
+      { id: 'sepia', label: 'Sepia (old photo)', min: 0, max: 100, base: 0, unit: '%' },
+      { id: 'blur', label: 'Soften', min: 0, max: 20, base: 0, unit: '' },
+      { id: 'invert', label: 'Negative', min: 0, max: 100, base: 0, unit: '%' }
+    ];
+    var LOOKS = {
+      none: {},
+      bw: { grayscale: 100, contrast: 115 },
+      sepia: { sepia: 85, contrast: 95, brightness: 105, saturate: 80 },
+      vivid: { saturate: 160, contrast: 115 },
+      warm: { warmth: 30, saturate: 110 },
+      cool: { warmth: -30 },
+      fade: { contrast: 75, brightness: 115, saturate: 70 },
+      dark: { brightness: 145, contrast: 115 }
+    };
+
+    var source = null, showOriginal = false;
+    var out = document.getElementById('out');
+
+    document.getElementById('sliders').innerHTML = SLIDERS.map(function (s) {
+      return '<div class="field"><label for="' + s.id + '">' + s.label + ': <span id="' + s.id +
+        '-v">' + s.base + s.unit + '</span></label><input type="range" id="' + s.id +
+        '" min="' + s.min + '" max="' + s.max + '" value="' + s.base + '"></div>';
+    }).join('');
+
+    function val(id) { return parseFloat(document.getElementById(id).value); }
+
+    /* The canvas filter does the work, using the same operations as CSS.
+       Blur is scaled to the picture so "soften 5" looks the same on a
+       small and a large photo. */
+    function filterString(noBlur) {
+      var f = [];
+      ['brightness', 'contrast', 'saturate'].forEach(function (k) {
+        if (val(k) !== 100) f.push(k + '(' + val(k) / 100 + ')');
+      });
+      ['grayscale', 'sepia', 'invert'].forEach(function (k) {
+        if (val(k) !== 0) f.push(k + '(' + val(k) / 100 + ')');
+      });
+      if (val('blur') && source && !noBlur) {
+        f.push('blur(' + (val('blur') * Math.max(source.width, source.height) / 2000).toFixed(2) + 'px)');
+      }
+      return f.join(' ') || 'none';
+    }
+
+    var supported = (function () {
+      var ctx = CJA_IMG.canvas(1, 1).getContext('2d');
+      if (!('filter' in ctx)) return false;
+      ctx.filter = 'brightness(0.5)';
+      return ctx.filter === 'brightness(0.5)';
+    })();
+
+    function render() {
+      SLIDERS.forEach(function (s) {
+        document.getElementById(s.id + '-v').textContent = val(s.id) + s.unit;
+      });
+      if (!source) return;
+      var w = source.width, h = source.height;
+      out.width = w; out.height = h;
+      var ctx = out.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      if (showOriginal) { ctx.drawImage(source.img, 0, 0); return; }
+
+      /* Blur fades the outer edge to see-through, so the same filters
+         without the blur go underneath first to keep the edge solid. */
+      if (val('blur')) {
+        ctx.filter = filterString(true);
+        ctx.drawImage(source.img, 0, 0);
+      }
+      ctx.filter = filterString();
+      ctx.drawImage(source.img, 0, 0);
+      ctx.filter = 'none';
+
+      /* Warmth: an orange or blue wash blended softly over the picture,
+         keeping its light and dark areas. */
+      var warmth = val('warmth');
+      if (warmth) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'soft-light';
+        ctx.globalAlpha = Math.abs(warmth) / 50 * 0.6;
+        ctx.fillStyle = warmth > 0 ? '#ff8a00' : '#0077ff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+      document.getElementById('note').textContent = supported ? '' :
+        'This browser cannot apply filters to pictures, so only Warmth works here. ' +
+        'The desktop app, Edge and Chrome do all of them.';
+    }
+
+    document.getElementById('sliders').addEventListener('input', function () {
+      document.querySelectorAll('#looks .btn').forEach(function (b) { b.classList.remove('primary'); });
+      render();
+    });
+
+    document.getElementById('looks').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-look]');
+      if (!b) return;
+      var look = LOOKS[b.dataset.look];
+      SLIDERS.forEach(function (s) {
+        document.getElementById(s.id).value = look[s.id] !== undefined ? look[s.id] : s.base;
+      });
+      document.querySelectorAll('#looks .btn').forEach(function (x) { x.classList.toggle('primary', x === b); });
+      render();
+    });
+
+    var hold = document.getElementById('hold');
+    ['pointerdown'].forEach(function (ev) {
+      hold.addEventListener(ev, function () { showOriginal = true; render(); });
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+      hold.addEventListener(ev, function () { if (showOriginal) { showOriginal = false; render(); } });
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      var type = CJA_IMG.TYPES[source.type] ? source.type : 'image/png';
+      CJA_IMG.toBlob(out, type, 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, CJA_IMG.TYPES[blob.type].ext, '-edited'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('result-panel').hidden = false;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

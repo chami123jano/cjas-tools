@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Passport Photo Maker — Cja's Tools</title>
+<meta name="description" content="Frame a photo at passport size with a head-size guide, then print several copies on one 4x6 or A4 sheet. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .editor { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .frame-wrap { position: relative; touch-action: none; cursor: grab; flex: none; }
+  .frame-wrap.dragging { cursor: grabbing; }
+  .frame-wrap canvas { display: block; border-radius: 4px; box-shadow: 0 0 0 1px var(--border); }
+  #guide { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .side { flex: 1; min-width: 220px; }
+  .sheet-view {
+    max-width: 100%; max-height: 560px; width: auto; height: auto;
+    border: 1px solid var(--border); background: #fff;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="passport-photo">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Passport Photo Maker</h1>
+        <p>Frame your photo at the right size, then print several on one sheet. Your photo stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a photo</b>, drag one here, or paste one
+          <span>Face the camera, in front of a plain light wall</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="size">Photo size</label>
+            <select id="size">
+              <option value="35x45" selected>35 × 45 mm (the usual passport size)</option>
+              <option value="51x51">2 × 2 inches (51 × 51 mm)</option>
+              <option value="30x40">30 × 40 mm</option>
+              <option value="40x50">40 × 50 mm</option>
+              <option value="25x30">25 × 30 mm (small, for forms)</option>
+              <option value="custom">Another size</option>
+            </select>
+          </div>
+          <div class="field" data-custom hidden>
+            <label for="cw">Width (mm)</label>
+            <input type="number" id="cw" value="35" min="10" max="150" step="1">
+          </div>
+          <div class="field" data-custom hidden>
+            <label for="ch">Height (mm)</label>
+            <input type="number" id="ch" value="45" min="10" max="150" step="1">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="editor-panel" hidden>
+        <div class="editor">
+          <div class="frame-wrap" id="frame-wrap">
+            <canvas id="frame"></canvas>
+            <canvas id="guide"></canvas>
+          </div>
+          <div class="side">
+            <div class="field">
+              <label for="zoom">Zoom: <span id="zoom-label">100</span>%</label>
+              <input type="range" id="zoom" min="100" max="400" value="100">
+            </div>
+            <div class="field">
+              <label for="tilt">Straighten: <span id="tilt-label">0</span>&deg;</label>
+              <input type="range" id="tilt" min="-15" max="15" step="0.5" value="0">
+            </div>
+            <label>
+              <input type="checkbox" id="show-guide" checked style="width:auto;margin-right:7px">
+              Show the head guide
+            </label>
+            <p class="hint">Drag the photo to move it. Fit the top of the head to the
+              upper dashed line and the chin to the lower one, with the eyes on the
+              middle line.</p>
+            <div class="btns">
+              <button class="btn" id="save-one">Save one photo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="sheet-panel" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="paper">Print on</label>
+            <select id="paper">
+              <option value="4x6" selected>4 × 6 inch photo paper (a photo studio print)</option>
+              <option value="a4">A4 paper</option>
+              <option value="5x7">5 × 7 inch photo paper</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="copies">How many copies</label>
+            <select id="copies"></select>
+          </div>
+        </div>
+        <label>
+          <input type="checkbox" id="cutlines" checked style="width:auto;margin-right:7px">
+          Thin grey lines to cut along
+        </label>
+        <div style="margin-top:12px"><canvas id="sheet" class="sheet-view"></canvas></div>
+        <p class="hint" id="sheet-note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save-sheet">Save the sheet to print</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Check the rules for your form first.</b> Most passports,
+          including Sri Lanka's, ask for a recent colour photo, face straight to the
+          camera, neutral expression, eyes open, no glasses glare, and a plain light
+          background. Sizes differ between countries and offices, so confirm the size
+          on the application.
+          <br><br>
+          <b>Printing:</b> the sheet is made at 300 dots per inch, the standard for
+          photo prints. Take it to any photo studio as a 4 × 6 print &mdash; usually far
+          cheaper than passport photos made there &mdash; or print A4 at home and make sure
+          the printer is set to "actual size", not "fit to page", or the photos come out
+          the wrong size.
+          <br><br>
+          <b>The background is not changed.</b> If the wall behind you is not plain,
+          take the photo again rather than editing it; offices can reject edited photos.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var DPI = 300;
+    var PAPERS = { '4x6': [101.6, 152.4], '5x7': [127, 177.8], 'a4': [210, 297] };
+    var GAP = 2;           // mm between photos
+    var MARGIN = 4;        // mm around the edge of the sheet
+
+    var source = null;
+    var zoom = 1, tilt = 0;
+    var cx = 0, cy = 0;    // the point of the photo at the centre of the frame
+    var frame = document.getElementById('frame');
+    var guide = document.getElementById('guide');
+    var sheet = document.getElementById('sheet');
+
+    function mm(n) { return Math.round(n / 25.4 * DPI); }
+
+    function sizeMm() {
+      var v = document.getElementById('size').value;
+      if (v === 'custom') {
+        var w = parseFloat(document.getElementById('cw').value);
+        var h = parseFloat(document.getElementById('ch').value);
+        return { w: w >= 10 && w <= 150 ? w : 35, h: h >= 10 && h <= 150 ? h : 45 };
+      }
+      var p = v.split('x');
+      return { w: +p[0], h: +p[1] };
+    }
+
+    /* Output pixels per photo pixel at the current zoom: at 100% the photo
+       just covers the frame. */
+    function scaleFor(W, H) {
+      return Math.max(W / source.width, H / source.height) * zoom;
+    }
+
+    /* Keeps the frame inside the photo so no empty edge shows. */
+    function clampCentre(W, H) {
+      var s = scaleFor(W, H);
+      var hw = W / s / 2, hh = H / s / 2;
+      cx = Math.min(Math.max(cx, hw), source.width - hw);
+      cy = Math.min(Math.max(cy, hh), source.height - hh);
+    }
+
+    /* Draws the framed photo at W x H output pixels. */
+    function paint(canvas, W, H) {
+      canvas.width = W; canvas.height = H;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, W, H);
+      var s = scaleFor(W, H);
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(tilt * Math.PI / 180);
+      /* Straightening leaves corners uncovered; enlarge just enough. */
+      var a = Math.abs(tilt * Math.PI / 180);
+      var cover = tilt ? (Math.cos(a) + Math.sin(a) * Math.max(W / H, H / W)) : 1;
+      ctx.scale(s * cover, s * cover);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(source.img, -cx, -cy);
+      ctx.restore();
+    }
+
+    /* Guide lines, as a share of the photo height: the usual rule is a
+       head 70-80% of the height, with a little space above it. */
+    function drawGuide(W, H) {
+      guide.width = W; guide.height = H;
+      var ctx = guide.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      if (!document.getElementById('show-guide').checked) return;
+      var top = H * 0.1, chin = H * 0.85, eyes = H * 0.45;
+      ctx.strokeStyle = 'rgba(255, 60, 60, 0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      [top, chin].forEach(function (y) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      });
+      ctx.strokeStyle = 'rgba(60, 200, 255, 0.9)';
+      ctx.beginPath(); ctx.moveTo(0, eyes); ctx.lineTo(W, eyes); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.beginPath();
+      ctx.ellipse(W / 2, (top + chin) / 2, (chin - top) * 0.36, (chin - top) / 2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    function previewSize() {
+      var s = sizeMm();
+      var H = 420;
+      var W = Math.round(H * s.w / s.h);
+      if (W > 380) { W = 380; H = Math.round(W * s.h / s.w); }
+      return { W: W, H: H };
+    }
+
+    function renderFrame() {
+      if (!source) return;
+      var p = previewSize();
+      clampCentre(p.W, p.H);
+      paint(frame, p.W, p.H);
+      drawGuide(p.W, p.H);
+    }
+
+    function layout() {
+      var s = sizeMm();
+      var paper = PAPERS[document.getElementById('paper').value];
+      var fit = function (pw, ph) {
+        return {
+          cols: Math.max(0, Math.floor((pw - 2 * MARGIN + GAP) / (s.w + GAP))),
+          rows: Math.max(0, Math.floor((ph - 2 * MARGIN + GAP) / (s.h + GAP)))
+        };
+      };
+      /* Try the paper both ways round and keep whichever holds more. */
+      var a = fit(paper[0], paper[1]), b = fit(paper[1], paper[0]);
+      return a.cols * a.rows >= b.cols * b.rows
+        ? { pw: paper[0], ph: paper[1], cols: a.cols, rows: a.rows }
+        : { pw: paper[1], ph: paper[0], cols: b.cols, rows: b.rows };
+    }
+
+    function fillCopies() {
+      var L = layout();
+      var max = L.cols * L.rows;
+      var sel = document.getElementById('copies');
+      /* A full sheet stays a full sheet when the paper or size changes;
+         a number chosen by hand is kept if it still fits. */
+      var wasFull = !sel.value || sel.selectedIndex === sel.options.length - 1;
+      var keep = wasFull ? 0 : parseInt(sel.value, 10);
+      var opts = [];
+      for (var n = 1; n <= max; n++) opts.push(n);
+      sel.innerHTML = opts.map(function (n) {
+        return '<option value="' + n + '">' + n + (n === max ? ' (a full sheet)' : '') + '</option>';
+      }).join('');
+      sel.value = keep && keep <= max ? keep : max;
+    }
+
+    function renderSheet() {
+      if (!source) return;
+      var s = sizeMm();
+      var L = layout();
+      var n = Math.min(parseInt(document.getElementById('copies').value, 10) || 0, L.cols * L.rows);
+      var note = document.getElementById('sheet-note');
+      sheet.width = mm(L.pw);
+      sheet.height = mm(L.ph);
+      var ctx = sheet.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, sheet.width, sheet.height);
+      if (!n) { note.textContent = 'A photo this size does not fit on that paper.'; return; }
+
+      var one = document.createElement('canvas');
+      paint(one, mm(s.w), mm(s.h));
+      /* Centre the block of photos on the paper. */
+      var blockW = L.cols * s.w + (L.cols - 1) * GAP;
+      var blockH = L.rows * s.h + (L.rows - 1) * GAP;
+      var x0 = (L.pw - blockW) / 2, y0 = (L.ph - blockH) / 2;
+      ctx.strokeStyle = '#bbb';
+      ctx.lineWidth = 1;
+      for (var i = 0; i < n; i++) {
+        var col = i % L.cols, row = Math.floor(i / L.cols);
+        var x = mm(x0 + col * (s.w + GAP)), y = mm(y0 + row * (s.h + GAP));
+        ctx.drawImage(one, x, y);
+        if (document.getElementById('cutlines').checked) {
+          ctx.strokeRect(x - 0.5, y - 0.5, one.width + 1, one.height + 1);
+        }
+      }
+      var paperName = document.getElementById('paper').selectedOptions[0].textContent.split(' (')[0];
+      note.textContent = n + ' photo' + (n === 1 ? '' : 's') + ' of ' + s.w + ' × ' + s.h +
+        ' mm on ' + paperName + ' (up to ' + (L.cols * L.rows) + ' fit). ' +
+        sheet.width + ' × ' + sheet.height + ' pixels at 300 dpi.';
+    }
+
+    function renderAll() {
+      document.querySelectorAll('[data-custom]').forEach(function (el) {
+        el.hidden = document.getElementById('size').value !== 'custom';
+      });
+      renderFrame();
+      fillCopies();
+      renderSheet();
+    }
+
+    /* Dragging moves the photo under the frame. */
+    var wrap = document.getElementById('frame-wrap');
+    var drag = null;
+    wrap.addEventListener('pointerdown', function (e) {
+      if (!source) return;
+      wrap.setPointerCapture(e.pointerId);
+      wrap.classList.add('dragging');
+      drag = { x: e.clientX, y: e.clientY, cx: cx, cy: cy };
+    });
+    wrap.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var p = previewSize();
+      var shown = frame.getBoundingClientRect().width / p.W;
+      var s = scaleFor(p.W, p.H) * shown;
+      cx = drag.cx - (e.clientX - drag.x) / s;
+      cy = drag.cy - (e.clientY - drag.y) / s;
+      renderFrame();
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      wrap.addEventListener(ev, function () {
+        if (!drag) return;
+        drag = null;
+        wrap.classList.remove('dragging');
+        renderSheet();
+      });
+    });
+
+    document.getElementById('zoom').addEventListener('input', function () {
+      zoom = parseInt(this.value, 10) / 100;
+      document.getElementById('zoom-label').textContent = this.value;
+      renderFrame();
+    });
+    document.getElementById('tilt').addEventListener('input', function () {
+      tilt = parseFloat(this.value);
+      document.getElementById('tilt-label').textContent = this.value;
+      renderFrame();
+    });
+    ['zoom', 'tilt'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', renderSheet);
+    });
+    document.getElementById('show-guide').addEventListener('change', renderFrame);
+    ['size', 'cw', 'ch', 'paper'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', renderAll);
+    });
+    ['copies', 'cutlines'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', renderSheet);
+    });
+
+    document.getElementById('save-one').addEventListener('click', function () {
+      if (!source) return;
+      var s = sizeMm();
+      var one = document.createElement('canvas');
+      paint(one, mm(s.w), mm(s.h));
+      CJA_IMG.toBlob(one, 'image/jpeg', 0.95).then(function (blob) {
+        CJA_IMG.download(blob, 'passport-photo-' + s.w + 'x' + s.h + 'mm.jpg');
+      });
+    });
+    document.getElementById('save-sheet').addEventListener('click', function () {
+      if (!source) return;
+      CJA_IMG.toBlob(sheet, 'image/jpeg', 0.95).then(function (blob) {
+        CJA_IMG.download(blob, 'passport-photos-' + document.getElementById('paper').value + '.jpg');
+      });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        cx = s.width / 2;
+        /* Faces are usually in the upper part of a portrait; start there. */
+        cy = s.height * 0.42;
+        zoom = 1; tilt = 0;
+        document.getElementById('zoom').value = 100;
+        document.getElementById('tilt').value = 0;
+        document.getElementById('zoom-label').textContent = '100';
+        document.getElementById('tilt-label').textContent = '0';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('editor-panel').hidden = false;
+        document.getElementById('sheet-panel').hidden = false;
+        renderAll();
+        var small = Math.min(s.width, s.height) < 600;
+        if (small) CT.toast('This photo is small - the print may look soft');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    renderAll();
+  })();
+  </script>
+</body>
+</html>

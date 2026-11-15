@@ -869,6 +869,34 @@ const TOOLS = [
     category: 'image',
     desc: 'Hide faces, number plates or ID numbers in a picture.',
     keywords: ['pixelate', 'blur', 'hide', 'censor', 'redact', 'face', 'number plate', 'nic']
+  },
+  {
+    slug: 'rotate-flip',
+    name: 'Rotate and Flip',
+    category: 'image',
+    desc: 'Turn a sideways photo the right way up, mirror it, or straighten it.',
+    keywords: ['rotate', 'flip', 'mirror', 'turn', 'straighten', 'sideways', 'upside down']
+  },
+  {
+    slug: 'photo-filters',
+    name: 'Photo Filters',
+    category: 'image',
+    desc: 'Brightness, contrast, colour, black and white, sepia and ready-made looks.',
+    keywords: ['filter', 'brightness', 'contrast', 'black and white', 'grayscale', 'sepia', 'saturation', 'edit photo']
+  },
+  {
+    slug: 'image-color-picker',
+    name: 'Colour Picker from Image',
+    category: 'image',
+    desc: 'Click a picture to get the exact colour code, and see its main colours.',
+    keywords: ['color picker', 'colour picker', 'eyedropper', 'hex', 'palette', 'rgb', 'extract colours']
+  },
+  {
+    slug: 'passport-photo',
+    name: 'Passport Photo Maker',
+    category: 'image',
+    desc: 'Frame a photo at passport size and print copies on a 4x6 or A4 sheet.',
+    keywords: ['passport photo', 'visa photo', 'id photo', '35x45', '2x2', 'print sheet', 'nic photo']
   }
 ];
 

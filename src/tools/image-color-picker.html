@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colour Picker from Image — Cja's Tools</title>
+<meta name="description" content="Click anywhere on a picture to get its exact colour code, and see the main colours the picture is made of. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #view { cursor: crosshair; touch-action: none; }
+  .picked { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .swatch-big { width: 84px; height: 84px; border-radius: 12px; border: 1px solid var(--border); flex: none; }
+  .codes { display: grid; gap: 6px; flex: 1; min-width: 200px; }
+  .code {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 7px 11px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg);
+    font-family: ui-monospace, Consolas, monospace; font-size: 14px; cursor: pointer;
+  }
+  .code span { color: var(--muted); font-family: inherit; font-size: 12px; }
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .chip { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--bg); }
+  .chip i { display: block; height: 58px; }
+  .chip b { display: block; padding: 5px 7px; font: 600 12.5px ui-monospace, Consolas, monospace; }
+  .chip span { display: block; padding: 0 7px 6px; font-size: 11.5px; color: var(--muted); }
+  .loupe {
+    position: fixed; width: 110px; height: 110px; border-radius: 50%; pointer-events: none;
+    border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,.4); display: none; z-index: 50;
+    image-rendering: pixelated;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="image-color-picker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Colour Picker from Image</h1>
+        <p>Click anywhere on a picture to get the exact colour. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste a screenshot
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel" id="picker" hidden>
+        <div class="preview"><canvas id="view"></canvas></div>
+        <div class="picked">
+          <div class="swatch-big" id="swatch"></div>
+          <div class="codes">
+            <div class="code" data-copy="hex"><b id="hex">—</b><span>HEX &middot; click to copy</span></div>
+            <div class="code" data-copy="rgb"><b id="rgb">—</b><span>RGB</span></div>
+            <div class="code" data-copy="hsl"><b id="hsl">—</b><span>HSL</span></div>
+          </div>
+        </div>
+        <p class="hint" id="where"></p>
+      </div>
+
+      <div class="panel" id="palette-panel" hidden>
+        <label style="margin-bottom:10px">The main colours in this picture (click one to copy)</label>
+        <div class="palette" id="palette"></div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn" id="copy-all">Copy all as a list</button>
+          <button class="btn" id="copy-css">Copy as CSS variables</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Photos are not as flat as they look.</b> Even a plain blue
+          sky is dozens of slightly different blues, so two clicks a few pixels apart
+          can give different codes. The magnifier shows exactly which pixel is under
+          the pointer.
+          <br><br>
+          <b>For a logo or a website colour,</b> paste a screenshot (Windows key +
+          Shift + S, then Ctrl + V here) and click the flat area.</p>
+      </div>
+    </main>
+  </div>
+
+  <canvas class="loupe" id="loupe" width="11" height="11"></canvas>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null, pixels = null;
+    var view = document.getElementById('view');
+    var loupe = document.getElementById('loupe');
+
+    function hex(r, g, b) {
+      return '#' + [r, g, b].map(function (n) { return ('0' + n.toString(16)).slice(-2); }).join('').toUpperCase();
+    }
+    function hsl(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      var max = Math.max(r, g, b), min = Math.min(r, g, b);
+      var l = (max + min) / 2, h = 0, s = 0;
+      if (max !== min) {
+        var d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+        h *= 60;
+      }
+      return 'hsl(' + Math.round(h) + ', ' + Math.round(s * 100) + '%, ' + Math.round(l * 100) + '%)';
+    }
+
+    function at(x, y) {
+      var i = (y * source.width + x) * 4;
+      return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    }
+
+    function show(x, y) {
+      var p = at(x, y);
+      var h = hex(p[0], p[1], p[2]);
+      document.getElementById('swatch').style.background = h;
+      document.getElementById('hex').textContent = h;
+      document.getElementById('rgb').textContent = 'rgb(' + p[0] + ', ' + p[1] + ', ' + p[2] + ')';
+      document.getElementById('hsl').textContent = hsl(p[0], p[1], p[2]);
+      document.getElementById('where').textContent = 'Pixel ' + x + ', ' + y +
+        (p[3] < 255 ? ' — partly see-through (' + Math.round(p[3] / 2.55) + '% solid)' : '');
+    }
+
+    function pointToPixel(e) {
+      var r = view.getBoundingClientRect();
+      return {
+        x: Math.min(source.width - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * source.width))),
+        y: Math.min(source.height - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * source.height)))
+      };
+    }
+
+    /* The magnifier: the 11 x 11 pixels around the pointer, blown up,
+       with the centre one outlined. */
+    function drawLoupe(e, p) {
+      var ctx = loupe.getContext('2d');
+      ctx.clearRect(0, 0, 11, 11);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(view, p.x - 5, p.y - 5, 11, 11, 0, 0, 11, 11);
+      ctx.strokeStyle = 'rgba(255,255,255,.9)';
+      ctx.lineWidth = 0.15;
+      ctx.strokeRect(5, 5, 1, 1);
+      loupe.style.left = (e.clientX + 18) + 'px';
+      loupe.style.top = (e.clientY - 128) + 'px';
+      loupe.style.display = 'block';
+    }
+
+    view.addEventListener('pointermove', function (e) {
+      if (!source) return;
+      var p = pointToPixel(e);
+      drawLoupe(e, p);
+      if (e.buttons) show(p.x, p.y);
+    });
+    view.addEventListener('pointerleave', function () { loupe.style.display = 'none'; });
+    view.addEventListener('pointerdown', function (e) {
+      if (!source) return;
+      var p = pointToPixel(e);
+      show(p.x, p.y);
+    });
+
+    document.querySelectorAll('[data-copy]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var t = el.querySelector('b').textContent;
+        if (t !== '—') CT.copy(t);
+      });
+    });
+
+    /* The main colours: every pixel of a small copy is put into one of
+       32 x 32 x 32 boxes, the busiest boxes are averaged, and colours too
+       close to one already chosen are skipped so the list is varied. */
+    function palette(count) {
+      var small = CJA_IMG.fit(source.width, source.height, 160, 160);
+      var c = CJA_IMG.canvas(small.width, small.height);
+      var ctx = c.getContext('2d');
+      ctx.drawImage(source.img, 0, 0, small.width, small.height);
+      var d = ctx.getImageData(0, 0, small.width, small.height).data;
+      var boxes = {};
+      var total = 0;
+      for (var i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;
+        var key = (d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | (d[i + 2] >> 3);
+        var b = boxes[key] || (boxes[key] = { n: 0, r: 0, g: 0, b: 0 });
+        b.n++; b.r += d[i]; b.g += d[i + 1]; b.b += d[i + 2];
+        total++;
+      }
+      var list = Object.keys(boxes).map(function (k) {
+        var b = boxes[k];
+        return { n: b.n, r: Math.round(b.r / b.n), g: Math.round(b.g / b.n), b: Math.round(b.b / b.n) };
+      }).sort(function (a, b) { return b.n - a.n; });
+      var chosen = [];
+      for (var j = 0; j < list.length && chosen.length < count; j++) {
+        var c1 = list[j];
+        var near = chosen.some(function (c2) {
+          var dr = c1.r - c2.r, dg = c1.g - c2.g, db = c1.b - c2.b;
+          if (Math.sqrt(dr * dr + dg * dg + db * db) < 48) { c2.n += c1.n; return true; }
+          return false;
+        });
+        if (!near) chosen.push({ n: c1.n, r: c1.r, g: c1.g, b: c1.b });
+      }
+      return chosen.map(function (c) {
+        return { hex: hex(c.r, c.g, c.b), share: total ? c.n / total : 0 };
+      }).sort(function (a, b) { return b.share - a.share; });
+    }
+
+    var colours = [];
+    function showPalette() {
+      colours = palette(8);
+      document.getElementById('palette').innerHTML = colours.map(function (c) {
+        return '<div class="chip" data-hex="' + c.hex + '"><i style="background:' + c.hex + '"></i>' +
+          '<b>' + c.hex + '</b><span>' + Math.max(1, Math.round(c.share * 100)) + '% of the picture</span></div>';
+      }).join('');
+      document.getElementById('palette-panel').hidden = false;
+    }
+
+    document.getElementById('palette').addEventListener('click', function (e) {
+      var chip = e.target.closest('[data-hex]');
+      if (chip) CT.copy(chip.dataset.hex);
+    });
+    document.getElementById('copy-all').addEventListener('click', function () {
+      CT.copy(colours.map(function (c) { return c.hex; }).join('\n'));
+    });
+    document.getElementById('copy-css').addEventListener('click', function () {
+      CT.copy(':root {\n' + colours.map(function (c, i) {
+        return '  --colour-' + (i + 1) + ': ' + c.hex + ';';
+      }).join('\n') + '\n}');
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        view.width = s.width;
+        view.height = s.height;
+        var ctx = view.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(s.img, 0, 0);
+        pixels = ctx.getImageData(0, 0, s.width, s.height).data;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('picker').hidden = false;
+        show(Math.floor(s.width / 2), Math.floor(s.height / 2));
+        showPalette();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>
