@@ -2812,7 +2812,8 @@ pending.push(function currencyLive() {
   // every image page has a drop zone, a hidden file input and loads the helper
   ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners',
    'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur',
-   'rotate-flip', 'photo-filters', 'image-color-picker', 'passport-photo'].forEach((slug) => {
+   'rotate-flip', 'photo-filters', 'image-color-picker', 'passport-photo',
+   'meme-maker', 'image-splitter', 'image-to-ascii'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
        slug + ' has a drop zone and file input');
@@ -2836,6 +2837,36 @@ pending.push(function currencyLive() {
   t.set('from', 'picture');
   ok(!t.$('[data-from="picture"]').hidden && t.$('[data-from="letter"]').hidden,
      'favicon: switching to a picture shows the picture chooser');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- zip and crc32
+// The zip is also unpacked for real with Windows' tar in test/images.js.
+
+(function () {
+  const t = loadTool('image-splitter');
+  const IMG = t.window.CJA_IMG;
+  const enc = new t.window.TextEncoder();
+  // the standard check value every CRC-32 implementation must give
+  ok(IMG.crc32(enc.encode('123456789')) === 0xcbf43926, 'crc32 gives the standard check value',
+     IMG.crc32(enc.encode('123456789')).toString(16));
+  ok(IMG.crc32(new Uint8Array(0)) === 0, 'crc32 of nothing is 0');
+  const zlib = require('zlib');
+  if (zlib.crc32) {
+    const big = new Uint8Array(70000).map((_, i) => (i * 31) & 255);
+    ok(IMG.crc32(big) === zlib.crc32(big), 'crc32 agrees with Node on 70 KB of data');
+  }
+  ok(typeof IMG.zip === 'function', 'the zip maker is there');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- collage photo input
+
+(function () {
+  const t = loadTool('photo-collage');
+  ok(t.byId('file').multiple, 'collage: several photos can be chosen at once');
+  ok(t.byId('layouts').querySelectorAll('[data-layout]').length === 10, 'collage: ten layouts to choose from');
+  ok(t.byId('result-panel').hidden, 'collage: nothing shown before photos are added');
   t.close();
 })();
 

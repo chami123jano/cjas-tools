@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Collage — Cja's Tools</title>
+<meta name="description" content="Put two to nine photos together in one picture, with spacing, rounded corners and a background colour. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .thumb {
+    position: relative; width: 74px; height: 74px; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--bg) center / cover no-repeat;
+  }
+  .thumb b {
+    position: absolute; left: 4px; top: 4px; background: rgba(0,0,0,.6); color: #fff;
+    font-size: 11px; padding: 1px 6px; border-radius: 9px;
+  }
+  .thumb button {
+    position: absolute; right: 3px; top: 3px; width: 22px; height: 22px; padding: 0;
+    border-radius: 50%; border: none; background: rgba(0,0,0,.65); color: #fff; cursor: pointer;
+  }
+  .thumb .left {
+    right: auto; left: 3px; top: auto; bottom: 3px;
+  }
+  .layouts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .layouts button { padding: 6px; }
+  .layouts canvas { display: block; }
+</style>
+</head>
+<body data-page="tool" data-slug="photo-collage">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Photo Collage</h1>
+        <p>Two to nine photos in one picture. Your photos stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose photos</b> (several at once), or drag them here
+          <span>Add more any time &middot; up to 9</span>
+        </div>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+        <div class="thumbs" id="thumbs"></div>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Layout</label>
+        <div class="layouts" id="layouts"></div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="shape">Shape of the collage</label>
+            <select id="shape">
+              <option value="1" selected>Square (1:1)</option>
+              <option value="0.8">Portrait (4:5, Instagram)</option>
+              <option value="1.7778">Wide (16:9)</option>
+              <option value="0.5625">Tall (9:16, status and stories)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="gap">Spacing: <span id="gap-label">2</span>%</label>
+            <input type="range" id="gap" min="0" max="8" step="0.5" value="2">
+          </div>
+          <div class="field">
+            <label for="radius">Rounded corners: <span id="radius-label">0</span>%</label>
+            <input type="range" id="radius" min="0" max="20" value="0">
+          </div>
+          <div class="field">
+            <label for="bg">Background</label>
+            <input type="color" id="bg" value="#ffffff">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+          <button class="btn" id="shuffle">Shuffle the photos</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Each photo is trimmed to fill its box,</b> cutting a little
+          off the sides or the top and bottom as needed and keeping the middle. Put a
+          photo in a box shaped like it &mdash; a tall photo in a tall box &mdash; to lose the
+          least. Use the arrows on each photo to change the order.
+          <br><br>
+          The collage is saved 2000 pixels on its longest side: sharp on any phone
+          and good for printing up to about 6 &times; 6 inches.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var MAX = 9, LONG = 2000;
+    /* Each layout is a list of boxes as fractions of the whole: [x, y, w, h]. */
+    var LAYOUTS = {
+      '2a': { n: 2, boxes: [[0, 0, .5, 1], [.5, 0, .5, 1]] },
+      '2b': { n: 2, boxes: [[0, 0, 1, .5], [0, .5, 1, .5]] },
+      '3a': { n: 3, boxes: [[0, 0, .5, 1], [.5, 0, .5, .5], [.5, .5, .5, .5]] },
+      '3b': { n: 3, boxes: [[0, 0, 1, .5], [0, .5, .5, .5], [.5, .5, .5, .5]] },
+      '3c': { n: 3, boxes: [[0, 0, 1 / 3, 1], [1 / 3, 0, 1 / 3, 1], [2 / 3, 0, 1 / 3, 1]] },
+      '4a': { n: 4, boxes: [[0, 0, .5, .5], [.5, 0, .5, .5], [0, .5, .5, .5], [.5, .5, .5, .5]] },
+      '4b': { n: 4, boxes: [[0, 0, 1, 2 / 3], [0, 2 / 3, 1 / 3, 1 / 3], [1 / 3, 2 / 3, 1 / 3, 1 / 3], [2 / 3, 2 / 3, 1 / 3, 1 / 3]] },
+      '5a': { n: 5, boxes: [[0, 0, .5, .5], [.5, 0, .5, .5], [0, .5, 1 / 3, .5], [1 / 3, .5, 1 / 3, .5], [2 / 3, .5, 1 / 3, .5]] },
+      '6a': { n: 6, boxes: grid(3, 2) },
+      '9a': { n: 9, boxes: grid(3, 3) }
+    };
+    function grid(cols, rows) {
+      var b = [];
+      for (var r = 0; r < rows; r++) for (var c = 0; c < cols; c++) b.push([c / cols, r / rows, 1 / cols, 1 / rows]);
+      return b;
+    }
+
+    var photos = [];
+    var layout = null;          // chosen by hand; null means "fit the number of photos"
+    var out = document.getElementById('out');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* A layout picked by hand is kept; otherwise one is chosen to fit the
+       number of photos. */
+    function currentLayout() {
+      if (!photos.length) return null;
+      if (layout) return layout;
+      return { 1: '2a', 2: '2a', 3: '3a', 4: '4a', 5: '5a', 6: '6a', 7: '9a', 8: '9a', 9: '9a' }[photos.length];
+    }
+
+    /* Small pictures of each layout to choose from. */
+    function drawLayoutButtons() {
+      var box = document.getElementById('layouts');
+      var active = currentLayout();
+      box.innerHTML = '';
+      Object.keys(LAYOUTS).forEach(function (key) {
+        var b = document.createElement('button');
+        b.className = 'btn' + (key === active ? ' primary' : '');
+        b.title = LAYOUTS[key].n + ' photos';
+        b.dataset.layout = key;
+        var c = CJA_IMG.canvas(44, 44);
+        var ctx = c.getContext('2d');
+        ctx.fillStyle = key === active ? '#fff' : '#8a93a6';
+        LAYOUTS[key].boxes.forEach(function (r) {
+          ctx.fillRect(r[0] * 44 + 1.5, r[1] * 44 + 1.5, r[2] * 44 - 3, r[3] * 44 - 3);
+        });
+        b.appendChild(c);
+        box.appendChild(b);
+      });
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      r = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function render() {
+      document.getElementById('gap-label').textContent = v('gap');
+      document.getElementById('radius-label').textContent = v('radius');
+      drawThumbs();
+      drawLayoutButtons();
+      var key = currentLayout();
+      document.getElementById('result-panel').hidden = !key;
+      if (!key) {
+        document.getElementById('note').textContent = '';
+        return;
+      }
+      var ratio = parseFloat(v('shape'));
+      var W = ratio >= 1 ? LONG : Math.round(LONG * ratio);
+      var H = ratio >= 1 ? Math.round(LONG / ratio) : LONG;
+      out.width = W; out.height = H;
+      var ctx = out.getContext('2d');
+      ctx.fillStyle = v('bg');
+      ctx.fillRect(0, 0, W, H);
+
+      var gap = Math.round(Math.min(W, H) * parseFloat(v('gap')) / 100);
+      var radius = Math.min(W, H) * parseInt(v('radius'), 10) / 100;
+      var boxes = LAYOUTS[key].boxes;
+      boxes.forEach(function (r, i) {
+        var p = photos[i];
+        if (!p) return;
+        /* Gaps between boxes are the same as the border around the edge. */
+        var x = Math.round(r[0] * (W - gap) + gap), y = Math.round(r[1] * (H - gap) + gap);
+        var x2 = Math.round((r[0] + r[2]) * (W - gap)), y2 = Math.round((r[1] + r[3]) * (H - gap));
+        var bw = x2 - x, bh = y2 - y;
+        /* Cover: scale so the photo fills the box, centred. */
+        var s = Math.max(bw / p.width, bh / p.height);
+        var sw = bw / s, sh = bh / s;
+        ctx.save();
+        roundRect(ctx, x, y, bw, bh, radius);
+        ctx.clip();
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(p.img, (p.width - sw) / 2, (p.height - sh) / 2, sw, sh, x, y, bw, bh);
+        ctx.restore();
+      });
+      var unused = photos.length - boxes.length;
+      document.getElementById('note').textContent = W + ' × ' + H + ' pixels.' +
+        (unused > 0 ? ' This layout has ' + boxes.length + ' boxes, so the last ' + unused + ' photo' +
+          (unused === 1 ? ' is' : 's are') + ' left out.' :
+          unused < 0 ? ' Add ' + (-unused) + ' more photo' + (unused === -1 ? '' : 's') + ' to fill every box.' : '');
+    }
+
+    function drawThumbs() {
+      var box = document.getElementById('thumbs');
+      box.innerHTML = '';
+      photos.forEach(function (p, i) {
+        var d = document.createElement('div');
+        d.className = 'thumb';
+        d.style.backgroundImage = 'url("' + p.url + '")';
+        d.innerHTML = '<b>' + (i + 1) + '</b><button data-remove="' + i + '" title="Remove">&times;</button>' +
+          (i > 0 ? '<button class="left" data-left="' + i + '" title="Move earlier">&larr;</button>' : '');
+        box.appendChild(d);
+      });
+    }
+
+    document.getElementById('thumbs').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.remove !== undefined) {
+        var gone = photos.splice(+b.dataset.remove, 1)[0];
+        URL.revokeObjectURL(gone.url);
+      } else if (b.dataset.left !== undefined) {
+        var i = +b.dataset.left;
+        var t = photos[i - 1]; photos[i - 1] = photos[i]; photos[i] = t;
+      }
+      render();
+    });
+
+    document.getElementById('layouts').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-layout]');
+      if (!b) return;
+      if (!photos.length) { CT.toast('Add some photos first'); return; }
+      layout = b.dataset.layout;
+      render();
+    });
+
+    ['gap', 'radius'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['shape', 'bg'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('shuffle').addEventListener('click', function () {
+      for (var i = photos.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var t = photos[i]; photos[i] = photos[j]; photos[j] = t;
+      }
+      render();
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!currentLayout()) return;
+      CJA_IMG.toBlob(out, 'image/jpeg', 0.92).then(function (blob) {
+        CJA_IMG.download(blob, 'collage.jpg');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    /* The shared drop zone hands over one file at a time, so several
+       files are collected here and loaded in order. */
+    var input = document.getElementById('file');
+    var zone = document.getElementById('drop');
+    function addFiles(files) {
+      files = Array.from(files).filter(function (f) { return /^image\//.test(f.type); });
+      var room = MAX - photos.length;
+      if (!files.length) { CT.toast('Those are not pictures'); return; }
+      if (files.length > room) CT.toast('Only ' + MAX + ' photos fit - the rest were left out');
+      Promise.all(files.slice(0, room).map(function (f) {
+        return CJA_IMG.load(f).catch(function () { return null; });
+      })).then(function (loaded) {
+        loaded.forEach(function (p) { if (p) photos.push(p); });
+        /* New photos: go back to a layout that fits them all. */
+        layout = null;
+        render();
+      });
+    }
+    zone.addEventListener('click', function () { input.click(); });
+    zone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.remove('over'); });
+    });
+    zone.addEventListener('drop', function (e) { addFiles(e.dataTransfer.files); });
+    input.addEventListener('change', function () { addFiles(input.files); input.value = ''; });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

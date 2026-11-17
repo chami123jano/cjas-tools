@@ -718,6 +718,203 @@ async function saved(page, n = 1) {
     await page.close();
   }
 
+  // ---------------------------------------------------------- meme maker
+  {
+    const page = await open('meme-maker');
+    await give(page, small);
+    // compare against the picture with no text at all
+    await page.$eval('#top', (e) => { e.value = ''; e.dispatchEvent(new Event('input')); });
+    await page.$eval('#bottom', (e) => { e.value = ''; e.dispatchEvent(new Event('input')); });
+    await snap(page);
+    await page.$eval('#top', (e) => { e.value = 'Top words'; e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    ok(await changed(page, 0, 0, 400, 80) > 0.05 && await changed(page, 0, 220, 400, 80) === 0,
+       'meme: top text goes at the top only');
+    // white letters with black outline: both appear in the text area
+    const tones = await page.evaluate(() => {
+      const d = document.getElementById('out').getContext('2d').getImageData(0, 0, 400, 80).data;
+      let white = 0, black = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 240 && d[i + 1] > 240 && d[i + 2] > 240) white++;
+        if (d[i] < 20 && d[i + 1] < 20 && d[i + 2] < 20) black++;
+      }
+      return [white, black];
+    });
+    ok(tones[0] > 200 && tones[1] > 200, 'meme: white letters with a black outline', JSON.stringify(tones));
+
+    // a very long line wraps and shrinks but stays inside the picture
+    await page.$eval('#bottom', (e) => {
+      e.value = 'this is a very long bottom line that cannot possibly fit on one line of a small picture';
+      e.dispatchEvent(new Event('input'));
+    });
+    await wait(150);
+    const edges = await page.evaluate(() => {
+      const d = document.getElementById('out').getContext('2d');
+      return [d.getImageData(0, 150, 2, 150).data, d.getImageData(398, 150, 2, 150).data];
+    });
+    ok(await changed(page, 0, 150, 400, 150) > 0.03, 'meme: long bottom text is drawn');
+    ok(await changed(page, 0, 150, 3, 150) === 0 && await changed(page, 397, 150, 3, 150) === 0,
+       'meme: and wraps inside the edges');
+
+    await page.select('#style', 'caption');
+    await page.$eval('#caption', (e) => { e.value = 'A caption'; e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    let img = await shown(page, '#out');
+    ok(img && img.w === 400 && img.h > 300, 'meme: a caption adds a strip above', JSON.stringify(img && [img.w, img.h]));
+    ok(img && img.corner[0] === 255 && img.corner[1] === 255, 'meme: the strip is white');
+    ok(img && img.bottomRight[0] !== 255, 'meme: the picture sits below it');
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'small-meme.jpg', 'meme: saves small-meme.jpg', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- collage
+  {
+    const page = await open('photo-collage');
+    const input = await page.$('#file');
+    await input.uploadFile(small, photo, small);
+    await wait(1200);
+    ok(await page.$$eval('#thumbs .thumb', (t) => t.length) === 3, 'collage: three photos are added at once');
+    let img = await shown(page, '#out');
+    ok(img && img.w === 2000 && img.h === 2000, 'collage: a 2000 px square', JSON.stringify(img && [img.w, img.h]));
+    ok(await page.$eval('#layouts .btn.primary', (b) => b.dataset.layout) === '3a', 'collage: picks a 3-photo layout');
+    ok(img && img.corner[0] === 255, 'collage: the spacing shows the background');
+
+    // 2% spacing of 2000 px is 40 px: photo inside the box, background in the gap
+    const isWhite = (p) => p[0] === 255 && p[1] === 255 && p[2] === 255;
+    ok(!isWhite(await pixel(page, 60, 60)), 'collage: photo 1 fills the first box');
+    ok(isWhite(await pixel(page, 1000, 1000)), 'collage: the gap between boxes is background');
+    ok(isWhite(await pixel(page, 20, 1000)), 'collage: and so is the border');
+
+    await page.$eval('#gap', (e) => { e.value = 0; e.dispatchEvent(new Event('input')); });
+    await wait(200);
+    ok(!isWhite(await pixel(page, 0, 0)) && !isWhite(await pixel(page, 1000, 1000)),
+       'collage: with no spacing the photos meet the edges and each other');
+
+    await page.select('#shape', '1.7778');
+    await wait(200);
+    img = await shown(page, '#out');
+    ok(img && img.w === 2000 && img.h === 1125, 'collage: wide 16:9 is 2000 x 1125', JSON.stringify(img && [img.w, img.h]));
+
+    // a layout for more photos than there are: says how many to add
+    await page.click('#layouts [data-layout="4a"]');
+    await wait(200);
+    ok(/Add 1 more photo/.test(await text(page, 'note')), 'collage: asks for one more photo', await text(page, 'note'));
+    await page.click('#layouts [data-layout="2a"]');
+    await wait(200);
+    ok(/last 1 photo is left out/.test(await text(page, 'note')), 'collage: says when a photo is left out', await text(page, 'note'));
+
+    // removing a photo
+    await page.click('#thumbs [data-remove="0"]');
+    await wait(200);
+    ok(await page.$$eval('#thumbs .thumb', (t) => t.length) === 2, 'collage: a photo can be removed');
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'collage.jpg', 'collage: saves collage.jpg', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- splitter
+  {
+    const page = await open('image-splitter');
+    await page.evaluate(() => {
+      window.__blobs = [];
+      const d = window.CJA_IMG.download;
+      window.CJA_IMG.download = function (blob, name) { window.__blobs.push({ blob, name }); d.call(this, blob, name); };
+    });
+    await give(page, photo);   // 2400 x 1600
+    ok(/9 pieces, each 800 × 533/.test(await text(page, 'note')), 'split: 3 x 3 of 2400 x 1600', await text(page, 'note'));
+    await page.click('#presets [data-c="3"][data-r="1"]');
+    await wait(300);
+    ok(/3 pieces, each 800 × 800/.test(await text(page, 'note')), 'split: a square panorama of 3', await text(page, 'note'));
+    await page.click('#presets [data-c="2"][data-r="2"]');
+    await page.select('#fit', 'no');
+    await wait(300);
+    ok(/4 pieces, each 1200 × 800/.test(await text(page, 'note')), 'split: four quarters', await text(page, 'note'));
+    const firstPiece = await page.evaluate(() => {
+      const c = document.querySelector('#pieces canvas');
+      return [c.width, c.height, Array.from(c.getContext('2d').getImageData(5, 5, 1, 1).data)];
+    });
+    ok(firstPiece[0] === 1200 && firstPiece[2][0] > 200 && firstPiece[2][1] < 60,
+       'split: piece 1 is the top-left quarter (red corner)', JSON.stringify(firstPiece));
+
+    await page.click('#save-zip');
+    await page.waitForFunction(() => window.__blobs.length > 0, { timeout: 8000 }).catch(() => {});
+    const z = await page.evaluate(async () => {
+      const b = window.__blobs[0];
+      if (!b) return null;
+      const bytes = new Uint8Array(await b.blob.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 32768));
+      return { name: b.name, b64: btoa(s) };
+    });
+    ok(z && z.name === 'photo-pieces.zip', 'split: saves photo-pieces.zip', z && z.name);
+    if (z) {
+      const zipFile = path.join(tmp, z.name);
+      fs.writeFileSync(zipFile, Buffer.from(z.b64, 'base64'));
+      const outDir = path.join(tmp, 'unzipped');
+      fs.mkdirSync(outDir);
+      let listed = '';
+      try {
+        /* Windows 10 and 11 include bsdtar, which reads zip files. */
+        const tar = path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'tar.exe');
+        listed = require('child_process').execFileSync(tar, ['-xvf', zipFile, '-C', outDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (e) { listed = 'tar failed: ' + e.message; }
+      const names = fs.readdirSync(outDir).sort();
+      ok(names.join(',') === 'photo-01.png,photo-02.png,photo-03.png,photo-04.png',
+         'split: the zip unpacks to four numbered pieces', names.join(',') + ' ' + listed);
+      // each piece is a real PNG of the right size
+      const sizes = names.map((n) => {
+        const b = fs.readFileSync(path.join(outDir, n));
+        return b.slice(1, 4).toString() === 'PNG' ? b.readUInt32BE(16) + 'x' + b.readUInt32BE(20) : 'not png';
+      });
+      ok(sizes.every((s) => s === '1200x800'), 'split: every piece is a 1200 x 800 PNG', sizes.join(','));
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- ascii art
+  {
+    const page = await open('image-to-ascii');
+    await give(page, small);   // 400 x 300: red top-left quarter on a green-blue gradient
+    let art = await page.$eval('#art', (e) => e.textContent);
+    let lines = art.split('\n');
+    ok(lines.length === 38, 'ascii: 100 wide gives 38 lines for a 4:3 picture', lines.length);
+    ok(Math.max(...lines.map((l) => l.length)) <= 100, 'ascii: no line wider than asked');
+    ok(/^[@%#*+=\-:. \n]+$/.test(art), 'ascii: only the classic characters are used');
+
+    await page.$eval('#width', (e) => { e.value = 40; e.dispatchEvent(new Event('input')); });
+    await page.select('#set', 'binary');
+    await wait(150);
+    art = await page.$eval('#art', (e) => e.textContent);
+    ok(/^[10 \n]+$/.test(art) && art.split('\n').length === 15, 'ascii: ones and zeros, 40 wide', art.split('\n').length);
+
+    // a pure white picture is all spaces; swapping makes it solid
+    const white = path.join(tmp, 'white.png');
+    const wdata = await page.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 80; c.height = 40;
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 80, 40);
+      return c.toDataURL('image/png');
+    });
+    fs.writeFileSync(white, Buffer.from(wdata.split(',')[1], 'base64'));
+    await page.select('#set', 'classic');
+    await give(page, white);
+    art = await page.$eval('#art', (e) => e.textContent);
+    ok(art.trim() === '', 'ascii: white comes out as blank');
+    await page.$eval('#invert', (e) => { e.checked = true; e.dispatchEvent(new Event('change')); });
+    await wait(150);
+    art = await page.$eval('#art', (e) => e.textContent);
+    ok(/^@+$/.test(art.split('\n')[0]), 'ascii: swapping makes it solid', art.split('\n')[0]);
+
+    await page.click('#save-txt');
+    await page.click('#save-png');
+    const s = await saved(page, 2);
+    ok(s.length === 2 && s[0].name === 'white-ascii.txt' && s[1].name === 'white-ascii.png',
+       'ascii: saves as text and as a picture', JSON.stringify(s));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- not a picture
   {
     const page = await open('image-compress');

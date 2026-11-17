@@ -897,6 +897,34 @@ const TOOLS = [
     category: 'image',
     desc: 'Frame a photo at passport size and print copies on a 4x6 or A4 sheet.',
     keywords: ['passport photo', 'visa photo', 'id photo', '35x45', '2x2', 'print sheet', 'nic photo']
+  },
+  {
+    slug: 'meme-maker',
+    name: 'Meme Maker',
+    category: 'image',
+    desc: 'Bold top and bottom text, or a caption above, on any picture.',
+    keywords: ['meme', 'caption', 'impact font', 'funny', 'top text', 'bottom text']
+  },
+  {
+    slug: 'photo-collage',
+    name: 'Photo Collage',
+    category: 'image',
+    desc: 'Two to nine photos in one picture, with spacing and rounded corners.',
+    keywords: ['collage', 'combine photos', 'grid', 'photo layout', 'merge images', 'side by side']
+  },
+  {
+    slug: 'image-splitter',
+    name: 'Image Splitter',
+    category: 'image',
+    desc: 'Cut a picture into a grid of pieces, for an Instagram grid or a panorama.',
+    keywords: ['split', 'grid', 'instagram grid', 'panorama', 'slice', 'tiles', 'carousel']
+  },
+  {
+    slug: 'image-to-ascii',
+    name: 'Image to ASCII Art',
+    category: 'image',
+    desc: 'A picture drawn with letters and symbols, to copy or save.',
+    keywords: ['ascii', 'text art', 'characters', 'convert', 'retro']
   }
 ];
 

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image to ASCII Art — Cja's Tools</title>
+<meta name="description" content="Turn a picture into a drawing made of letters and symbols, to copy as text or save. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .art-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  #art {
+    margin: 0; padding: 12px; font-family: Consolas, "Courier New", monospace;
+    line-height: 1; white-space: pre; letter-spacing: 0;
+  }
+  #art.light { background: #fff; color: #111; }
+  #art.dark { background: #0b0d10; color: #e8e8e8; }
+</style>
+</head>
+<body data-page="tool" data-slug="image-to-ascii">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Image to ASCII Art</h1>
+        <p>A picture drawn with letters and symbols. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>Faces, animals and logos with clear shapes work best</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="width">Width: <span id="width-label">100</span> characters</label>
+            <input type="range" id="width" min="20" max="240" value="100">
+          </div>
+          <div class="field">
+            <label for="set">Characters</label>
+            <select id="set">
+              <option value="classic" selected>Classic ( .:-=+*#%@ )</option>
+              <option value="detailed">Detailed (70 shades)</option>
+              <option value="blocks">Blocks ( ░▒▓█ )</option>
+              <option value="simple">Simple ( .oO@ )</option>
+              <option value="binary">Ones and zeros</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="paper">Shown on</label>
+            <select id="paper">
+              <option value="light" selected>White, dark letters</option>
+              <option value="dark">Black, light letters</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="contrast">Contrast: <span id="contrast-label">100</span>%</label>
+            <input type="range" id="contrast" min="50" max="250" value="100">
+          </div>
+          <div class="field">
+            <label for="size">Text size on screen: <span id="size-label">8</span>px</label>
+            <input type="range" id="size" min="4" max="16" value="8">
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" id="invert" style="width:auto;margin-right:7px">
+              Swap light and dark
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="art-wrap"><pre id="art" class="light"></pre></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy the text</button>
+          <button class="btn" id="save-txt">Save as .txt</button>
+          <button class="btn" id="save-png">Save as a picture</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>How it works:</b> the picture is shrunk to one cell per
+          character, and each cell's brightness picks a character &mdash; dense ones like
+          @ and # for dark areas, a dot or a space for light ones. Characters are
+          about twice as tall as they are wide, so the picture is squashed by half
+          vertically first to keep its shape.
+          <br><br>
+          <b>When pasting it somewhere,</b> it only lines up in a font where every
+          character is the same width, such as Consolas or Courier. WhatsApp does
+          this for text between three backticks: <code>```like this```</code>.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    /* Each set runs from darkest to lightest. */
+    var SETS = {
+      classic: '@%#*+=-:. ',
+      detailed: '$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`\'. ',
+      blocks: '█▓▒░ ',
+      simple: '@Oo. ',
+      binary: '10 '
+    };
+    var source = null, text = '';
+    var art = document.getElementById('art');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function convert() {
+      var cols = parseInt(v('width'), 10);
+      /* Half as many rows as the shape suggests, because a character
+         cell is roughly twice as tall as it is wide. */
+      var rows = Math.max(1, Math.round(cols * source.height / source.width * 0.5));
+      var c = CJA_IMG.canvas(cols, rows);
+      var ctx = c.getContext('2d', { willReadFrequently: true });
+      /* A white background so see-through parts count as light. */
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, cols, rows);
+      ctx.drawImage(source.img, 0, 0, cols, rows);
+      var d = ctx.getImageData(0, 0, cols, rows).data;
+
+      var chars = SETS[v('set')];
+      var contrast = parseInt(v('contrast'), 10) / 100;
+      /* On a dark background a bright pixel should be a dense character,
+         so the scale flips. "Swap" flips it again. */
+      var flip = (v('paper') === 'dark') !== document.getElementById('invert').checked;
+      var lines = [];
+      for (var y = 0; y < rows; y++) {
+        var line = '';
+        for (var x = 0; x < cols; x++) {
+          var i = (y * cols + x) * 4;
+          /* Perceived brightness: green looks brighter than red or blue. */
+          var lum = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+          lum = Math.min(1, Math.max(0, (lum - 0.5) * contrast + 0.5));
+          if (flip) lum = 1 - lum;
+          line += chars[Math.min(chars.length - 1, Math.floor(lum * chars.length))];
+        }
+        lines.push(line.replace(/\s+$/, ''));
+      }
+      return lines.join('\n');
+    }
+
+    function render() {
+      ['width', 'contrast', 'size'].forEach(function (id) {
+        document.getElementById(id + '-label').textContent = v(id);
+      });
+      art.className = v('paper');
+      art.style.fontSize = v('size') + 'px';
+      if (!source) return;
+      text = convert();
+      art.textContent = text;
+      var rows = text.split('\n').length;
+      document.getElementById('note').textContent = v('width') + ' characters across, ' + rows + ' lines.';
+      document.getElementById('result-panel').hidden = false;
+    }
+
+    ['width', 'contrast', 'size'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['set', 'paper', 'invert'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('copy').addEventListener('click', function () { if (text) CT.copy(text); });
+    document.getElementById('save-txt').addEventListener('click', function () {
+      if (!text) return;
+      CJA_IMG.download(new Blob([text + '\n'], { type: 'text/plain;charset=utf-8' }),
+        CJA_IMG.rename(source.name, 'txt', '-ascii'));
+    });
+
+    /* Draws the characters onto a picture, so it keeps its look anywhere. */
+    document.getElementById('save-png').addEventListener('click', function () {
+      if (!text) return;
+      var lines = text.split('\n');
+      var px = 12, font = px + 'px Consolas, "Courier New", monospace';
+      var probe = CJA_IMG.canvas(1, 1).getContext('2d');
+      probe.font = font;
+      var cw = probe.measureText('M').width;
+      var cols = parseInt(v('width'), 10);
+      var c = CJA_IMG.canvas(Math.ceil(cols * cw) + 24, lines.length * px + 24);
+      var ctx = c.getContext('2d');
+      var dark = v('paper') === 'dark';
+      ctx.fillStyle = dark ? '#0b0d10' : '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = dark ? '#e8e8e8' : '#111111';
+      ctx.font = font;
+      ctx.textBaseline = 'top';
+      lines.forEach(function (l, i) { ctx.fillText(l, 12, 12 + i * px); });
+      CJA_IMG.toBlob(c, 'image/png').then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, 'png', '-ascii'));
+      });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

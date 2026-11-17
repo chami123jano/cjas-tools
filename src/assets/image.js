@@ -127,6 +127,76 @@
       });
     },
 
+    /* Packs files into one .zip without compressing them (pictures are
+       already compressed, so squeezing again gains almost nothing).
+       files: [{ name, data: Uint8Array }]. Returns a Blob. */
+    zip: function (files) {
+      var enc = new TextEncoder();
+      var now = new Date();
+      /* Dates in a zip are in the old MS-DOS format. */
+      var dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+      var dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+      var parts = [], central = [], offset = 0;
+
+      files.forEach(function (f) {
+        var name = enc.encode(f.name);
+        var crc = IMG.crc32(f.data);
+        var local = new DataView(new ArrayBuffer(30));
+        local.setUint32(0, 0x04034b50, true);    // local file header
+        local.setUint16(4, 20, true);             // version needed
+        local.setUint16(6, 0x0800, true);         // names are UTF-8
+        local.setUint16(8, 0, true);              // stored, no compression
+        local.setUint16(10, dosTime, true);
+        local.setUint16(12, dosDate, true);
+        local.setUint32(14, crc, true);
+        local.setUint32(18, f.data.length, true);
+        local.setUint32(22, f.data.length, true);
+        local.setUint16(26, name.length, true);
+        local.setUint16(28, 0, true);
+        parts.push(new Uint8Array(local.buffer), name, f.data);
+
+        var c = new DataView(new ArrayBuffer(46));
+        c.setUint32(0, 0x02014b50, true);         // central directory entry
+        c.setUint16(4, 20, true);
+        c.setUint16(6, 20, true);
+        c.setUint16(8, 0x0800, true);
+        c.setUint16(10, 0, true);
+        c.setUint16(12, dosTime, true);
+        c.setUint16(14, dosDate, true);
+        c.setUint32(16, crc, true);
+        c.setUint32(20, f.data.length, true);
+        c.setUint32(24, f.data.length, true);
+        c.setUint16(28, name.length, true);
+        c.setUint32(42, offset, true);            // where the file starts
+        central.push(new Uint8Array(c.buffer), name);
+        offset += 30 + name.length + f.data.length;
+      });
+
+      var centralSize = central.reduce(function (n, p) { return n + p.length; }, 0);
+      var end = new DataView(new ArrayBuffer(22));
+      end.setUint32(0, 0x06054b50, true);         // end of central directory
+      end.setUint16(8, files.length, true);
+      end.setUint16(10, files.length, true);
+      end.setUint32(12, centralSize, true);
+      end.setUint32(16, offset, true);
+      return new Blob(parts.concat(central, [new Uint8Array(end.buffer)]), { type: 'application/zip' });
+    },
+
+    crc32: function (data) {
+      var table = IMG._crcTable;
+      if (!table) {
+        table = IMG._crcTable = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+          var c = n;
+          for (var k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          table[n] = c >>> 0;
+        }
+      }
+      var crc = 0xffffffff;
+      for (var i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+      return (crc ^ 0xffffffff) >>> 0;
+    },
+
     download: function (blob, name) {
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');

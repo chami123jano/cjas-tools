@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image Splitter — Cja's Tools</title>
+<meta name="description" content="Cut a picture into a grid of equal pieces, for an Instagram grid, a swipeable panorama or a printed poster. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .stage { position: relative; display: inline-block; max-width: 100%; }
+  .stage canvas { display: block; max-width: 100%; height: auto; }
+  .pieces { display: grid; gap: 6px; margin-top: 12px; }
+  .pieces canvas { width: 100%; height: auto; display: block; border-radius: 4px; border: 1px solid var(--border); }
+</style>
+</head>
+<body data-page="tool" data-slug="image-splitter">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Image Splitter</h1>
+        <p>Cut one picture into a grid of equal pieces. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="btns" id="presets">
+          <button class="btn" data-c="3" data-r="3">Instagram grid, 3 × 3</button>
+          <button class="btn" data-c="3" data-r="1">Swipeable panorama, 3 across</button>
+          <button class="btn" data-c="2" data-r="2">Four quarters</button>
+          <button class="btn" data-c="2" data-r="1">Two halves</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="cols">Pieces across</label>
+            <input type="number" id="cols" value="3" min="1" max="10" step="1">
+          </div>
+          <div class="field">
+            <label for="rows">Pieces down</label>
+            <input type="number" id="rows" value="3" min="1" max="10" step="1">
+          </div>
+          <div class="field">
+            <label for="fit">Make the pieces square</label>
+            <select id="fit">
+              <option value="no" selected>No, keep the whole picture</option>
+              <option value="square">Yes, trim the picture to fit</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="stage"><canvas id="view"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save-zip">Save all pieces (.zip)</button>
+        </div>
+        <div class="pieces" id="pieces"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>For an Instagram grid,</b> post the pieces starting from the
+          last one (bottom right) and finishing with the first, because the newest
+          post appears top left. The files are numbered in reading order, so post them
+          from the highest number down.
+          <br><br>
+          <b>For a panorama</b> that people swipe through, post all the pieces together
+          as one carousel in number order. Instagram crops carousel pictures to the
+          shape of the first, so square pieces line up best.
+          <br><br>
+          <b>The pieces come in a .zip file.</b> Windows opens it with a double-click;
+          on a phone, the Files app does.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var view = document.getElementById('view');
+
+    function num(id, lo, hi) {
+      var n = parseInt(document.getElementById(id).value, 10);
+      return Math.min(hi, Math.max(lo, isFinite(n) ? n : lo));
+    }
+
+    /* The part of the picture that gets cut, and the size of each piece.
+       Pieces are whole pixels; any leftover pixel or two at the edge is
+       trimmed so every piece is exactly the same size. */
+    function plan() {
+      var cols = num('cols', 1, 10), rows = num('rows', 1, 10);
+      var area = { x: 0, y: 0, width: source.width, height: source.height };
+      if (document.getElementById('fit').value === 'square') {
+        area = CJA_IMG.ratioRect(source.width, source.height, cols / rows);
+      }
+      var pw = Math.floor(area.width / cols), ph = Math.floor(area.height / rows);
+      area.x += Math.floor((area.width - pw * cols) / 2);
+      area.y += Math.floor((area.height - ph * rows) / 2);
+      return { cols: cols, rows: rows, x: area.x, y: area.y, pw: pw, ph: ph };
+    }
+
+    function piece(p, c, r) {
+      var cv = CJA_IMG.canvas(p.pw, p.ph);
+      cv.getContext('2d').drawImage(source.img, p.x + c * p.pw, p.y + r * p.ph, p.pw, p.ph, 0, 0, p.pw, p.ph);
+      return cv;
+    }
+
+    function render() {
+      if (!source) return;
+      var p = plan();
+      view.width = source.width; view.height = source.height;
+      var ctx = view.getContext('2d');
+      ctx.drawImage(source.img, 0, 0);
+      /* Dim what is trimmed away, then draw the cut lines. */
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      var aw = p.pw * p.cols, ah = p.ph * p.rows;
+      ctx.fillRect(0, 0, source.width, p.y);
+      ctx.fillRect(0, p.y + ah, source.width, source.height - p.y - ah);
+      ctx.fillRect(0, p.y, p.x, ah);
+      ctx.fillRect(p.x + aw, p.y, source.width - p.x - aw, ah);
+      ctx.strokeStyle = '#ffd400';
+      ctx.lineWidth = Math.max(2, source.width / 400);
+      for (var c = 1; c < p.cols; c++) {
+        ctx.beginPath(); ctx.moveTo(p.x + c * p.pw, p.y); ctx.lineTo(p.x + c * p.pw, p.y + ah); ctx.stroke();
+      }
+      for (var r = 1; r < p.rows; r++) {
+        ctx.beginPath(); ctx.moveTo(p.x, p.y + r * p.ph); ctx.lineTo(p.x + aw, p.y + r * p.ph); ctx.stroke();
+      }
+
+      var box = document.getElementById('pieces');
+      box.style.gridTemplateColumns = 'repeat(' + p.cols + ', 1fr)';
+      box.innerHTML = '';
+      for (r = 0; r < p.rows; r++) for (c = 0; c < p.cols; c++) box.appendChild(piece(p, c, r));
+
+      var count = p.cols * p.rows;
+      document.getElementById('note').textContent = count + ' piece' + (count === 1 ? '' : 's') +
+        ', each ' + p.pw + ' × ' + p.ph + ' pixels.' +
+        (p.pw < 300 || p.ph < 300 ? ' The pieces are small and may look soft on a phone.' : '');
+      document.getElementById('result-panel').hidden = false;
+    }
+
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-c]');
+      if (!b) return;
+      document.getElementById('cols').value = b.dataset.c;
+      document.getElementById('rows').value = b.dataset.r;
+      document.getElementById('fit').value = 'square';
+      render();
+    });
+    ['cols', 'rows', 'fit'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('save-zip').addEventListener('click', function () {
+      if (!source) return;
+      var p = plan();
+      var type = source.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      var ext = CJA_IMG.TYPES[type].ext;
+      var base = CJA_IMG.rename(source.name, 'x').slice(0, -2);
+      var jobs = [];
+      var width = String(p.cols * p.rows).length;
+      for (var r = 0; r < p.rows; r++) {
+        for (var c = 0; c < p.cols; c++) {
+          (function (n, cv) {
+            jobs.push(CJA_IMG.toBlob(cv, type, 0.95).then(function (b) { return b.arrayBuffer(); })
+              .then(function (ab) {
+                /* Zero-padded so the files sort in order: 01, 02 ... 10. */
+                var label = ('000' + n).slice(-Math.max(2, width));
+                return { name: base + '-' + label + '.' + ext, data: new Uint8Array(ab) };
+              }));
+          })(r * p.cols + c + 1, piece(p, c, r));
+        }
+      }
+      Promise.all(jobs).then(function (files) {
+        CJA_IMG.download(CJA_IMG.zip(files), base + '-pieces.zip');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meme Maker — Cja's Tools</title>
+<meta name="description" content="Put bold top and bottom text, or a caption above, on any picture. Text sizes itself to fit. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="meme-maker">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Meme Maker</h1>
+        <p>Any picture, your words. The text sizes itself to fit. Your picture stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a picture</b>, drag one here, or paste one
+          <span>JPG, PNG, WebP, GIF or BMP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="style">Style</label>
+            <select id="style">
+              <option value="classic" selected>Classic: text on the top and bottom</option>
+              <option value="caption">Caption: a white strip above the picture</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="max">Largest text size: <span id="max-label">12</span>%</label>
+            <input type="range" id="max" min="5" max="20" value="12">
+          </div>
+        </div>
+        <div class="field" data-style="classic">
+          <label for="top">Top text</label>
+          <input type="text" id="top" value="When the code works first time">
+        </div>
+        <div class="field" data-style="classic">
+          <label for="bottom">Bottom text</label>
+          <input type="text" id="bottom" value="Suspicious">
+        </div>
+        <div class="field" data-style="caption" hidden>
+          <label for="caption">Caption</label>
+          <textarea id="caption" rows="2">Me checking whether the electricity bill came yet</textarea>
+        </div>
+        <label data-style="classic">
+          <input type="checkbox" id="caps" checked style="width:auto;margin-right:7px">
+          ALL CAPITALS, like a classic meme
+        </label>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+          <button class="btn" id="copy-img">Copy the picture</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The classic look</b> is white Impact letters with a black
+          outline, which stays readable on any picture. Long lines wrap and the text
+          shrinks to fit, down to a size that is still readable.
+          <br><br>
+          <b>"Copy the picture"</b> puts the finished meme on the clipboard, ready to
+          paste straight into WhatsApp Web, Facebook or an email.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var source = null;
+    var out = document.getElementById('out');
+    var FONT_CLASSIC = 'Impact, "Arial Black", "Segoe UI Black", sans-serif';
+    var FONT_CAPTION = '"Segoe UI", Arial, sans-serif';
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* Breaks text into lines no wider than maxW at the current font.
+       A single word too long for a line is left whole; the size search
+       below then shrinks the text until it fits. */
+    function wrap(ctx, text, maxW) {
+      var lines = [];
+      text.split('\n').forEach(function (para) {
+        var line = '';
+        para.split(/\s+/).filter(Boolean).forEach(function (word) {
+          var test = line ? line + ' ' + word : word;
+          if (line && ctx.measureText(test).width > maxW) { lines.push(line); line = word; }
+          else line = test;
+        });
+        lines.push(line);
+      });
+      return lines;
+    }
+
+    /* The biggest size, up to the slider's limit, at which the text fits
+       inside maxW x maxH. */
+    function fit(ctx, text, font, weight, maxW, maxH, startPx) {
+      for (var px = startPx; px >= 10; px = Math.floor(px * 0.92)) {
+        ctx.font = weight + ' ' + px + 'px ' + font;
+        var lines = wrap(ctx, text, maxW);
+        var widest = Math.max.apply(null, lines.map(function (l) { return ctx.measureText(l).width; }));
+        if (lines.length * px * 1.15 <= maxH && widest <= maxW) return { px: px, lines: lines };
+      }
+      ctx.font = weight + ' 10px ' + font;
+      return { px: 10, lines: wrap(ctx, text, maxW) };
+    }
+
+    function outlined(ctx, lines, px, x, y0) {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, px / 7);
+      ctx.strokeStyle = '#000';
+      ctx.fillStyle = '#fff';
+      lines.forEach(function (l, i) {
+        var y = y0 + i * px * 1.15;
+        ctx.strokeText(l, x, y);
+        ctx.fillText(l, x, y);
+      });
+    }
+
+    function render() {
+      var style = v('style');
+      document.querySelectorAll('[data-style]').forEach(function (el) {
+        el.hidden = el.dataset.style !== style;
+      });
+      document.getElementById('max-label').textContent = v('max');
+      if (!source) return;
+
+      var w = source.width, h = source.height;
+      var startPx = Math.round(w * parseInt(v('max'), 10) / 100);
+      var ctx = out.getContext('2d');
+      ctx.textAlign = 'center';
+
+      if (style === 'caption') {
+        var text = v('caption').trim();
+        /* Measure first, then size the strip to the text. */
+        ctx.textBaseline = 'top';
+        var cap = fit(ctx, text || ' ', FONT_CAPTION, '600', w * 0.9, h * 0.5, Math.round(startPx * 0.7));
+        var pad = Math.round(cap.px * 0.6);
+        var strip = text ? Math.round(cap.lines.length * cap.px * 1.15 + pad * 2) : 0;
+        out.width = w;
+        out.height = h + strip;
+        ctx = out.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, strip);
+        ctx.drawImage(source.img, 0, strip);
+        if (text) {
+          ctx.font = '600 ' + cap.px + 'px ' + FONT_CAPTION;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = '#111';
+          cap.lines.forEach(function (l, i) { ctx.fillText(l, w / 2, pad + i * cap.px * 1.15); });
+        }
+        return;
+      }
+
+      out.width = w;
+      out.height = h;
+      ctx = out.getContext('2d');
+      ctx.drawImage(source.img, 0, 0);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      var caps = document.getElementById('caps').checked;
+      var margin = Math.round(h * 0.03);
+      [['top', 'top'], ['bottom', 'bottom']].forEach(function (pair) {
+        var t = v(pair[0]).trim();
+        if (!t) return;
+        if (caps) t = t.toUpperCase();
+        /* Each block may use up to a third of the height. */
+        var f = fit(ctx, t, FONT_CLASSIC, 'bold', w * 0.94, h * 0.33, startPx);
+        ctx.font = 'bold ' + f.px + 'px ' + FONT_CLASSIC;
+        var blockH = f.lines.length * f.px * 1.15;
+        var y0 = pair[1] === 'top' ? margin : h - margin - blockH;
+        outlined(ctx, f.lines, f.px, w / 2, y0);
+      });
+    }
+
+    ['top', 'bottom', 'caption', 'max'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['style', 'caps'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      CJA_IMG.toBlob(out, 'image/jpeg', 0.92).then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, 'jpg', '-meme'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    /* Clipboard pictures must be PNG; every current browser accepts that. */
+    document.getElementById('copy-img').addEventListener('click', function () {
+      if (!source) return;
+      if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) {
+        CT.toast('This browser cannot copy pictures - use Save instead');
+        return;
+      }
+      CJA_IMG.toBlob(out, 'image/png').then(function (blob) {
+        return navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      }).then(function () { CT.toast('Copied - paste it anywhere'); })
+        .catch(function () { CT.toast('Could not copy - use Save instead'); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; click to choose another</span>';
+        document.getElementById('result-panel').hidden = false;
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>
