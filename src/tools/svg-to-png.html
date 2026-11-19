@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SVG to PNG — Cja's Tools</title>
+<meta name="description" content="Turn an SVG logo or icon into a sharp PNG, JPG or WebP at any size. Choose a file or paste the code. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; min-height: 110px; }
+</style>
+</head>
+<body data-page="tool" data-slug="svg-to-png">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>SVG to PNG</h1>
+        <p>A sharp picture of an SVG logo or icon, at any size. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose an .svg file</b> or drag one here
+          <span>Or paste the SVG code below</span>
+        </div>
+        <input type="file" id="file" accept=".svg,image/svg+xml" hidden>
+        <div class="field" style="margin-top:12px">
+          <label for="code">SVG code</label>
+          <textarea id="code" spellcheck="false" placeholder="&lt;svg xmlns=&quot;http://www.w3.org/2000/svg&quot; ...&gt;"></textarea>
+        </div>
+        <p class="hint" id="error" style="color:var(--danger)"></p>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <div class="field">
+            <label for="width">Width (pixels)</label>
+            <input type="number" id="width" min="1" max="8000" step="1">
+          </div>
+          <div class="field">
+            <label for="height">Height (pixels)</label>
+            <input type="number" id="height" min="1" max="8000" step="1" readonly>
+          </div>
+          <div class="field">
+            <label for="format">Save as</label>
+            <select id="format">
+              <option value="image/png" selected>PNG (keeps see-through parts)</option>
+              <option value="image/jpeg">JPG</option>
+              <option value="image/webp">WebP</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bg-mode">Background</label>
+            <select id="bg-mode">
+              <option value="clear" selected>See-through</option>
+              <option value="colour">A colour</option>
+            </select>
+          </div>
+          <div class="field" id="bg-field" hidden>
+            <label for="bg">Background colour</label>
+            <input type="color" id="bg" value="#ffffff">
+          </div>
+        </div>
+        <div class="btns" id="sizes">
+          <button class="btn" data-w="16">16</button>
+          <button class="btn" data-w="64">64</button>
+          <button class="btn" data-w="256">256</button>
+          <button class="btn" data-w="512">512</button>
+          <button class="btn" data-w="1024">1024</button>
+          <button class="btn" data-w="2048">2048</button>
+          <button class="btn" data-x="2">2 × its own size</button>
+          <button class="btn" data-x="4">4 ×</button>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why SVG stays sharp at any size:</b> it is a set of drawing
+          instructions, not pixels. The picture is drawn fresh at exactly the size you
+          ask for, so a 16 pixel icon and a 2048 pixel poster are both crisp.
+          <br><br>
+          <b>Fonts and pictures linked from the internet</b> inside an SVG are not
+          loaded, for safety. If text comes out in the wrong font, convert the text to
+          outlines in the program that made the SVG (in Inkscape: Path &rsaquo; Object to
+          Path; in Illustrator: Type &rsaquo; Create Outlines).</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var doc = null;          // the parsed SVG
+    var natural = null;      // its own width and height
+    var name = 'drawing.svg';
+    var out = document.getElementById('out');
+    var busy = 0;
+
+    function v(id) { return document.getElementById(id).value; }
+    function showError(msg) {
+      document.getElementById('error').textContent = msg || '';
+      if (msg) document.getElementById('result-panel').hidden = true;
+    }
+
+    /* "12mm", "2in", "300", "50%" -> pixels at 96 per inch, or null. */
+    function length(s) {
+      var m = /^\s*([\d.]+)\s*(px|pt|pc|mm|cm|in)?\s*$/i.exec(s || '');
+      if (!m) return null;
+      var n = parseFloat(m[1]);
+      var per = { px: 1, pt: 96 / 72, pc: 16, mm: 96 / 25.4, cm: 96 / 2.54, in: 96 }[(m[2] || 'px').toLowerCase()];
+      return n > 0 ? n * per : null;
+    }
+
+    /* Reads the SVG's own size: width and height if given, otherwise the
+       viewBox, otherwise a default of 300 x 150 (what browsers use). */
+    function parse(text) {
+      var d = new DOMParser().parseFromString(text, 'image/svg+xml');
+      var root = d.documentElement;
+      if (d.getElementsByTagName('parsererror').length || !root || root.nodeName.toLowerCase() !== 'svg') {
+        return null;
+      }
+      var vb = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+      var hasVb = vb.length === 4 && vb[2] > 0 && vb[3] > 0;
+      var w = length(root.getAttribute('width')), h = length(root.getAttribute('height'));
+      if (w && !h && hasVb) h = w * vb[3] / vb[2];
+      if (h && !w && hasVb) w = h * vb[2] / vb[3];
+      if (!w || !h) {
+        if (hasVb) { w = vb[2]; h = vb[3]; } else { w = 300; h = 150; }
+      }
+      /* Without a viewBox the drawing would not scale with the new size;
+         give it one matching its own size. */
+      if (!hasVb) root.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+      return { doc: d, width: w, height: h };
+    }
+
+    function load(text) {
+      showError('');
+      if (!text.trim()) { doc = null; document.getElementById('result-panel').hidden = true; return; }
+      var p = parse(text);
+      if (!p) { doc = null; showError('That is not valid SVG. It should start with <svg and be complete.'); return; }
+      doc = p.doc;
+      natural = { width: p.width, height: p.height };
+      var w = Math.round(natural.width);
+      /* Small icons are worth making bigger by default. */
+      if (w < 512) w = Math.min(1024, w * Math.ceil(512 / w));
+      setWidth(w);
+    }
+
+    function setWidth(w) {
+      w = Math.max(1, Math.min(8000, Math.round(w)));
+      document.getElementById('width').value = w;
+      document.getElementById('height').value = Math.max(1, Math.round(w * natural.height / natural.width));
+      render();
+    }
+
+    function render() {
+      document.getElementById('bg-field').hidden = v('bg-mode') !== 'colour';
+      if (!doc) return;
+      var W = parseInt(v('width'), 10);
+      if (!(W > 0) || W > 8000) { showError('Choose a width between 1 and 8000 pixels.'); return; }
+      showError('');
+      var H = Math.max(1, Math.round(W * natural.height / natural.width));
+      document.getElementById('height').value = H;
+
+      /* Draw at the target size by setting the SVG's own width and height,
+         so it is rendered sharp rather than a small picture stretched. */
+      var copy = doc.documentElement.cloneNode(true);
+      copy.setAttribute('width', W);
+      copy.setAttribute('height', H);
+      if (!copy.getAttribute('xmlns')) copy.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      var text = new XMLSerializer().serializeToString(copy);
+      var url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml' }));
+      var job = ++busy;
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        if (job !== busy) return;
+        out.width = W; out.height = H;
+        var ctx = out.getContext('2d');
+        ctx.clearRect(0, 0, W, H);
+        if (v('bg-mode') === 'colour') { ctx.fillStyle = v('bg'); ctx.fillRect(0, 0, W, H); }
+        ctx.drawImage(img, 0, 0, W, H);
+        document.getElementById('result-panel').hidden = false;
+        document.getElementById('note').textContent = W + ' × ' + H + ' pixels. The SVG\'s own size is ' +
+          Math.round(natural.width) + ' × ' + Math.round(natural.height) + '.';
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        if (job === busy) showError('The browser could not draw this SVG. It may use features that need other files.');
+      };
+      img.src = url;
+    }
+
+    var code = document.getElementById('code');
+    code.addEventListener('input', function () { name = 'drawing.svg'; load(code.value); });
+
+    document.getElementById('width').addEventListener('change', function () { if (natural) setWidth(+this.value); });
+    ['format', 'bg-mode', 'bg'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+    document.getElementById('sizes').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      if (!natural) { CT.toast('Choose or paste an SVG first'); return; }
+      setWidth(b.dataset.w ? +b.dataset.w : natural.width * +b.dataset.x);
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!doc) return;
+      var type = v('format');
+      CJA_IMG.toBlob(out, type, 0.95, v('bg-mode') === 'colour' ? v('bg') : '#ffffff').then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(name, CJA_IMG.TYPES[blob.type].ext, '-' + out.width + 'px'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    /* An SVG is read as text rather than as a picture, so its code can be
+       shown and its size worked out. */
+    var input = document.getElementById('file');
+    function readFile(f) {
+      if (!f) return;
+      if (!/\.svg$/i.test(f.name) && f.type !== 'image/svg+xml') { CT.toast('That is not an .svg file'); return; }
+      f.text().then(function (t) {
+        name = f.name;
+        code.value = t;
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b>' +
+          '<span>' + CJA_IMG.bytes(f.size) + ' &middot; click to choose another</span>';
+        load(t);
+      });
+    }
+    var zone = document.getElementById('drop');
+    zone.addEventListener('click', function () { input.click(); });
+    zone.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.remove('over'); });
+    });
+    zone.addEventListener('drop', function (e) { readFile(e.dataTransfer.files[0]); });
+    input.addEventListener('change', function () { readFile(input.files[0]); input.value = ''; });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

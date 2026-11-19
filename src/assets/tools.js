@@ -925,6 +925,20 @@ const TOOLS = [
     category: 'image',
     desc: 'A picture drawn with letters and symbols, to copy or save.',
     keywords: ['ascii', 'text art', 'characters', 'convert', 'retro']
+  },
+  {
+    slug: 'remove-background',
+    name: 'Remove Background',
+    category: 'image',
+    desc: 'Make a plain background see-through or a new colour: signatures, logos, products.',
+    keywords: ['remove background', 'transparent', 'signature', 'white background', 'png', 'cut out', 'logo']
+  },
+  {
+    slug: 'svg-to-png',
+    name: 'SVG to PNG',
+    category: 'image',
+    desc: 'A sharp PNG, JPG or WebP of an SVG logo or icon, at any size.',
+    keywords: ['svg', 'png', 'convert', 'vector', 'logo', 'icon', 'rasterize']
   }
 ];
 

@@ -915,6 +915,135 @@ async function saved(page, n = 1) {
     await page.close();
   }
 
+  // ---------------------------------------------------------- remove background
+  {
+    /* A test picture: off-white background with a little noise, a red ring
+       with a white hole in the middle (the hole is NOT joined to the edge),
+       and a soft grey shadow edge on the ring. */
+    const page = await open('remove-background');
+    const ringFile = path.join(tmp, 'ring.jpg');
+    const rdata = await page.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 300; c.height = 200;
+      const x = c.getContext('2d');
+      x.fillStyle = '#f7f7f5'; x.fillRect(0, 0, 300, 200);
+      x.filter = 'blur(2px)';   // a soft edge, like a real photo
+      x.fillStyle = '#c0161e'; x.beginPath(); x.arc(150, 100, 70, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#f7f7f5'; x.beginPath(); x.arc(150, 100, 30, 0, Math.PI * 2); x.fill();
+      return c.toDataURL('image/jpeg', 0.95);
+    });
+    fs.writeFileSync(ringFile, Buffer.from(rdata.split(',')[1], 'base64'));
+    await give(page, ringFile);
+
+    const hexShown = await text(page, 'bg-hex');
+    const bgRgb = [1, 3, 5].map((i) => parseInt(hexShown.slice(i, i + 2), 16));
+    ok(bgRgb.every((n) => Math.abs(n - 246) < 6), 'background: finds the off-white from the edges', hexShown);
+
+    let corner = await pixel(page, 2, 2), ring = await pixel(page, 150, 45), hole = await pixel(page, 150, 100);
+    ok(corner[3] === 0, 'background: the outside becomes see-through', JSON.stringify(corner));
+    ok(ring[3] === 255 && ring[0] > 150 && ring[1] < 60, 'background: the red ring stays solid', JSON.stringify(ring));
+    ok(hole[3] === 255, 'background: the hole inside is kept (not joined to the edge)', JSON.stringify(hole));
+    ok(/% of the picture was background/.test(await text(page, 'note')), 'background: says how much was removed');
+
+    // the soft edge: some pixels at the ring's outer edge are half see-through,
+    // and have no pale halo left (red, not pink)
+    const edge = await page.evaluate(() => {
+      const d = document.getElementById('out').getContext('2d').getImageData(150, 25, 1, 15).data;
+      const out = [];
+      for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 20 && d[i + 3] < 235) out.push([d[i], d[i + 1], d[i + 2], d[i + 3]]);
+      return out;
+    });
+    ok(edge.length > 0, 'background: edges are softened', JSON.stringify(edge));
+    ok(edge.every((p) => p[0] > 120 && p[1] < 110), 'background: softened edges stay red, not pale', JSON.stringify(edge));
+
+    await page.select('#where', 'all');
+    await wait(300);
+    hole = await pixel(page, 150, 100);
+    ok(hole[3] === 0, 'background: "everywhere" also clears the hole');
+
+    // replace with blue
+    await page.select('#replace', 'colour');
+    await page.$eval('#newbg', (e) => { e.value = '#0044cc'; e.dispatchEvent(new Event('change')); });
+    await wait(300);
+    corner = await pixel(page, 2, 2);
+    ok(corner[3] === 255 && corner[2] > 190 && corner[0] < 20, 'background: a new colour fills behind', JSON.stringify(corner));
+    ring = await pixel(page, 150, 45);
+    ok(ring[0] > 150 && ring[2] < 80, 'background: and the ring is still red on top', JSON.stringify(ring));
+
+    // clicking the ring picks red as "background" instead
+    await page.select('#replace', 'clear');
+    await page.select('#where', 'edges');
+    await page.$eval('#out', (e) => e.scrollIntoView({ block: 'center' }));
+    const ob = await (await page.$('#out')).boundingBox();
+    await page.mouse.click(ob.x + ob.width * 150 / 300, ob.y + ob.height * 45 / 200);
+    await wait(300);
+    const picked = await text(page, 'bg-hex');
+    ok(parseInt(picked.slice(1, 3), 16) > 150 && parseInt(picked.slice(3, 5), 16) < 60, 'background: clicking picks that colour', picked);
+    ok(/Very little matched/.test(await text(page, 'note')), 'background: red is not joined to the edge, so it says little matched',
+       await text(page, 'note'));
+
+    // a signature preset, then save as a see-through PNG
+    await page.click('#presets [data-preset="signature"]');
+    await wait(300);
+    ok(await page.$eval('#tol', (e) => e.value) === '35' && await page.$eval('#where', (e) => e.value) === 'all',
+       'background: the signature preset sets its values');
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'ring-no-background.png' && s[0].type === 'image/png',
+       'background: saves ring-no-background.png', JSON.stringify(s));
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- svg to png
+  {
+    const page = await open('svg-to-png');
+    const svgFile = path.join(tmp, 'logo.svg');
+    // viewBox only, a red circle on nothing, with a thin line to show sharpness
+    fs.writeFileSync(svgFile, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">' +
+      '<circle cx="25" cy="25" r="20" fill="#e00000"/><rect x="60" y="10" width="30" height="30" fill="#0050ff"/></svg>');
+    const input = await page.$('#file');
+    await input.uploadFile(svgFile);
+    await wait(800);
+    let img = await shown(page, '#out');
+    // 100 wide is small, so it starts at 600 (100 x 6) -> 600 x 300
+    ok(img && img.w === 600 && img.h === 300, 'svg: draws at the starting size', JSON.stringify(img && [img.w, img.h]));
+    ok(img && img.corner[3] === 0, 'svg: see-through by default');
+    const red = await pixel(page, 150, 150), blue = await pixel(page, 450, 150);
+    ok(red[0] > 220 && red[3] === 255, 'svg: the circle is drawn', JSON.stringify(red));
+    ok(blue[2] > 220 && blue[3] === 255, 'svg: the square is drawn', JSON.stringify(blue));
+
+    // drawn sharp at the new size: the square's edge is a clean step, not a blur
+    await page.click('#sizes [data-w="2048"]');
+    await wait(800);
+    img = await shown(page, '#out');
+    ok(img && img.w === 2048 && img.h === 1024, 'svg: 2048 wide', JSON.stringify(img && [img.w, img.h]));
+    const step = await page.evaluate(() => {
+      const d = document.getElementById('out').getContext('2d');
+      // the square starts at x = 60/100 * 2048 = 1228.8
+      return [d.getImageData(1226, 500, 1, 1).data[3], d.getImageData(1231, 500, 1, 1).data[3]];
+    });
+    ok(step[0] === 0 && step[1] === 255, 'svg: edges stay sharp at a large size', JSON.stringify(step));
+
+    await page.select('#bg-mode', 'colour');
+    await page.$eval('#bg', (e) => { e.value = '#000000'; e.dispatchEvent(new Event('change')); });
+    await wait(600);
+    const c = await pixel(page, 2, 2);
+    ok(c[3] === 255 && c[0] === 0, 'svg: a background colour fills the empty parts', JSON.stringify(c));
+
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'logo-2048px.png' && s[0].type === 'image/png', 'svg: saves logo-2048px.png', JSON.stringify(s));
+
+    // pasting code works the same
+    await page.$eval('#code', (e) => {
+      e.value = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#00aa00"/></svg>';
+      e.dispatchEvent(new Event('input'));
+    });
+    await wait(800);
+    img = await shown(page, '#out');
+    ok(img && img.w === 520 && img.h === 520 && img.centre[1] > 150, 'svg: pasted code is drawn', JSON.stringify(img && [img.w, img.h, img.centre]));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- not a picture
   {
     const page = await open('image-compress');

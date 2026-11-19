@@ -2426,11 +2426,14 @@ pending.push(function currencyLive() {
      'the seed word is used');
 
   // the spelling-risk flag should fire on a doubled letter at a word join
+  // (names are random, so try up to ten batches of 40 rather than trusting one)
   t.set('kind', 'compound').set('count', 40).set('word', '');
-  const flags = [...t.document.querySelectorAll('#list .flag')]
-    .map((e) => e.textContent).filter((s) => s);
-  ok(flags.length > 0, 'some names are flagged as awkward to spell',
-     'got ' + flags.length + ' flags');
+  const countFlags = () => [...t.document.querySelectorAll('#list .flag')]
+    .map((e) => e.textContent).filter((s) => s).length;
+  let flags = countFlags();
+  for (let i = 0; i < 9 && !flags; i++) { t.click('go'); flags = countFlags(); }
+  ok(flags > 0, 'some names are flagged as awkward to spell',
+     'got ' + flags + ' flags in up to 400 names');
   t.close();
 })();
 
@@ -2813,7 +2816,7 @@ pending.push(function currencyLive() {
   ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners',
    'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur',
    'rotate-flip', 'photo-filters', 'image-color-picker', 'passport-photo',
-   'meme-maker', 'image-splitter', 'image-to-ascii'].forEach((slug) => {
+   'meme-maker', 'image-splitter', 'image-to-ascii', 'remove-background'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
        slug + ' has a drop zone and file input');
@@ -2867,6 +2870,52 @@ pending.push(function currencyLive() {
   ok(t.byId('file').multiple, 'collage: several photos can be chosen at once');
   ok(t.byId('layouts').querySelectorAll('[data-layout]').length === 10, 'collage: ten layouts to choose from');
   ok(t.byId('result-panel').hidden, 'collage: nothing shown before photos are added');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- svg to png: reading the size
+// The drawing itself is checked in a real browser by test/images.js.
+
+(function () {
+  const t = loadTool('svg-to-png');
+  const paste = (code) => t.set('code', code);
+
+  // width and height in pixels: small icons start bigger, keeping the shape
+  paste('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12"><rect width="24" height="12"/></svg>');
+  ok(t.byId('width').value === '528' && t.byId('height').value === '264',
+     'svg: a 24 x 12 icon starts at a useful size, same shape',
+     t.byId('width').value + ' x ' + t.byId('height').value);
+
+  // only a viewBox
+  paste('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400"><circle cx="400" cy="200" r="100"/></svg>');
+  ok(t.byId('width').value === '800' && t.byId('height').value === '400', 'svg: size from the viewBox');
+
+  // width only, height from the viewBox shape
+  paste('<svg xmlns="http://www.w3.org/2000/svg" width="1000" viewBox="0 0 200 100"></svg>');
+  ok(t.byId('height').value === '500', 'svg: missing height follows the viewBox shape', t.byId('height').value);
+
+  // units: 2 inches at 96 per inch is 192
+  paste('<svg xmlns="http://www.w3.org/2000/svg" width="2in" height="1in"></svg>');
+  ok(t.byId('width').value === '576' && t.byId('height').value === '288', 'svg: inches are understood (192 x 96, tripled)',
+     t.byId('width').value + ' x ' + t.byId('height').value);
+  paste('<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm"></svg>');
+  ok(t.byId('width').value === '794' && t.byId('height').value === '1123', 'svg: A4 in mm is 794 x 1123 at 96 dpi',
+     t.byId('width').value + ' x ' + t.byId('height').value);
+
+  // the size buttons
+  t.$('#sizes [data-w="256"]').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(t.byId('width').value === '256' && t.byId('height').value === '362', 'svg: size buttons keep the shape',
+     t.byId('height').value);
+  t.$('#sizes [data-x="2"]').dispatchEvent(new t.window.MouseEvent('click', { bubbles: true }));
+  ok(t.byId('width').value === '1587', 'svg: 2x its own size', t.byId('width').value);
+
+  // nonsense is refused with a message
+  paste('<svg><rect></svg');
+  has(t.text('error'), 'not valid SVG', 'svg: broken code is refused');
+  paste('<html><body>hello</body></html>');
+  has(t.text('error'), 'not valid SVG', 'svg: an HTML page is refused');
+  paste('');
+  ok(t.text('error') === '', 'svg: clearing the code clears the message');
   t.close();
 })();
 

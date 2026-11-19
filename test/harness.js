@@ -87,6 +87,11 @@ function loadTool(slug, opts = {}) {
         }
         return this.__ctx;
       };
+      // jsdom has no blob URLs; pages only need a string back.
+      if (!window.URL.createObjectURL) {
+        window.URL.createObjectURL = () => 'blob:stub';
+        window.URL.revokeObjectURL = () => {};
+      }
       window.HTMLCanvasElement.prototype.toDataURL = function () {
         return 'data:image/png;base64,stub';
       };
