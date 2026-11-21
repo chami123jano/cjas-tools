@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screenshot Beautifier — Cja's Tools</title>
+<meta name="description" content="Put a screenshot on a smart background with padding, rounded corners, a shadow and a window frame, for posts and slides. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatches button {
+    width: 38px; height: 38px; border-radius: 9px; border: 2px solid transparent; cursor: pointer; padding: 0;
+  }
+  .swatches button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--bg) inset; }
+</style>
+</head>
+<body data-page="tool" data-slug="screenshot-beautifier">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Screenshot Beautifier</h1>
+        <p>Turn a plain screenshot into something you would put in a post or a slide. Your screenshot stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Paste a screenshot</b> (Windows key + Shift + S, then Ctrl + V), or choose a file
+          <span>PNG, JPG, WebP</span>
+        </div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Background</label>
+        <div class="swatches" id="swatches"></div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="frame">Frame</label>
+            <select id="frame">
+              <option value="none">None</option>
+              <option value="mac" selected>Window with three dots</option>
+              <option value="windows">Windows-style title bar</option>
+              <option value="browser">Browser with an address bar</option>
+            </select>
+          </div>
+          <div class="field" id="title-field">
+            <label for="title">Title or address</label>
+            <input type="text" id="title" value="chami123jano.github.io/cjas-tools">
+          </div>
+          <div class="field">
+            <label for="shape">Final shape</label>
+            <select id="shape">
+              <option value="auto" selected>Fit the screenshot</option>
+              <option value="1.7778">16:9 (slides, YouTube)</option>
+              <option value="1">Square (Instagram)</option>
+              <option value="0.8">4:5 portrait (Instagram)</option>
+              <option value="1.91">1.91:1 (Facebook, LinkedIn link)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="pad">Space around: <span id="pad-label">8</span>%</label>
+            <input type="range" id="pad" min="0" max="20" value="8">
+          </div>
+          <div class="field">
+            <label for="radius">Rounded corners: <span id="radius-label">12</span></label>
+            <input type="range" id="radius" min="0" max="40" value="12">
+          </div>
+          <div class="field">
+            <label for="shadow">Shadow: <span id="shadow-label">5</span></label>
+            <input type="range" id="shadow" min="0" max="10" value="5">
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="result-panel" hidden>
+        <div class="preview"><canvas id="out"></canvas></div>
+        <p class="hint" id="note"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save as PNG</button>
+          <button class="btn" id="copy-img">Copy the picture</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Hide anything private first.</b> Screenshots often show
+          email addresses, phone numbers or account details in a corner. Blur them with
+          <a href="pixelate-blur.html">Pixelate or Blur</a> before sharing.
+          <br><br>
+          <b>The saved picture is PNG,</b> which keeps text in a screenshot crisp. It is
+          made at the screenshot's own resolution, so nothing gets blurred by being
+          shrunk and enlarged again.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    /* Each background: a pair of colours for a diagonal gradient, or one. */
+    var BACKGROUNDS = [
+      ['#4f7cff', '#a855f7'], ['#ff7a59', '#ffcc33'], ['#16a085', '#2ecc71'],
+      ['#0f172a', '#334155'], ['#ec4899', '#f97316'], ['#06b6d4', '#3b82f6'],
+      ['#f1f5f9', '#cbd5e1'], ['#ffffff'], ['#111111'], ['#fde68a', '#fca5a5']
+    ];
+    var bgIndex = 0;
+    var source = null;
+    var out = document.getElementById('out');
+
+    function v(id) { return document.getElementById(id).value; }
+
+    document.getElementById('swatches').innerHTML = BACKGROUNDS.map(function (b, i) {
+      var css = b.length === 1 ? b[0] : 'linear-gradient(135deg, ' + b[0] + ', ' + b[1] + ')';
+      return '<button data-i="' + i + '" title="Background ' + (i + 1) + '" style="background:' + css + '"' +
+        (i === bgIndex ? ' class="on"' : '') + '></button>';
+    }).join('');
+
+    function roundRect(ctx, x, y, w, h, r, onlyTop) {
+      r = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      if (onlyTop) { ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); }
+      else { ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); }
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    /* Sizes scale with the screenshot, so a 4K screenshot gets the same
+       look as a small one. u is one "unit" of about a pixel on a normal
+       1000 px screenshot. */
+    function render() {
+      ['pad', 'radius', 'shadow'].forEach(function (id) {
+        document.getElementById(id + '-label').textContent = v(id);
+      });
+      var frame = v('frame');
+      document.getElementById('title-field').hidden = frame === 'none';
+      if (!source) return;
+
+      var sw = source.width, sh = source.height;
+      var u = Math.max(1, Math.max(sw, sh) / 1000);
+      var bar = frame === 'none' ? 0 : Math.round((frame === 'browser' ? 44 : 34) * u);
+      var winW = sw, winH = sh + bar;
+
+      var pad = Math.round(Math.max(winW, winH) * parseInt(v('pad'), 10) / 100);
+      var W = winW + pad * 2, H = winH + pad * 2;
+      /* A fixed shape: grow the shorter direction, keeping the window centred. */
+      if (v('shape') !== 'auto') {
+        var ratio = parseFloat(v('shape'));
+        if (W / H < ratio) W = Math.round(H * ratio); else H = Math.round(W / ratio);
+      }
+      out.width = W; out.height = H;
+      var ctx = out.getContext('2d');
+
+      var bg = BACKGROUNDS[bgIndex];
+      if (bg.length === 1) ctx.fillStyle = bg[0];
+      else {
+        var g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, bg[0]); g.addColorStop(1, bg[1]);
+        ctx.fillStyle = g;
+      }
+      ctx.fillRect(0, 0, W, H);
+
+      var x = Math.round((W - winW) / 2), y = Math.round((H - winH) / 2);
+      var r = parseInt(v('radius'), 10) * u;
+      var shadow = parseInt(v('shadow'), 10);
+
+      /* The shadow is drawn from a solid window shape underneath. */
+      if (shadow) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,' + (0.12 + shadow * 0.035) + ')';
+        ctx.shadowBlur = shadow * 6 * u;
+        ctx.shadowOffsetY = shadow * 2 * u;
+        roundRect(ctx, x, y, winW, winH, r);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.save();
+      roundRect(ctx, x, y, winW, winH, r);
+      ctx.clip();
+      if (bar) drawBar(ctx, frame, x, y, winW, bar, u);
+      ctx.drawImage(source.img, x, y + bar);
+      ctx.restore();
+
+      document.getElementById('result-panel').hidden = false;
+      document.getElementById('note').textContent = W + ' × ' + H + ' pixels.';
+    }
+
+    function drawBar(ctx, frame, x, y, w, bar, u) {
+      var dark = BACKGROUNDS[bgIndex][0] === '#111111' || BACKGROUNDS[bgIndex][0] === '#0f172a';
+      ctx.fillStyle = dark ? '#2a2d33' : '#eceef1';
+      ctx.fillRect(x, y, w, bar);
+      ctx.fillStyle = dark ? '#3a3e46' : '#d6d9de';
+      ctx.fillRect(x, y + bar - Math.max(1, u), w, Math.max(1, u));
+      var title = v('title');
+      var text = dark ? '#c9ccd2' : '#5b6170';
+      var cy = y + bar / 2;
+
+      if (frame === 'mac' || frame === 'browser') {
+        ['#ff5f57', '#febc2e', '#28c840'].forEach(function (c, i) {
+          ctx.fillStyle = c;
+          ctx.beginPath();
+          ctx.arc(x + (18 + i * 20) * u, cy, 6 * u, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+      if (frame === 'browser') {
+        /* An address bar in the middle of the title bar. */
+        var bx = x + 90 * u, bw = Math.max(40 * u, w - 180 * u), bh = bar * 0.62;
+        ctx.fillStyle = dark ? '#1c1e22' : '#ffffff';
+        roundRect(ctx, bx, cy - bh / 2, bw, bh, bh / 2);
+        ctx.fill();
+        ctx.fillStyle = text;
+        ctx.font = (12.5 * u) + 'px "Segoe UI", Arial, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillText(fitText(ctx, '🔒 ' + title, bw - 24 * u), bx + 12 * u, cy);
+        return;
+      }
+      if (frame === 'windows') {
+        /* Minimise, maximise and close on the right. */
+        ctx.strokeStyle = text;
+        ctx.lineWidth = Math.max(1, u);
+        var right = x + w;
+        var s = 5 * u;
+        var cx1 = right - 115 * u, cx2 = right - 70 * u, cx3 = right - 25 * u;
+        ctx.beginPath(); ctx.moveTo(cx1 - s, cy); ctx.lineTo(cx1 + s, cy); ctx.stroke();
+        ctx.strokeRect(cx2 - s, cy - s, s * 2, s * 2);
+        ctx.beginPath();
+        ctx.moveTo(cx3 - s, cy - s); ctx.lineTo(cx3 + s, cy + s);
+        ctx.moveTo(cx3 + s, cy - s); ctx.lineTo(cx3 - s, cy + s);
+        ctx.stroke();
+      }
+      if (title) {
+        ctx.fillStyle = text;
+        ctx.font = '600 ' + (13 * u) + 'px "Segoe UI", Arial, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = frame === 'windows' ? 'left' : 'center';
+        var tx = frame === 'windows' ? x + 14 * u : x + w / 2;
+        ctx.fillText(fitText(ctx, title, w - 260 * u), tx, cy);
+      }
+    }
+
+    /* Shortens a title with an ellipsis so it never runs into the buttons. */
+    function fitText(ctx, s, maxW) {
+      if (maxW <= 0) return '';
+      if (ctx.measureText(s).width <= maxW) return s;
+      while (s.length > 1 && ctx.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+      return s + '…';
+    }
+
+    document.getElementById('swatches').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-i]');
+      if (!b) return;
+      bgIndex = +b.dataset.i;
+      document.querySelectorAll('#swatches button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      render();
+    });
+    ['pad', 'radius', 'shadow', 'title'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', render);
+    });
+    ['frame', 'shape'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', render);
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!source) return;
+      CJA_IMG.toBlob(out, 'image/png').then(function (blob) {
+        CJA_IMG.download(blob, CJA_IMG.rename(source.name, 'png', '-framed'));
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+    document.getElementById('copy-img').addEventListener('click', function () {
+      if (!source) return;
+      if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) {
+        CT.toast('This browser cannot copy pictures - use Save instead');
+        return;
+      }
+      CJA_IMG.toBlob(out, 'image/png').then(function (blob) {
+        return navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      }).then(function () { CT.toast('Copied - paste it anywhere'); })
+        .catch(function () { CT.toast('Could not copy - use Save instead'); });
+    });
+
+    CJA_IMG.dropZone(document.getElementById('drop'), document.getElementById('file'), function (file) {
+      CJA_IMG.load(file).then(function (s) {
+        if (source) URL.revokeObjectURL(source.url);
+        source = s;
+        if (s.name === 'image.png' || !s.name) s.name = 'screenshot.png';
+        document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(s.name) + '</b>' +
+          '<span>' + s.width + ' × ' + s.height + ' pixels &middot; paste or click for another</span>';
+        render();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

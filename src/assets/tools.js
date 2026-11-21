@@ -939,6 +939,20 @@ const TOOLS = [
     category: 'image',
     desc: 'A sharp PNG, JPG or WebP of an SVG logo or icon, at any size.',
     keywords: ['svg', 'png', 'convert', 'vector', 'logo', 'icon', 'rasterize']
+  },
+  {
+    slug: 'image-compare',
+    name: 'Image Compare',
+    category: 'image',
+    desc: 'Two pictures with a sliding divider, side by side, or every change in red.',
+    keywords: ['compare', 'before after', 'difference', 'spot the difference', 'slider', 'diff']
+  },
+  {
+    slug: 'screenshot-beautifier',
+    name: 'Screenshot Beautifier',
+    category: 'image',
+    desc: 'A screenshot on a smart background with a window frame and shadow.',
+    keywords: ['screenshot', 'mockup', 'window frame', 'background', 'shadow', 'social post', 'slide']
   }
 ];
 

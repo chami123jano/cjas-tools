@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Image Compare — Cja's Tools</title>
+<meta name="description" content="Compare two pictures with a sliding divider, side by side, or with every changed pixel highlighted. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 600px) { .pair { grid-template-columns: 1fr; } }
+  .stage { position: relative; display: inline-block; max-width: 100%; touch-action: none; user-select: none; }
+  /* Tall pictures are kept within the window so the whole thing is visible. */
+  .stage canvas { display: block; max-width: 100%; max-height: 70vh; width: auto; height: auto; }
+  #after-layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
+  #after-layer canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; max-width: none; }
+  .divider {
+    position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.35); cursor: ew-resize;
+  }
+  .divider::after {
+    content: '\2194'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 34px; height: 34px; border-radius: 50%; background: #fff; color: #222;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+    box-shadow: 0 1px 6px rgba(0,0,0,.4);
+  }
+  .tag {
+    position: absolute; top: 8px; padding: 2px 9px; border-radius: 9px; font-size: 12px;
+    background: rgba(0,0,0,.6); color: #fff; pointer-events: none;
+  }
+  .side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .side-by-side canvas { width: 100%; height: auto; display: block; }
+  .side-by-side p { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body data-page="tool" data-slug="image-compare">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=image">Image</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Image Compare</h1>
+        <p>Before and after, two versions of a design, or spot the difference. Your pictures stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="pair">
+          <div>
+            <div class="drop-zone" id="drop-a" tabindex="0" role="button">
+              <b>Before</b><span>Choose or drag a picture</span>
+            </div>
+            <input type="file" id="file-a" accept="image/*" hidden>
+          </div>
+          <div>
+            <div class="drop-zone" id="drop-b" tabindex="0" role="button">
+              <b>After</b><span>Choose or drag a picture</span>
+            </div>
+            <input type="file" id="file-b" accept="image/*" hidden>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="view-panel" hidden>
+        <div class="btns" id="modes">
+          <button class="btn primary" data-mode="slider">Slider</button>
+          <button class="btn" data-mode="side">Side by side</button>
+          <button class="btn" data-mode="diff">Show what changed</button>
+          <button class="btn" id="swap">Swap before and after</button>
+        </div>
+
+        <div id="mode-slider" style="margin-top:12px;text-align:center">
+          <div class="stage" id="stage">
+            <canvas id="before"></canvas>
+            <div id="after-layer"><canvas id="after"></canvas></div>
+            <span class="tag" style="left:8px">Before</span>
+            <span class="tag" style="right:8px">After</span>
+            <div class="divider" id="divider"></div>
+          </div>
+        </div>
+
+        <div id="mode-side" class="side-by-side" style="margin-top:12px" hidden>
+          <div><canvas id="side-a"></canvas><p>Before</p></div>
+          <div><canvas id="side-b"></canvas><p>After</p></div>
+        </div>
+
+        <div id="mode-diff" style="margin-top:12px" hidden>
+          <div class="field" style="max-width:340px">
+            <label for="sens">Ignore differences smaller than: <span id="sens-label">8</span></label>
+            <input type="range" id="sens" min="0" max="60" value="8">
+          </div>
+          <div class="preview"><canvas id="diff"></canvas></div>
+          <div class="btns"><button class="btn" id="save-diff">Save the difference picture</button></div>
+        </div>
+
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Show what changed</b> greys out the picture and paints
+          every pixel that differs in red, so a moved logo or a changed price stands
+          out at once. Raise "ignore differences smaller than" to skip the tiny
+          changes JPG saving makes to every picture.
+          <br><br>
+          <b>Pictures of different sizes</b> are compared by stretching the second to
+          the size of the first, so the comparison still lines up for a resized copy.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script>
+  (function () {
+    var pics = { a: null, b: null };
+    var mode = 'slider';
+    var split = 0.5;      // where the divider sits, 0 to 1
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* Both pictures drawn at the first one's size. */
+    function drawTo(canvas, pic, w, h) {
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(pic.img, 0, 0, w, h);
+      return ctx;
+    }
+
+    /* The after picture covers the before one; only the part right of
+       the divider is shown. */
+    function placeDivider() {
+      document.getElementById('after-layer').style.clipPath = 'inset(0 0 0 ' + (split * 100) + '%)';
+      document.getElementById('divider').style.left = (split * 100) + '%';
+    }
+
+    function diff() {
+      var a = pics.a, w = a.width, h = a.height;
+      var ca = document.createElement('canvas'), cb = document.createElement('canvas');
+      var da = drawTo(ca, a, w, h).getImageData(0, 0, w, h).data;
+      var db = drawTo(cb, pics.b, w, h).getImageData(0, 0, w, h).data;
+      var out = document.getElementById('diff');
+      out.width = w; out.height = h;
+      var ctx = out.getContext('2d');
+      var img = ctx.createImageData(w, h);
+      var d = img.data;
+      var limit = +v('sens');
+      var changed = 0;
+      for (var i = 0; i < da.length; i += 4) {
+        /* The biggest difference in any one channel, including transparency. */
+        var diffMax = Math.max(Math.abs(da[i] - db[i]), Math.abs(da[i + 1] - db[i + 1]),
+          Math.abs(da[i + 2] - db[i + 2]), Math.abs(da[i + 3] - db[i + 3]));
+        if (diffMax > limit) {
+          changed++;
+          d[i] = 230; d[i + 1] = 20; d[i + 2] = 40; d[i + 3] = 255;
+        } else {
+          /* Unchanged parts are shown faded grey, for context. */
+          var g = 0.299 * da[i] + 0.587 * da[i + 1] + 0.114 * da[i + 2];
+          g = 255 - (255 - g) * 0.35;
+          d[i] = d[i + 1] = d[i + 2] = g; d[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      var pct = changed / (w * h) * 100;
+      return changed === 0 ? 'No differences at this setting - the pictures match.'
+        : changed.toLocaleString('en-US') + ' pixels differ (' +
+          (pct < 0.1 ? 'under 0.1' : pct.toFixed(1)) + '% of the picture).';
+    }
+
+    function render() {
+      document.getElementById('sens-label').textContent = v('sens');
+      var ready = pics.a && pics.b;
+      document.getElementById('view-panel').hidden = !ready;
+      if (!ready) return;
+      var w = pics.a.width, h = pics.a.height;
+      ['slider', 'side', 'diff'].forEach(function (m) {
+        document.getElementById('mode-' + m).hidden = m !== mode;
+      });
+      var note = '';
+      if (pics.b.width !== w || pics.b.height !== h) {
+        note = 'The pictures are different sizes (' + w + ' × ' + h + ' and ' + pics.b.width + ' × ' +
+          pics.b.height + '), so the after picture is stretched to match. ';
+      }
+      if (mode === 'slider') {
+        drawTo(document.getElementById('before'), pics.a, w, h);
+        drawTo(document.getElementById('after'), pics.b, w, h);
+        placeDivider();
+        note += 'Drag the divider, or click anywhere on the picture.';
+      } else if (mode === 'side') {
+        drawTo(document.getElementById('side-a'), pics.a, w, h);
+        drawTo(document.getElementById('side-b'), pics.b, w, h);
+      } else {
+        note += diff();
+      }
+      document.getElementById('note').textContent = note;
+    }
+
+    /* Dragging the divider, or clicking anywhere on the picture. */
+    var stage = document.getElementById('stage');
+    var dragging = false;
+    function moveTo(e) {
+      var r = stage.getBoundingClientRect();
+      split = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      placeDivider();
+    }
+    stage.addEventListener('pointerdown', function (e) {
+      dragging = true;
+      stage.setPointerCapture(e.pointerId);
+      moveTo(e);
+    });
+    stage.addEventListener('pointermove', function (e) { if (dragging) moveTo(e); });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      stage.addEventListener(ev, function () { dragging = false; });
+    });
+
+    document.getElementById('modes').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-mode]');
+      if (!b) return;
+      mode = b.dataset.mode;
+      document.querySelectorAll('#modes [data-mode]').forEach(function (x) { x.classList.toggle('primary', x === b); });
+      render();
+    });
+    document.getElementById('swap').addEventListener('click', function () {
+      var t = pics.a; pics.a = pics.b; pics.b = t;
+      label('a'); label('b');
+      render();
+    });
+    document.getElementById('sens').addEventListener('input', function () {
+      document.getElementById('sens-label').textContent = v('sens');
+    });
+    document.getElementById('sens').addEventListener('change', render);
+
+    document.getElementById('save-diff').addEventListener('click', function () {
+      CJA_IMG.toBlob(document.getElementById('diff'), 'image/png').then(function (blob) {
+        CJA_IMG.download(blob, 'differences.png');
+      });
+    });
+
+    function label(which) {
+      var p = pics[which];
+      document.getElementById('drop-' + which).innerHTML = '<b>' + (which === 'a' ? 'Before' : 'After') +
+        ': ' + CJA_IMG.escape(p.name) + '</b><span>' + p.width + ' × ' + p.height + ' &middot; click to change</span>';
+    }
+
+    /* Two drop zones; the page-wide paste goes to whichever is still empty. */
+    ['a', 'b'].forEach(function (which) {
+      var zone = document.getElementById('drop-' + which);
+      var input = document.getElementById('file-' + which);
+      function take(f) {
+        CJA_IMG.load(f).then(function (p) {
+          if (pics[which]) URL.revokeObjectURL(pics[which].url);
+          pics[which] = p;
+          label(which);
+          render();
+        }).catch(function (e) { CT.toast(e.message); });
+      }
+      zone.addEventListener('click', function () { input.click(); });
+      zone.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+      });
+      ['dragenter', 'dragover'].forEach(function (ev) {
+        zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.add('over'); });
+      });
+      ['dragleave', 'drop'].forEach(function (ev) {
+        zone.addEventListener(ev, function (e) { e.preventDefault(); zone.classList.remove('over'); });
+      });
+      zone.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) take(e.dataTransfer.files[0]); });
+      input.addEventListener('change', function () { if (input.files[0]) take(input.files[0]); input.value = ''; });
+      zone._take = take;
+    });
+    document.addEventListener('paste', function (e) {
+      var items = (e.clipboardData && e.clipboardData.items) || [];
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image/') === 0) {
+          var which = !pics.a ? 'a' : 'b';
+          document.getElementById('drop-' + which)._take(items[i].getAsFile());
+          return;
+        }
+      }
+    });
+
+    render();
+  })();
+  </script>
+</body>
+</html>

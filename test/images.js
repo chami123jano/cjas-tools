@@ -1044,6 +1044,136 @@ async function saved(page, n = 1) {
     await page.close();
   }
 
+  // ---------------------------------------------------------- image compare
+  {
+    const page = await open('image-compare');
+    // "after" = the small picture with a blue square painted on it
+    const afterFile = path.join(tmp, 'small-after.png');
+    const adata = await page.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const c = document.createElement('canvas'); c.width = 400; c.height = 300;
+      const x = c.getContext('2d');
+      x.drawImage(img, 0, 0);
+      x.fillStyle = '#0000ff'; x.fillRect(300, 200, 40, 40);   // 1600 changed pixels
+      return c.toDataURL('image/png');
+    }, 'data:image/jpeg;base64,' + fs.readFileSync(small).toString('base64'));
+    fs.writeFileSync(afterFile, Buffer.from(adata.split(',')[1], 'base64'));
+    const beforeFile = path.join(tmp, 'small-before.png');
+    // the before picture saved losslessly too, so only the square differs
+    const bdata = await page.evaluate(async (src) => {
+      const img = new Image(); img.src = src; await img.decode();
+      const c = document.createElement('canvas'); c.width = 400; c.height = 300;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c.toDataURL('image/png');
+    }, 'data:image/jpeg;base64,' + fs.readFileSync(small).toString('base64'));
+    fs.writeFileSync(beforeFile, Buffer.from(bdata.split(',')[1], 'base64'));
+
+    await (await page.$('#file-a')).uploadFile(beforeFile);
+    await wait(500);
+    ok(await page.$eval('#view-panel', (e) => e.hidden), 'compare: waits for the second picture');
+    await (await page.$('#file-b')).uploadFile(afterFile);
+    await wait(600);
+    ok(!(await page.$eval('#view-panel', (e) => e.hidden)), 'compare: shows once both are chosen');
+
+    // slider: the after picture shows to the right of the divider only
+    await page.$eval('#stage', (e) => e.scrollIntoView({ block: 'center' }));
+    const sb = await (await page.$('#stage')).boundingBox();
+    await page.mouse.click(sb.x + sb.width * 0.9, sb.y + sb.height / 2);
+    await wait(150);
+    ok(await page.$eval('#divider', (e) => e.style.left) === (Math.round(90 * 1000) / 1000) + '%' ||
+       /^(89|90)\./.test(await page.$eval('#divider', (e) => e.style.left)),
+       'compare: clicking moves the divider', await page.$eval('#divider', (e) => e.style.left));
+    // the after picture is cut at the divider by a clip
+    ok(/inset\(0(px)? 0(px)? 0(px)? (89|90)/.test(await page.$eval('#after-layer', (e) => e.style.clipPath)),
+       'compare: the after picture is cut at the divider', await page.$eval('#after-layer', (e) => e.style.clipPath));
+
+    // drag the divider to the far left: the whole after picture shows
+    await page.mouse.move(sb.x + sb.width * 0.9, sb.y + sb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(sb.x - 50, sb.y + sb.height / 2, { steps: 4 });
+    await page.mouse.up();
+    ok(/^0%$/.test(await page.$eval('#divider', (e) => e.style.left)), 'compare: dragging past the edge stops at 0');
+
+    // differences: exactly the 40 x 40 square
+    await page.click('#modes [data-mode="diff"]');
+    await wait(300);
+    ok(/1,600 pixels differ/.test(await text(page, 'note')), 'compare: finds exactly the changed square', await text(page, 'note'));
+    const dpx = await page.evaluate(() => {
+      const d = document.getElementById('diff').getContext('2d');
+      return [Array.from(d.getImageData(320, 220, 1, 1).data), Array.from(d.getImageData(50, 250, 1, 1).data)];
+    });
+    ok(dpx[0][0] > 200 && dpx[0][1] < 50, 'compare: changed pixels are red', JSON.stringify(dpx[0]));
+    ok(dpx[1][0] === dpx[1][1] && dpx[1][1] === dpx[1][2], 'compare: the rest is grey', JSON.stringify(dpx[1]));
+
+    // the same picture twice: no differences
+    await (await page.$('#file-b')).uploadFile(beforeFile);
+    await wait(600);
+    ok(/No differences/.test(await text(page, 'note')), 'compare: identical pictures match');
+
+    // a resized copy is stretched to match, and said so
+    await (await page.$('#file-b')).uploadFile(photo);
+    await wait(800);
+    ok(/different sizes/.test(await text(page, 'note')), 'compare: different sizes are explained');
+
+    await page.click('#modes [data-mode="side"]');
+    await wait(200);
+    ok(!(await page.$eval('#mode-side', (e) => e.hidden)) && await page.$eval('#side-b', (e) => e.width) === 400,
+       'compare: side by side at the same size');
+    await page.click('#swap');
+    await wait(400);
+    ok((await text(page, 'drop-a')).indexOf('photo.png') !== -1, 'compare: swap exchanges before and after');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- screenshot beautifier
+  {
+    const page = await open('screenshot-beautifier');
+    await give(page, small);   // 400 x 300
+    let img = await shown(page, '#out');
+    // u = 1; bar 34; window 400 x 334; padding 8% of 400 = 32 -> 464 x 398
+    ok(img && img.w === 464 && img.h === 398, 'screenshot: padding and title bar add up', JSON.stringify(img && [img.w, img.h]));
+    ok(img && img.corner[3] === 255 && img.corner[2] > 200, 'screenshot: a gradient background (blue start)', JSON.stringify(img && img.corner));
+    // the three window dots: red at the first dot position
+    const dot = await pixel(page, 32 + 18, 32 + 17);
+    ok(dot[0] > 230 && dot[1] < 120, 'screenshot: the red window dot', JSON.stringify(dot));
+    // the screenshot itself sits below the bar: its red corner
+    const shot = await pixel(page, 32 + 30, 32 + 34 + 20);
+    ok(shot[0] > 200 && shot[1] < 60, 'screenshot: the screenshot sits under the bar', JSON.stringify(shot));
+
+    await page.select('#frame', 'none');
+    await page.$eval('#pad', (e) => { e.value = 0; e.dispatchEvent(new Event('input')); });
+    await page.$eval('#radius', (e) => { e.value = 0; e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && img.w === 400 && img.h === 300, 'screenshot: no frame and no padding is the screenshot itself',
+       JSON.stringify(img && [img.w, img.h]));
+
+    await page.select('#shape', '1.7778');
+    await page.$eval('#pad', (e) => { e.value = 8; e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && Math.abs(img.w / img.h - 16 / 9) < 0.01, 'screenshot: 16:9 shape', JSON.stringify(img && [img.w, img.h]));
+
+    await page.click('#swatches [data-i="8"]');
+    await wait(150);
+    img = await shown(page, '#out');
+    ok(img && img.corner[0] === 17 && img.corner[1] === 17, 'screenshot: a plain dark background', JSON.stringify(img && img.corner));
+
+    // a long title is shortened rather than running over the buttons
+    await page.select('#frame', 'windows');
+    await page.$eval('#title', (e) => { e.value = 'A very long window title '.repeat(10); e.dispatchEvent(new Event('input')); });
+    await wait(150);
+    ok((await shown(page, '#out')).w > 0, 'screenshot: a long title still draws');
+
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s.length === 1 && s[0].name === 'small-framed.png' && s[0].type === 'image/png',
+       'screenshot: saves small-framed.png', JSON.stringify(s));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- not a picture
   {
     const page = await open('image-compress');

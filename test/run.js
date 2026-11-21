@@ -2816,7 +2816,8 @@ pending.push(function currencyLive() {
   ['image-compress', 'image-convert', 'image-resize', 'image-crop', 'round-corners',
    'image-border', 'add-text-to-image', 'image-watermark', 'pixelate-blur',
    'rotate-flip', 'photo-filters', 'image-color-picker', 'passport-photo',
-   'meme-maker', 'image-splitter', 'image-to-ascii', 'remove-background'].forEach((slug) => {
+   'meme-maker', 'image-splitter', 'image-to-ascii', 'remove-background',
+   'screenshot-beautifier'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file') && t.byId('file').type === 'file',
        slug + ' has a drop zone and file input');
@@ -2917,6 +2918,29 @@ pending.push(function currencyLive() {
   paste('');
   ok(t.text('error') === '', 'svg: clearing the code clears the message');
   t.close();
+})();
+
+// ---------------------------------------------------------------- image compare: two inputs
+
+(function () {
+  const t = loadTool('image-compare');
+  ok(t.byId('file-a') && t.byId('file-b'), 'compare: a before and an after picture');
+  ok(t.byId('view-panel').hidden, 'compare: nothing shown until both are chosen');
+  ok(t.document.querySelectorAll('#modes [data-mode]').length === 3, 'compare: three ways to compare');
+  t.close();
+})();
+
+// ---------------------------------------------------------------- the image category is complete
+
+(function () {
+  const win = {};
+  new Function('window', fs.readFileSync(path.join(SRC, 'assets/tools.js'), 'utf8'))(win);
+  const image = win.CATEGORIES.find((c) => c.id === 'image');
+  const built = win.TOOLS.filter((t) => t.category === 'image').length;
+  ok(built === image.planned, 'all ' + image.planned + ' planned image tools are built', 'built ' + built);
+  win.TOOLS.filter((t) => t.category === 'image').forEach((t) => {
+    ok(fs.existsSync(path.join(SRC, 'tools', t.slug + '.html')), 'image tool page exists: ' + t.slug);
+  });
 })();
 
 // ---------------------------------------------------------------- report
