@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merge PDF — Cja's Tools</title>
+<meta name="description" content="Join several PDFs, and pictures, into one PDF in the order you choose. Pick only some pages if you like. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="merge-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Merge PDF</h1>
+        <p>Join several PDFs into one. Your files stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose PDFs</b> (several at once), or drag them here
+          <span>Pictures can go in too, as a page each</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf,image/*" multiple hidden>
+        <div class="file-list" id="list"></div>
+      </div>
+
+      <div class="panel" id="go-panel" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="name">File name</label>
+            <input type="text" id="name" value="merged">
+          </div>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="merge">Merge and save</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The order in the list is the order in the PDF.</b> Use the
+          arrows to move a file up or down. To use only some pages of a file, type them
+          in its box: <code>1-3, 5</code> or <code>2-</code> for page 2 to the end.
+          <br><br>
+          <b>Nothing is redrawn,</b> so text stays as sharp and searchable as it was in
+          each original, and links inside a document keep working.
+          <br><br>
+          <b>A protected PDF</b> (one with a password, or marked "no changes")
+          cannot be merged. Make an unprotected copy first: open it in your PDF
+          reader, choose Print, pick "Microsoft Print to PDF" as the printer, and save.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var items = [];     // { name, size, kind: 'pdf'|'image', bytes, pages, range, thumb }
+    var counter = 0;
+
+    function esc(s) { return CJA_IMG.escape(s); }
+
+    function draw() {
+      var list = document.getElementById('list');
+      list.innerHTML = items.map(function (it, i) {
+        var info = it.kind === 'pdf'
+          ? it.pages + ' page' + (it.pages === 1 ? '' : 's') + ' &middot; ' + CJA_IMG.bytes(it.size)
+          : 'A picture, one page &middot; ' + CJA_IMG.bytes(it.size);
+        return '<div class="file-row" data-id="' + it.id + '">' +
+          (it.thumb ? '<img class="thumb" src="' + it.thumb + '" alt="">' : '<div class="thumb"></div>') +
+          '<div class="info"><b>' + (i + 1) + '. ' + esc(it.name) + '</b><span>' + info + '</span>' +
+          (it.kind === 'pdf' && it.pages > 1
+            ? '<br><input type="text" data-range="' + i + '" placeholder="All pages" value="' + esc(it.range) + '" aria-label="Pages to use">'
+            : '') +
+          '</div><div class="acts">' +
+          '<button class="btn" data-up="' + i + '" title="Move up"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+          '<button class="btn" data-down="' + i + '" title="Move down"' + (i === items.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+          '<button class="btn" data-remove="' + i + '" title="Remove">&times;</button></div></div>';
+      }).join('');
+      document.getElementById('go-panel').hidden = !items.length;
+      summary();
+    }
+
+    /* Counts the pages that will be in the result, and checks each range. */
+    function summary() {
+      var total = 0, problem = '';
+      items.forEach(function (it, i) {
+        if (it.kind === 'image') { total++; return; }
+        var r = CJA_PDF.parseRanges(it.range, it.pages);
+        if (r.error) { if (!problem) problem = 'File ' + (i + 1) + ': ' + r.error; }
+        else total += r.pages.length;
+      });
+      document.getElementById('note').textContent = problem ||
+        (items.length < 2 ? 'Add at least one more file to merge. ' : '') +
+        total + ' page' + (total === 1 ? '' : 's') + ' in all.';
+      document.getElementById('merge').disabled = !!problem || !items.length;
+    }
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      var i;
+      if (b.dataset.up !== undefined) { i = +b.dataset.up; items.splice(i - 1, 0, items.splice(i, 1)[0]); }
+      else if (b.dataset.down !== undefined) { i = +b.dataset.down; items.splice(i + 1, 0, items.splice(i, 1)[0]); }
+      else if (b.dataset.remove !== undefined) { items.splice(+b.dataset.remove, 1); }
+      draw();
+    });
+    document.getElementById('list').addEventListener('input', function (e) {
+      if (e.target.dataset.range === undefined) return;
+      items[+e.target.dataset.range].range = e.target.value;
+      summary();
+    });
+
+    /* Reads each file: a PDF is opened to count its pages and draw a small
+       picture of page 1; a picture is checked to be one pdf-lib can use. */
+    function add(files) {
+      var jobs = files.map(function (f) {
+        var id = ++counter;
+        var isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+        return CJA_PDF.read(f).then(function (bytes) {
+          if (isPdf) {
+            return CJA_PDF.open(bytes).then(function (doc) {
+              return { id: id, name: f.name, size: f.size, kind: 'pdf', bytes: bytes, pages: doc.getPageCount(), range: '' };
+            });
+          }
+          if (/^image\//.test(f.type)) {
+            return CJA_PDF.imageForPdf(f, bytes).then(function (img) {
+              return { id: id, name: f.name, size: f.size, kind: 'image', type: img.type, bytes: img.bytes,
+                       thumb: URL.createObjectURL(new Blob([img.bytes], { type: img.type })) };
+            });
+          }
+          throw new Error(f.name + ' is not a PDF or a picture.');
+        }).catch(function (e) {
+          CT.toast((e.message.indexOf(f.name) === -1 ? f.name + ': ' : '') + e.message);
+          return null;
+        });
+      });
+      Promise.all(jobs).then(function (loaded) {
+        loaded.forEach(function (it) { if (it) items.push(it); });
+        if (items.length && document.getElementById('name').value === 'merged' && items[0].kind === 'pdf') {
+          document.getElementById('name').value = items[0].name.replace(/\.pdf$/i, '') + '-merged';
+        }
+        draw();
+        /* Thumbnails come afterwards, so the list appears straight away. */
+        loaded.forEach(function (it) {
+          if (!it || it.kind !== 'pdf') return;
+          CJA_PDF.load(it.bytes).then(function (doc) {
+            return CJA_PDF.render(doc, 1, 92).then(function (c) {
+              it.thumb = c.toDataURL('image/png');
+              CJA_PDF.close(doc);
+              /* Only the picture changes, so typing in a page box is not interrupted. */
+              var spot = document.querySelector('#list [data-id="' + it.id + '"] .thumb');
+              if (spot) spot.outerHTML = '<img class="thumb" src="' + it.thumb + '" alt="">';
+            });
+          }).catch(function () { /* no thumbnail; the file still merges */ });
+        });
+      });
+    }
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), add);
+
+    document.getElementById('merge').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Merging...';
+      var out;
+      PDFLib.PDFDocument.create().then(function (doc) {
+        out = doc;
+        /* One file at a time, in list order. */
+        return items.reduce(function (p, it) {
+          return p.then(function () {
+            if (it.kind === 'image') {
+              var embed = it.type === 'image/png' ? out.embedPng(it.bytes) : out.embedJpg(it.bytes);
+              return embed.then(function (img) {
+                /* A picture becomes a page its own size, at 72 to the inch,
+                   but no bigger than A4's long side so it prints sensibly. */
+                var fit = CJA_IMG.fit(img.width, img.height, 842, 842);
+                var page = out.addPage([fit.width, fit.height]);
+                page.drawImage(img, { x: 0, y: 0, width: fit.width, height: fit.height });
+              });
+            }
+            return PDFLib.PDFDocument.load(it.bytes, { updateMetadata: false }).then(function (src) {
+              var pages = CJA_PDF.parseRanges(it.range, it.pages).pages;
+              return out.copyPages(src, pages).then(function (copied) {
+                copied.forEach(function (p) { out.addPage(p); });
+              });
+            });
+          });
+        }, Promise.resolve());
+      }).then(function () {
+        out.setTitle(document.getElementById('name').value);
+        out.setProducer("Cja's Tools");
+        return CJA_PDF.save(out);
+      }).then(function (blob) {
+        var name = (document.getElementById('name').value.trim() || 'merged').replace(/[\\/:*?"<>|]/g, '-');
+        CJA_IMG.download(blob, name.replace(/\.pdf$/i, '') + '.pdf');
+        document.getElementById('note').textContent = 'Saved: ' + out.getPageCount() + ' pages, ' + CJA_IMG.bytes(blob.size) + '.';
+      }).catch(function (e) {
+        CT.toast('Could not merge: ' + e.message);
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Merge and save';
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

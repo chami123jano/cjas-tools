@@ -2943,6 +2943,66 @@ pending.push(function currencyLive() {
   });
 })();
 
+// ---------------------------------------------------------------- PDF helpers
+// The PDFs themselves are built, saved and read back in test/pdfs.js.
+
+(function () {
+  const t = loadTool('split-pdf');
+  const P = t.window.CJA_PDF;
+  ok(!!P && !!t.window.PDFLib, 'pdf: the helper and pdf-lib load');
+  const pages = (s, n) => { const r = P.parseRanges(s, n); return r.error ? 'ERR ' + r.error : r.pages.map((p) => p + 1).join(','); };
+
+  ok(pages('', 4) === '1,2,3,4', 'ranges: empty means all pages');
+  ok(pages('all', 3) === '1,2,3', 'ranges: "all"');
+  ok(pages('1-3, 5, 8-', 10) === '1,2,3,5,8,9,10', 'ranges: the usual mix', pages('1-3, 5, 8-', 10));
+  ok(pages('-3', 10) === '1,2,3', 'ranges: "-3" means up to page 3');
+  ok(pages('1 - 3', 10) === '1,2,3', 'ranges: spaces around the dash');
+  ok(pages('2 to 4', 10) === '2,3,4', 'ranges: "2 to 4"');
+  ok(pages('2–4', 10) === '2,3,4', 'ranges: a typed en dash');
+  ok(pages('3, 1, 2', 5) === '3,1,2', 'ranges: order is kept as typed');
+  ok(pages('1, 1, 1-2', 5) === '1,2', 'ranges: a page twice is used once');
+  ok(pages('odd', 7) === '1,3,5,7' && pages('even', 7) === '2,4,6', 'ranges: odd and even');
+  ok(pages('1 4 6', 6) === '1,4,6', 'ranges: spaces alone separate pages too');
+  has(pages('11', 10), 'no page 11', 'ranges: past the end is explained');
+  has(pages('8-12', 10), 'goes past the end', 'ranges: a range past the end is explained');
+  has(pages('5-3', 10), 'runs backwards', 'ranges: a backwards range is explained');
+  has(pages('0', 10), 'start at 1', 'ranges: page 0 is explained');
+  has(pages('abc', 10), 'not a page number', 'ranges: words are explained');
+  has(pages('1', 1), '1', 'ranges: a one-page PDF');
+  has(P.parseRanges('2', 1).error, 'has 1 page,', 'ranges: "1 page" not "1 pages"');
+
+  ok(P.describe([0, 1, 2, 4, 7, 8, 9]) === '1-3, 5, 8-10', 'describe: back to the short form');
+  ok(P.describe([4, 0, 1]) === '1-2, 5', 'describe: sorted');
+  ok(P.describe([]) === '', 'describe: nothing');
+
+  // EXIF orientation: built by hand, little-endian and big-endian
+  const exif = (le, value) => {
+    const tiff = le
+      ? [0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, value, 0, 0, 0, 0, 0, 0, 0]
+      : [0x4d, 0x4d, 0, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, value, 0, 0, 0, 0, 0, 0];
+    const body = [0x45, 0x78, 0x69, 0x66, 0, 0].concat(tiff);
+    return new Uint8Array([0xff, 0xd8, 0xff, 0xe1, (body.length + 2) >> 8, (body.length + 2) & 255].concat(body, [0xff, 0xd9]));
+  };
+  ok(P.jpegOrientation(exif(true, 6)) === 6, 'exif: little-endian orientation 6');
+  ok(P.jpegOrientation(exif(false, 8)) === 8, 'exif: big-endian orientation 8');
+  ok(P.jpegOrientation(new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0, 2])) === 1, 'exif: none means upright');
+  ok(P.jpegOrientation(new Uint8Array([0x89, 0x50, 0x4e, 0x47])) === 1, 'exif: not a JPG means upright');
+  ok(P.jpegOrientation(exif(true, 6).slice(0, 20)) === 1, 'exif: a cut-off file does not crash');
+
+  const enc = new t.window.TextEncoder();
+  ok(P.isPdf(enc.encode('%PDF-1.7\n...')) && !P.isPdf(enc.encode('hello')), 'pdf: recognises a PDF by its start');
+  t.close();
+})();
+
+(function () {
+  ['merge-pdf', 'split-pdf', 'images-to-pdf'].forEach((slug) => {
+    const t = loadTool(slug);
+    ok(t.byId('drop') && t.byId('file'), slug + ' has a drop zone');
+    ok(!!t.window.CJA_PDF && !!t.window.PDFLib, slug + ' loads the PDF helpers');
+    t.close();
+  });
+})();
+
 // ---------------------------------------------------------------- report
 
 (async function report() {

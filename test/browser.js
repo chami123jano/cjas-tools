@@ -26,7 +26,8 @@ const EDGE_PATHS = [
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm', '.pdf': 'application/pdf'
 };
 
 /* A plain static server on localhost. localhost counts as a secure context,

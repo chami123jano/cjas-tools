@@ -953,6 +953,27 @@ const TOOLS = [
     category: 'image',
     desc: 'A screenshot on a smart background with a window frame and shadow.',
     keywords: ['screenshot', 'mockup', 'window frame', 'background', 'shadow', 'social post', 'slide']
+  },
+  {
+    slug: 'merge-pdf',
+    name: 'Merge PDF',
+    category: 'pdf',
+    desc: 'Join several PDFs, and pictures, into one PDF in the order you choose.',
+    keywords: ['merge', 'combine', 'join', 'pdf', 'append', 'add pages']
+  },
+  {
+    slug: 'split-pdf',
+    name: 'Split PDF',
+    category: 'pdf',
+    desc: 'Take pages out of a PDF, or cut it into several PDFs.',
+    keywords: ['split', 'extract pages', 'separate', 'pdf', 'cut', 'page range']
+  },
+  {
+    slug: 'images-to-pdf',
+    name: 'Images to PDF',
+    category: 'pdf',
+    desc: 'Photos and pictures into one PDF, a page each, upright and on A4.',
+    keywords: ['jpg to pdf', 'image to pdf', 'photo to pdf', 'png to pdf', 'scan', 'receipt', 'convert']
   }
 ];
 

@@ -88,7 +88,9 @@
       toastEl.textContent = msg;
       toastEl.classList.add('show');
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+      /* Long enough to read: short notes go quickly, instructions stay. */
+      var ms = Math.min(9000, Math.max(1800, String(msg).length * 55));
+      toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, ms);
     },
 
     copy: function (text) {

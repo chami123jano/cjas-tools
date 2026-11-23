@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split PDF — Cja's Tools</title>
+<meta name="description" content="Take pages out of a PDF, or cut it into several PDFs: every page, every few pages, or by ranges. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="split-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Split PDF</h1>
+        <p>Take out the pages you need, or cut a PDF into several. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="mode">How to split</label>
+            <select id="mode">
+              <option value="extract" selected>Take out some pages into one new PDF</option>
+              <option value="ranges">One PDF for each group of pages I type</option>
+              <option value="every">A new PDF every few pages</option>
+              <option value="each">Every page as its own PDF</option>
+            </select>
+          </div>
+          <div class="field" data-mode="extract ranges">
+            <label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="e.g. 1-3, 5, 8-" autocomplete="off">
+          </div>
+          <div class="field" data-mode="every" hidden>
+            <label for="every">Pages in each PDF</label>
+            <input type="number" id="every" value="2" min="1" step="1">
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Split and save</button>
+        </div>
+        <div class="page-grid" id="grid"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Typing pages:</b> <code>1-3, 5, 8-</code> means pages 1 to 3,
+          page 5, and page 8 to the end. <code>odd</code> and <code>even</code> work too.
+          You can also click the pages below to pick them.
+          <br><br>
+          <b>"One PDF for each group"</b> makes a separate file for every part between
+          commas: <code>1-3, 4-10, 11-</code> gives three PDFs.
+          <br><br>
+          <b>Several PDFs come in one .zip file</b>, so there is one download instead of
+          many. Text, links and quality are kept exactly; nothing is redrawn.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var file = null, bytes = null, total = 0, base = 'document';
+    var THUMBS_MAX = 300;   // beyond this, pages are listed without pictures
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* The groups of pages (counting from 0) that each new PDF will hold. */
+    function groups() {
+      var mode = v('mode');
+      if (mode === 'each') return { list: Array.from({ length: total }, function (_, i) { return [i]; }) };
+      if (mode === 'every') {
+        var n = parseInt(v('every'), 10);
+        if (!(n >= 1)) return { error: 'Enter how many pages go in each PDF.' };
+        var out = [];
+        for (var i = 0; i < total; i += n) {
+          out.push(Array.from({ length: Math.min(n, total - i) }, function (_, k) { return i + k; }));
+        }
+        return { list: out };
+      }
+      var text = v('pages').trim();
+      if (!text) return { error: 'Type the pages, or click them below.' };
+      if (mode === 'extract') {
+        var r = CJA_PDF.parseRanges(text, total);
+        return r.error ? r : { list: [r.pages] };
+      }
+      /* Each comma-separated part is its own file. */
+      var parts = text.split(/[,;]+/).map(function (p) { return p.trim(); }).filter(Boolean);
+      var list = [];
+      for (var j = 0; j < parts.length; j++) {
+        var g = CJA_PDF.parseRanges(parts[j], total);
+        if (g.error) return g;
+        list.push(g.pages);
+      }
+      return { list: list };
+    }
+
+    function update() {
+      var mode = v('mode');
+      document.querySelectorAll('[data-mode]').forEach(function (el) {
+        el.hidden = el.dataset.mode.split(' ').indexOf(mode) === -1;
+      });
+      if (!bytes) return;
+      var g = groups();
+      var plan = document.getElementById('plan');
+      var go = document.getElementById('go');
+      /* Show which pages are used. */
+      var used = {};
+      (g.list || []).forEach(function (grp) { grp.forEach(function (p) { used[p] = 1; }); });
+      document.querySelectorAll('#grid .page-tile').forEach(function (t) {
+        var on = !!used[+t.dataset.p];
+        t.classList.toggle('on', on && mode !== 'each' && mode !== 'every');
+        t.classList.toggle('off', !on);
+      });
+      if (g.error) { plan.textContent = g.error; go.disabled = true; return; }
+      go.disabled = false;
+      var n = g.list.length;
+      plan.textContent = n === 1
+        ? 'One new PDF with ' + g.list[0].length + ' page' + (g.list[0].length === 1 ? '' : 's') +
+          ' (' + CJA_PDF.describe(g.list[0]) + ').'
+        : n + ' new PDFs, saved together in a .zip: ' +
+          g.list.slice(0, 4).map(function (grp) { return 'pages ' + CJA_PDF.describe(grp); }).join('; ') +
+          (n > 4 ? '; and ' + (n - 4) + ' more.' : '.');
+    }
+
+    /* Clicking a page adds it to, or takes it out of, the typed list. */
+    document.getElementById('grid').addEventListener('click', function (e) {
+      var t = e.target.closest('.page-tile');
+      if (!t) return;
+      var mode = v('mode');
+      if (mode !== 'extract' && mode !== 'ranges') {
+        document.getElementById('mode').value = 'extract';
+        document.getElementById('pages').value = '';
+      }
+      var p = +t.dataset.p;
+      var r = CJA_PDF.parseRanges(v('pages'), total);
+      var pages = r.error || !v('pages').trim() ? [] : r.pages;
+      var at = pages.indexOf(p);
+      if (at === -1) pages.push(p); else pages.splice(at, 1);
+      pages.sort(function (a, b) { return a - b; });
+      document.getElementById('pages').value = CJA_PDF.describe(pages);
+      update();
+    });
+
+    ['mode', 'every'].forEach(function (id) { document.getElementById(id).addEventListener('change', update); });
+    ['pages', 'every'].forEach(function (id) { document.getElementById(id).addEventListener('input', update); });
+
+    function makeGrid() {
+      var grid = document.getElementById('grid');
+      var html = '';
+      for (var i = 0; i < total; i++) {
+        html += '<div class="page-tile" data-p="' + i + '" role="button" tabindex="0">' +
+          (i < THUMBS_MAX ? '<canvas width="1" height="1"></canvas>' : '') + 'Page ' + (i + 1) + '</div>';
+      }
+      grid.innerHTML = html;
+      /* Pictures of the pages, drawn one after another so the page stays
+         usable while they arrive. */
+      CJA_PDF.load(bytes).then(function (doc) {
+        /* A newer file replaces this one: stop drawing the old pages. */
+        CJA_PDF.close(current);
+        current = doc;
+        var shown = Math.min(total, THUMBS_MAX);
+        var i = 0;
+        (function next() {
+          if (doc !== current || i >= shown) return;
+          var p = i++;
+          CJA_PDF.render(doc, p + 1, 160).then(function (c) {
+            var spot = grid.querySelector('[data-p="' + p + '"] canvas');
+            if (spot) spot.replaceWith(c);
+            next();
+          }).catch(next);
+        })();
+      }).catch(function () { /* pictures are optional */ });
+    }
+    var current = null;
+
+    function zipName(i, grp) {
+      return base + '-' + (grp.length === 1 ? 'page-' + (grp[0] + 1) : 'pages-' + CJA_PDF.describe(grp).replace(/, /g, '_')) + '.pdf';
+    }
+
+    document.getElementById('go').addEventListener('click', function () {
+      var g = groups();
+      if (g.error) return;
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Splitting...';
+      PDFLib.PDFDocument.load(bytes, { updateMetadata: false }).then(function (src) {
+        /* One new document per group, built in turn. */
+        return g.list.reduce(function (p, grp, i) {
+          return p.then(function (files) {
+            return PDFLib.PDFDocument.create().then(function (doc) {
+              return doc.copyPages(src, grp).then(function (pages) {
+                pages.forEach(function (pg) { doc.addPage(pg); });
+                return doc.save();
+              });
+            }).then(function (data) {
+              files.push({ name: zipName(i, grp), data: data });
+              return files;
+            });
+          });
+        }, Promise.resolve([]));
+      }).then(function (files) {
+        if (files.length === 1) {
+          CJA_IMG.download(new Blob([files[0].data], { type: 'application/pdf' }),
+            v('mode') === 'extract' ? base + '-extract.pdf' : files[0].name);
+        } else {
+          CJA_IMG.download(CJA_IMG.zip(files), base + '-split.zip');
+        }
+        CT.toast('Saved ' + files.length + ' PDF' + (files.length === 1 ? '' : 's'));
+      }).catch(function (e) {
+        CT.toast('Could not split: ' + e.message);
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Split and save';
+      });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          file = f; bytes = b; total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ', ' + CJA_IMG.bytes(f.size) + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          document.getElementById('pages').value = '';
+          makeGrid();
+          update();
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    update();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Images to PDF — Cja's Tools</title>
+<meta name="description" content="Put photos and pictures into one PDF, a page each, on A4 or at their own size. Phone photos come out the right way up. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="images-to-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Images to PDF</h1>
+        <p>Photos of documents, receipts or notes, made into one PDF. Your pictures stay on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose pictures</b> (several at once), or drag them here
+          <span>JPG, PNG, WebP, GIF or BMP &middot; one page each</span>
+        </div>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+        <div class="file-list" id="list"></div>
+      </div>
+
+      <div class="panel" id="go-panel" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="size">Page size</label>
+            <select id="size">
+              <option value="a4" selected>A4</option>
+              <option value="letter">Letter (US)</option>
+              <option value="legal">Legal (US)</option>
+              <option value="fit">The picture's own size</option>
+            </select>
+          </div>
+          <div class="field" data-paper>
+            <label for="orient">Page direction</label>
+            <select id="orient">
+              <option value="auto" selected>Follow each picture</option>
+              <option value="portrait">Always upright (portrait)</option>
+              <option value="landscape">Always sideways (landscape)</option>
+            </select>
+          </div>
+          <div class="field" data-paper>
+            <label for="margin">Margin</label>
+            <select id="margin">
+              <option value="0">None</option>
+              <option value="10" selected>Small (10 mm)</option>
+              <option value="20">Large (20 mm)</option>
+            </select>
+          </div>
+          <div class="field" data-paper>
+            <label for="fit">Picture on the page</label>
+            <select id="fit">
+              <option value="contain" selected>Fit the whole picture</option>
+              <option value="cover">Fill the page (trims the edges)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="name">File name</label>
+            <input type="text" id="name" value="pictures">
+          </div>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="go">Make the PDF</button>
+        </div>
+        <p class="hint" id="note"></p>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Quality is kept:</b> JPG and PNG pictures go into the PDF
+          exactly as they are, not re-saved. Other kinds, and phone photos that were
+          taken sideways, are turned upright first.
+          <br><br>
+          <b>For a smaller PDF</b> &mdash; for an email or an upload form &mdash; shrink the
+          photos first with <a href="image-compress.html">Compress Image</a>. A phone photo
+          is often 3 to 5 MB, and ten of them make a large PDF.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    /* Paper sizes in points (72 to the inch), portrait. */
+    var PAPER = { a4: [595.28, 841.89], letter: [612, 792], legal: [612, 1008] };
+    var MM = 72 / 25.4;
+    var items = [], counter = 0;
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function draw() {
+      document.getElementById('list').innerHTML = items.map(function (it, i) {
+        return '<div class="file-row">' +
+          '<img class="thumb" src="' + it.url + '" alt="">' +
+          '<div class="info"><b>' + (i + 1) + '. ' + CJA_IMG.escape(it.name) + '</b><span>' +
+          it.width + ' × ' + it.height + ' &middot; ' + CJA_IMG.bytes(it.size) +
+          (it.turned ? ' &middot; turned upright' : '') + '</span></div>' +
+          '<div class="acts">' +
+          '<button class="btn" data-up="' + i + '" title="Move up"' + (i === 0 ? ' disabled' : '') + '>&uarr;</button>' +
+          '<button class="btn" data-down="' + i + '" title="Move down"' + (i === items.length - 1 ? ' disabled' : '') + '>&darr;</button>' +
+          '<button class="btn" data-remove="' + i + '" title="Remove">&times;</button></div></div>';
+      }).join('');
+      document.getElementById('go-panel').hidden = !items.length;
+      var total = items.reduce(function (n, it) { return n + it.bytes.length; }, 0);
+      document.getElementById('note').textContent = items.length + ' page' + (items.length === 1 ? '' : 's') +
+        ', about ' + CJA_IMG.bytes(total) + '.';
+    }
+
+    function settings() {
+      document.querySelectorAll('[data-paper]').forEach(function (el) { el.hidden = v('size') === 'fit'; });
+    }
+
+    document.getElementById('list').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      var i;
+      if (b.dataset.up !== undefined) { i = +b.dataset.up; items.splice(i - 1, 0, items.splice(i, 1)[0]); }
+      else if (b.dataset.down !== undefined) { i = +b.dataset.down; items.splice(i + 1, 0, items.splice(i, 1)[0]); }
+      else if (b.dataset.remove !== undefined) { URL.revokeObjectURL(items[+b.dataset.remove].url); items.splice(+b.dataset.remove, 1); }
+      draw();
+    });
+
+    function add(files) {
+      files = files.filter(function (f) { return /^image\//.test(f.type); });
+      if (!files.length) { CT.toast('Those are not pictures'); return; }
+      Promise.all(files.map(function (f) {
+        return CJA_PDF.read(f).then(function (raw) {
+          var turned = f.type === 'image/jpeg' && CJA_PDF.jpegOrientation(raw) !== 1;
+          return CJA_PDF.imageForPdf(f, raw).then(function (img) {
+            var blob = new Blob([img.bytes], { type: img.type });
+            return CJA_IMG.load(new File([blob], f.name, { type: img.type })).then(function (s) {
+              return { id: ++counter, name: f.name, size: img.bytes.length, bytes: img.bytes, type: img.type,
+                       width: s.width, height: s.height, url: s.url, turned: turned };
+            });
+          });
+        }).catch(function () { CT.toast(f.name + ' could not be opened'); return null; });
+      })).then(function (loaded) {
+        loaded.forEach(function (it) { if (it) items.push(it); });
+        draw();
+      });
+    }
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), add);
+    document.getElementById('size').addEventListener('change', settings);
+
+    /* Where a picture goes on its page. Returns the page size and the
+       picture's box, all in points. */
+    function layout(it) {
+      if (v('size') === 'fit') {
+        /* The picture's own size at 150 dots per inch: a phone photo comes out
+           about A3, a screenshot about A5 - sensible either way. */
+        var w = it.width * 72 / 150, h = it.height * 72 / 150;
+        return { page: [w, h], box: [0, 0, w, h] };
+      }
+      var paper = PAPER[v('size')].slice();
+      var o = v('orient');
+      var landscape = o === 'landscape' || (o === 'auto' && it.width > it.height);
+      if (landscape) paper.reverse();
+      var m = +v('margin') * MM;
+      var aw = paper[0] - 2 * m, ah = paper[1] - 2 * m;
+      var s = v('fit') === 'cover' ? Math.max(aw / it.width, ah / it.height) : Math.min(aw / it.width, ah / it.height);
+      var bw = it.width * s, bh = it.height * s;
+      return { page: paper, box: [(paper[0] - bw) / 2, (paper[1] - bh) / 2, bw, bh], clip: v('fit') === 'cover' ? [m, m, aw, ah] : null };
+    }
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Making the PDF...';
+      var out;
+      PDFLib.PDFDocument.create().then(function (doc) {
+        out = doc;
+        return items.reduce(function (p, it) {
+          return p.then(function () {
+            return (it.type === 'image/png' ? out.embedPng(it.bytes) : out.embedJpg(it.bytes)).then(function (img) {
+              var L = layout(it);
+              var page = out.addPage(L.page);
+              if (L.clip) {
+                /* "Fill the page": draw only inside the margins. */
+                page.pushOperators(PDFLib.pushGraphicsState(),
+                  PDFLib.rectangle(L.clip[0], L.clip[1], L.clip[2], L.clip[3]),
+                  PDFLib.clip(), PDFLib.endPath());
+              }
+              page.drawImage(img, { x: L.box[0], y: L.box[1], width: L.box[2], height: L.box[3] });
+              if (L.clip) page.pushOperators(PDFLib.popGraphicsState());
+            });
+          });
+        }, Promise.resolve());
+      }).then(function () {
+        out.setProducer("Cja's Tools");
+        return CJA_PDF.save(out);
+      }).then(function (blob) {
+        var name = (v('name').trim() || 'pictures').replace(/[\\/:*?"<>|]/g, '-').replace(/\.pdf$/i, '');
+        CJA_IMG.download(blob, name + '.pdf');
+        document.getElementById('note').textContent = 'Saved: ' + items.length + ' page' +
+          (items.length === 1 ? '' : 's') + ', ' + CJA_IMG.bytes(blob.size) + '.';
+      }).catch(function (e) {
+        CT.toast('Could not make the PDF: ' + e.message);
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Make the PDF';
+      });
+    });
+
+    settings();
+  })();
+  </script>
+</body>
+</html>

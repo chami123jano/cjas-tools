@@ -1,0 +1,11 @@
+# Files that must be stored byte for byte, never with line endings changed.
+*.pdf    binary
+*.wasm   binary
+*.bcmap  binary
+*.pfb    binary
+*.ttf    binary
+*.icc    binary
+*.png    binary
+*.jpg    binary
+*.ico    binary
+*.zip    binary
