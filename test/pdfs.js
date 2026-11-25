@@ -331,6 +331,142 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.close();
   }
 
+  // ---------------------------------------------------------- pdf to images
+  {
+    const page = await open('pdf-to-images');
+    await give(page, ten);
+    ok(!(await page.$eval('#options', (e) => e.hidden)), 'to images: options appear');
+    // page 1 is 201 x 400 points; at 150 dpi that is 419 x 833 pixels
+    ok(/10 pictures, the first 419 × 833 pixels, saved together in a \.zip/.test(await text(page, 'plan')),
+       'to images: plan with the size at 150 dpi', await text(page, 'plan'));
+    await page.$eval('#pages', (e) => { e.value = '3'; e.dispatchEvent(new Event('input')); });
+    await page.select('#format', 'image/png');
+    await page.select('#dpi', '72');
+    ok(/1 picture, the first 203 × 400 pixels\./.test(await text(page, 'plan')), 'to images: one page at 72 dpi', await text(page, 'plan'));
+    await page.click('#go');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'report-page-03.png', 'to images: one page saves as a PNG', s[0] && s[0].name);
+    if (s[0]) {
+      const b = s[0].bytes;
+      ok(b.slice(1, 4).toString() === 'PNG' && b.readUInt32BE(16) === 203 && b.readUInt32BE(20) === 400,
+         'to images: a real 203 x 400 PNG', b.readUInt32BE(16) + 'x' + b.readUInt32BE(20));
+    }
+
+    // several pages as JPG in a zip
+    await page.evaluate(() => { window.__saved = []; });
+    await page.$eval('#pages', (e) => { e.value = '1, 10'; e.dispatchEvent(new Event('input')); });
+    await page.select('#format', 'image/jpeg');
+    await page.select('#dpi', '300');
+    await page.click('#go');
+    s = await saved(page);
+    ok(s[0] && s[0].name === 'report-pages.zip', 'to images: several pages come in a zip');
+    if (s[0]) {
+      const files = unzip(s[0].bytes);
+      ok(files.map((f) => f.name).join() === 'report-page-01.jpg,report-page-10.jpg', 'to images: numbered files', files.map((f) => f.name).join());
+      // a JPG's size is in its SOF marker
+      const jpgSize = (b) => {
+        let i = 2;
+        while (i < b.length) {
+          const m = b[i + 1], len = b.readUInt16BE(i + 2);
+          if (m >= 0xc0 && m <= 0xc2) return b.readUInt16BE(i + 7) + 'x' + b.readUInt16BE(i + 5);
+          i += 2 + len;
+        }
+        return '?';
+      };
+      // page 10 is 210 x 400 pt: at 300 dpi 875 x 1667
+      ok(files[1] && jpgSize(files[1].data) === '875x1667', 'to images: 300 dpi size is right', files[1] && jpgSize(files[1].data));
+    }
+
+    // clicking tiles picks pages
+    await page.$eval('#pages', (e) => { e.value = ''; e.dispatchEvent(new Event('input')); });
+    await page.click('#grid [data-p="4"]');
+    ok(await page.$eval('#pages', (e) => e.value) === '5', 'to images: clicking a page picks it');
+
+    // a restricted (no password to open) PDF still works here, through PDF.js
+    await give(page, path.join(__dirname, 'fixtures', 'locked-restricted.pdf'));
+    ok(/2 page/.test(await text(page, 'drop')), 'to images: a protected PDF that opens freely can still be pictured', await text(page, 'drop'));
+    await give(page, path.join(__dirname, 'fixtures', 'locked-password.pdf'));
+    const toast = await page.$eval('.toast', (e) => e.textContent).catch(() => '');
+    ok(/needs a password/.test(toast), 'to images: a password PDF is explained', toast);
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- rotate
+  {
+    const page = await open('rotate-pdf');
+    // page 2 of this one is already turned 90, to check turns add up
+    const pre = path.join(tmp, 'turned.pdf');
+    {
+      const doc = await PDFDocument.create();
+      for (let k = 1; k <= 4; k++) { const p = doc.addPage([200 + k, 400]); if (k === 2) p.setRotation(degrees(90)); }
+      fs.writeFileSync(pre, await doc.save());
+    }
+    await give(page, pre);
+    ok(/No pages turned yet/.test(await text(page, 'plan')), 'rotate: starts with nothing turned');
+    await page.click('#grid [data-p="0"]');
+    await page.click('#grid [data-p="1"]');
+    await page.click('#grid [data-p="1"]');
+    ok(/2 pages turned/.test(await text(page, 'plan')), 'rotate: clicks turn pages', await text(page, 'plan'));
+    ok(await page.$eval('[data-p="1"] .turn', (e) => e.textContent) === 'upside down', 'rotate: two clicks is upside down');
+    ok(await page.$eval('[data-p="0"]', (e) => e.style.getPropertyValue('--turn')) === '90deg', 'rotate: the picture turns too');
+    await page.$eval('#pages', (e) => { e.value = '4'; });
+    await page.click('#turn-these');
+    await page.click('#all [data-all="-90"]');
+    // now: p1 0, p2 90, p3 270, p4 0 (extra turns)
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'turned-rotated.pdf', 'rotate: saves turned-rotated.pdf');
+    if (s[0]) {
+      const doc = await PDFDocument.load(s[0].bytes);
+      const angles = doc.getPages().map((p) => p.getRotation().angle);
+      // page 2 had 90 already; +90 = 180
+      ok(angles.join() === '0,180,270,0', 'rotate: turns are added to existing ones', angles.join());
+      ok((await pagesOf(s[0].bytes)).join() === '1,2,3,4', 'rotate: page order unchanged');
+    }
+    await page.click('#reset');
+    ok(/No pages turned yet/.test(await text(page, 'plan')), 'rotate: undo all');
+    // a picture that arrives after a turn is turned too (style is on the tile)
+    ok(await page.$$eval('#grid .pic canvas', (cs) => cs.length) === 4, 'rotate: every page has its picture');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- remove pages
+  {
+    const page = await open('remove-pages');
+    // pages 3 and 6 are blank; the rest have text
+    const withBlanks = path.join(tmp, 'scan.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      for (let k = 1; k <= 6; k++) {
+        const p = doc.addPage([200 + k, 400]);
+        if (k !== 3 && k !== 6) {
+          for (let l = 0; l < 12; l++) p.drawText('Some words on page ' + k, { x: 15, y: 360 - l * 26, size: 14, font });
+        }
+      }
+      fs.writeFileSync(withBlanks, await doc.save());
+    }
+    await give(page, withBlanks);
+    ok(/No pages picked/.test(await text(page, 'plan')) && await page.$eval('#save', (b) => b.disabled), 'remove: nothing picked at first');
+    await page.click('#quick [data-q="blank"]');
+    await page.waitForFunction(() => document.getElementById('pages').value !== '', { timeout: 10000 }).catch(() => {});
+    ok(await page.$eval('#pages', (e) => e.value) === '3, 6', 'remove: finds the two blank pages', await page.$eval('#pages', (e) => e.value));
+    await page.click('#grid [data-p="0"]');
+    ok(await page.$eval('#pages', (e) => e.value) === '1, 3, 6', 'remove: clicking adds a page');
+    ok(await page.$$eval('#grid .page-tile.gone', (t) => t.length) === 3, 'remove: removed pages are crossed out');
+    ok(/Removing 3 pages \(1, 3, 6\)\. 3 pages will be left/.test(await text(page, 'plan')), 'remove: says what is left', await text(page, 'plan'));
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'scan-edited.pdf', 'remove: saves scan-edited.pdf');
+    if (s[0]) ok((await pagesOf(s[0].bytes)).join() === '2,4,5', 'remove: pages 1, 3 and 6 are gone', (await pagesOf(s[0].bytes)).join());
+
+    await page.$eval('#pages', (e) => { e.value = '1-6'; e.dispatchEvent(new Event('input')); });
+    ok(/needs at least one/.test(await text(page, 'plan')) && await page.$eval('#save', (b) => b.disabled), 'remove: cannot remove every page');
+    await page.click('#quick [data-q="even"]');
+    ok(await page.$eval('#pages', (e) => e.value) === '2, 4, 6', 'remove: even pages');
+    await page.close();
+  }
+
   // ---------------------------------------------------------- protected PDFs
   {
     const page = await open('split-pdf');

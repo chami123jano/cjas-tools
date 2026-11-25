@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remove Pages from PDF — Cja's Tools</title>
+<meta name="description" content="Delete blank, extra or private pages from a PDF and save the rest. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .page-tile { cursor: pointer; }
+  .page-tile.gone { border-color: var(--danger); }
+  .page-tile.gone canvas { opacity: .25; }
+  .page-tile.gone::after {
+    content: '\2715'; position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 44px; color: var(--danger); font-weight: 700;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="remove-pages">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Remove Pages</h1>
+        <p>Click the pages to take out, then save. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="pages">Pages to remove</label>
+            <input type="text" id="pages" placeholder="Click pages below, or type e.g. 2, 5-7" autocomplete="off">
+          </div>
+        </div>
+        <div class="btns" id="quick">
+          <button class="btn" data-q="blank">Pick blank pages</button>
+          <button class="btn" data-q="even">Pick even pages</button>
+          <button class="btn" data-q="none">Clear</button>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Remove and save</button>
+        </div>
+        <div class="page-grid" id="grid"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>"Pick blank pages"</b> looks at each page's picture and picks
+          the ones with almost nothing printed on them &mdash; the empty backs of a
+          double-sided scan, for example. Check the picks before saving: a page with
+          only a faint line of text may look blank.
+          <br><br>
+          <b>The original file is not changed.</b> A new PDF is saved without the
+          removed pages; everything else is kept exactly, nothing redrawn.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document', stopThumbs = null;
+    var grid = document.getElementById('grid');
+    var input = document.getElementById('pages');
+
+    function removing() {
+      if (!input.value.trim()) return { pages: [] };
+      return CJA_PDF.parseRanges(input.value, total);
+    }
+
+    function update() {
+      var r = removing();
+      var plan = document.getElementById('plan'), save = document.getElementById('save');
+      var gone = {};
+      (r.pages || []).forEach(function (p) { gone[p] = 1; });
+      grid.querySelectorAll('.page-tile').forEach(function (t) { t.classList.toggle('gone', !!gone[+t.dataset.p]); });
+      if (r.error) { plan.textContent = r.error; save.disabled = true; return; }
+      var n = r.pages.length;
+      if (!n) { plan.textContent = 'No pages picked yet.'; save.disabled = true; return; }
+      if (n >= total) { plan.textContent = 'That is every page - a PDF needs at least one.'; save.disabled = true; return; }
+      plan.textContent = 'Removing ' + n + ' page' + (n === 1 ? '' : 's') + ' (' + CJA_PDF.describe(r.pages) +
+        '). ' + (total - n) + ' page' + (total - n === 1 ? '' : 's') + ' will be left.';
+      save.disabled = false;
+    }
+
+    function setPages(list) {
+      input.value = list.length ? CJA_PDF.describe(list) : '';
+      update();
+    }
+
+    input.addEventListener('input', update);
+    grid.addEventListener('click', function (e) {
+      var t = e.target.closest('.page-tile');
+      if (!t) return;
+      var r = removing();
+      var list = r.error ? [] : r.pages.slice();
+      var p = +t.dataset.p, at = list.indexOf(p);
+      if (at === -1) list.push(p); else list.splice(at, 1);
+      setPages(list);
+    });
+
+    /* A page counts as blank when nearly every pixel of its picture is
+       close to white. Checked on small pictures drawn just for this. */
+    function blankPages() {
+      return CJA_PDF.load(bytes).then(function (doc) {
+        var found = [];
+        return Array.from({ length: total }).reduce(function (p, _, i) {
+          return p.then(function () {
+            return CJA_PDF.render(doc, i + 1, 120).then(function (c) {
+              var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+              var inked = 0;
+              for (var k = 0; k < d.length; k += 4) if (d[k] + d[k + 1] + d[k + 2] < 600) inked++;
+              if (inked / (c.width * c.height) < 0.002) found.push(i);
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          CJA_PDF.close(doc);
+          return found;
+        });
+      });
+    }
+
+    document.getElementById('quick').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-q]');
+      if (!b) return;
+      var q = b.dataset.q;
+      if (q === 'none') { setPages([]); return; }
+      if (q === 'even') { setPages(CJA_PDF.parseRanges('even', total).pages || []); return; }
+      b.disabled = true;
+      b.textContent = 'Looking...';
+      blankPages().then(function (found) {
+        setPages(found);
+        CT.toast(found.length ? found.length + ' blank page' + (found.length === 1 ? '' : 's') + ' found' : 'No blank pages found');
+      }).catch(function (err) { CT.toast(err.message); })
+        .then(function () { b.disabled = false; b.textContent = 'Pick blank pages'; });
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var r = removing();
+      if (r.error || !r.pages.length || r.pages.length >= total) return;
+      var btn = this;
+      btn.disabled = true;
+      CJA_PDF.open(bytes).then(function (doc) {
+        /* Removed from the end backwards, so the numbers do not shift. */
+        r.pages.slice().sort(function (a, b) { return b - a; }).forEach(function (p) { doc.removePage(p); });
+        return CJA_PDF.save(doc);
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-edited.pdf');
+      }).catch(function (e) { CT.toast(e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          input.value = '';
+          grid.innerHTML = CJA_PDF.tiles(total);
+          if (stopThumbs) stopThumbs();
+          stopThumbs = CJA_PDF.thumbnails(bytes, grid, total, 160);
+          update();
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

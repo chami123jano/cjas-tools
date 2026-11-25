@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rotate PDF — Cja's Tools</title>
+<meta name="description" content="Turn sideways or upside-down pages of a PDF the right way, one page or all of them, and save. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .page-tile { cursor: pointer; }
+  .page-tile .pic { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; overflow: hidden; }
+  /* Each tile carries its turn; a page picture arriving later picks it up. */
+  .page-tile canvas {
+    transition: transform .2s; width: auto; max-width: 100%; max-height: 100%;
+    transform: rotate(var(--turn, 0deg));
+  }
+  .page-tile .turn {
+    position: absolute; top: 4px; right: 4px; background: var(--accent); color: #fff;
+    font-size: 11px; padding: 1px 6px; border-radius: 9px;
+  }
+</style>
+</head>
+<body data-page="tool" data-slug="rotate-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Rotate PDF</h1>
+        <p>Click a page to turn it. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="btns" id="all">
+          <button class="btn" data-all="90">&#8635; Turn every page right</button>
+          <button class="btn" data-all="-90">&#8634; Turn every page left</button>
+          <button class="btn" data-all="180">Turn every page upside down</button>
+          <button class="btn" id="reset">Undo all turns</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="pages">Or turn only these pages right</label>
+            <input type="text" id="pages" placeholder="e.g. 2, 4-6, even" autocomplete="off">
+          </div>
+          <div class="field" style="align-self:end">
+            <button class="btn" id="turn-these">Turn them</button>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save the PDF</button>
+        </div>
+        <div class="page-grid" id="grid"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Each click turns a page a quarter right.</b> Four clicks bring
+          it back. The badge shows how far each page has been turned.
+          <br><br>
+          <b>Nothing is redrawn:</b> the PDF just records which way up each page goes,
+          so text stays sharp and searchable, and the file size hardly changes.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document';
+    var turns = [];          // extra degrees for each page: 0, 90, 180, 270
+    var stopThumbs = null;
+    var grid = document.getElementById('grid');
+
+    function show() {
+      grid.querySelectorAll('.page-tile').forEach(function (t) {
+        var deg = turns[+t.dataset.p];
+        t.style.setProperty('--turn', deg + 'deg');
+        var badge = t.querySelector('.turn');
+        badge.hidden = !deg;
+        badge.textContent = deg === 90 ? '↻ right' : deg === 180 ? 'upside down' : deg === 270 ? '↺ left' : '';
+      });
+      var n = turns.filter(Boolean).length;
+      document.getElementById('plan').textContent = n
+        ? n + ' page' + (n === 1 ? '' : 's') + ' turned.'
+        : 'No pages turned yet.';
+    }
+
+    function turn(p, deg) { turns[p] = ((turns[p] + deg) % 360 + 360) % 360; }
+
+    /* Each picture sits in a square box, so a turned page never overlaps
+       its neighbours, and each tile gets a badge for its turn. */
+    function prepareTiles() {
+      grid.querySelectorAll('.page-tile').forEach(function (t) {
+        var c = t.querySelector('canvas');
+        if (c) {
+          var box = document.createElement('div');
+          box.className = 'pic';
+          c.replaceWith(box);
+          box.appendChild(c);
+        }
+        var badge = document.createElement('span');
+        badge.className = 'turn';
+        badge.hidden = true;
+        t.appendChild(badge);
+      });
+    }
+
+    grid.addEventListener('click', function (e) {
+      var t = e.target.closest('.page-tile');
+      if (!t) return;
+      turn(+t.dataset.p, 90);
+      show();
+    });
+    grid.addEventListener('keydown', function (e) {
+      var t = e.target.closest('.page-tile');
+      if (t && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); turn(+t.dataset.p, 90); show(); }
+    });
+
+    document.getElementById('all').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-all]');
+      if (!b) return;
+      for (var p = 0; p < total; p++) turn(p, +b.dataset.all);
+      show();
+    });
+    document.getElementById('reset').addEventListener('click', function () {
+      turns = turns.map(function () { return 0; });
+      show();
+    });
+    document.getElementById('turn-these').addEventListener('click', function () {
+      var r = CJA_PDF.parseRanges(document.getElementById('pages').value, total);
+      if (r.error || !document.getElementById('pages').value.trim()) {
+        CT.toast(r.error || 'Type the pages to turn');
+        return;
+      }
+      r.pages.forEach(function (p) { turn(p, 90); });
+      show();
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      CJA_PDF.open(bytes).then(function (doc) {
+        doc.getPages().forEach(function (page, i) {
+          if (!turns[i]) return;
+          /* Added to whatever turn the page already had. */
+          var now = page.getRotation().angle || 0;
+          page.setRotation(PDFLib.degrees(((now + turns[i]) % 360 + 360) % 360));
+        });
+        return CJA_PDF.save(doc);
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-rotated.pdf');
+      }).catch(function (e) {
+        CT.toast(e.message);
+      }).then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          turns = Array.from({ length: total }, function () { return 0; });
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          grid.innerHTML = CJA_PDF.tiles(total);
+          prepareTiles();
+          if (stopThumbs) stopThumbs();
+          stopThumbs = CJA_PDF.thumbnails(bytes, grid, total, 160);
+          show();
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

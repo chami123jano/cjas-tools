@@ -162,34 +162,13 @@
     ['mode', 'every'].forEach(function (id) { document.getElementById(id).addEventListener('change', update); });
     ['pages', 'every'].forEach(function (id) { document.getElementById(id).addEventListener('input', update); });
 
+    var stopThumbs = null;
     function makeGrid() {
       var grid = document.getElementById('grid');
-      var html = '';
-      for (var i = 0; i < total; i++) {
-        html += '<div class="page-tile" data-p="' + i + '" role="button" tabindex="0">' +
-          (i < THUMBS_MAX ? '<canvas width="1" height="1"></canvas>' : '') + 'Page ' + (i + 1) + '</div>';
-      }
-      grid.innerHTML = html;
-      /* Pictures of the pages, drawn one after another so the page stays
-         usable while they arrive. */
-      CJA_PDF.load(bytes).then(function (doc) {
-        /* A newer file replaces this one: stop drawing the old pages. */
-        CJA_PDF.close(current);
-        current = doc;
-        var shown = Math.min(total, THUMBS_MAX);
-        var i = 0;
-        (function next() {
-          if (doc !== current || i >= shown) return;
-          var p = i++;
-          CJA_PDF.render(doc, p + 1, 160).then(function (c) {
-            var spot = grid.querySelector('[data-p="' + p + '"] canvas');
-            if (spot) spot.replaceWith(c);
-            next();
-          }).catch(next);
-        })();
-      }).catch(function () { /* pictures are optional */ });
+      grid.innerHTML = CJA_PDF.tiles(total, THUMBS_MAX);
+      if (stopThumbs) stopThumbs();
+      stopThumbs = CJA_PDF.thumbnails(bytes, grid, total, 160, THUMBS_MAX);
     }
-    var current = null;
 
     function zipName(i, grp) {
       return base + '-' + (grp.length === 1 ? 'page-' + (grp[0] + 1) : 'pages-' + CJA_PDF.describe(grp).replace(/, /g, '_')) + '.pdf';

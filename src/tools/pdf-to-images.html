@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF to Images — Cja's Tools</title>
+<meta name="description" content="Turn PDF pages into JPG or PNG pictures, at screen or print quality. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="pdf-to-images">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>PDF to Images</h1>
+        <p>Each page as a picture, to post, send on WhatsApp or put in a slide. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="All pages, or e.g. 1-3, 5" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="format">Picture type</label>
+            <select id="format">
+              <option value="image/jpeg" selected>JPG (smaller, for sharing)</option>
+              <option value="image/png">PNG (sharpest text)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="dpi">Quality</label>
+            <select id="dpi">
+              <option value="72">Screen, small (72 dpi)</option>
+              <option value="150" selected>Good (150 dpi)</option>
+              <option value="300">Print (300 dpi)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Make the pictures</button>
+        </div>
+        <div class="page-grid" id="grid"></div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Which quality?</b> 150 dpi is sharp on any phone or laptop.
+          Choose 300 dpi to print the pictures or to zoom into small print; the files
+          are about four times bigger. An A4 page at 150 dpi is 1240 &times; 1754 pixels.
+          <br><br>
+          <b>Several pages come in one .zip file,</b> numbered in page order.
+          <br><br>
+          <b>Pictures cannot be searched or copied from</b> like the text in a PDF.
+          To get the words out instead, use the PDF to Text tool.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document', sizes = [];
+    var stopThumbs = null;
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function chosen() { return CJA_PDF.parseRanges(v('pages'), total); }
+
+    function update() {
+      if (!bytes) return;
+      var r = chosen();
+      var plan = document.getElementById('plan');
+      document.getElementById('go').disabled = !!r.error;
+      var on = {};
+      (r.pages || []).forEach(function (p) { on[p] = 1; });
+      document.querySelectorAll('#grid .page-tile').forEach(function (t) {
+        t.classList.toggle('off', !on[+t.dataset.p]);
+      });
+      if (r.error) { plan.textContent = r.error; return; }
+      /* The size of the first chosen page, at the chosen quality. */
+      var first = sizes[r.pages[0]];
+      var k = +v('dpi') / 72;
+      plan.textContent = r.pages.length + ' picture' + (r.pages.length === 1 ? '' : 's') +
+        (first ? ', the first ' + Math.round(first[0] * k) + ' × ' + Math.round(first[1] * k) + ' pixels' : '') +
+        (r.pages.length > 1 ? ', saved together in a .zip.' : '.');
+    }
+
+    ['pages'].forEach(function (id) { document.getElementById(id).addEventListener('input', update); });
+    ['format', 'dpi'].forEach(function (id) { document.getElementById(id).addEventListener('change', update); });
+
+    document.getElementById('grid').addEventListener('click', function (e) {
+      var t = e.target.closest('.page-tile');
+      if (!t) return;
+      var r = chosen();
+      var pages = v('pages').trim() && !r.error ? r.pages : [];
+      var p = +t.dataset.p, at = pages.indexOf(p);
+      if (at === -1) pages.push(p); else pages.splice(at, 1);
+      document.getElementById('pages').value = pages.length ? CJA_PDF.describe(pages) : '';
+      update();
+    });
+
+    document.getElementById('go').addEventListener('click', function () {
+      var r = chosen();
+      if (r.error) return;
+      var btn = this, type = v('format'), ext = type === 'image/png' ? 'png' : 'jpg';
+      var scale = +v('dpi') / 72;
+      var digits = String(total).length;
+      btn.disabled = true;
+      var done = 0;
+      CJA_PDF.load(bytes).then(function (doc) {
+        /* One page at a time, so a long PDF at print quality does not use
+           up all the memory at once. */
+        return r.pages.reduce(function (p, n) {
+          return p.then(function (files) {
+            btn.textContent = 'Page ' + (++done) + ' of ' + r.pages.length + '...';
+            return doc.getPage(n + 1).then(function (page) {
+              var w = page.getViewport({ scale: 1 }).width * scale;
+              return CJA_PDF.render(doc, n + 1, w);
+            }).then(function (c) {
+              return CJA_IMG.toBlob(c, type, 0.9);
+            }).then(function (blob) {
+              return blob.arrayBuffer().then(function (ab) {
+                files.push({ name: base + '-page-' + ('0000' + (n + 1)).slice(-Math.max(2, digits)) + '.' + ext,
+                             data: new Uint8Array(ab), blob: blob });
+                return files;
+              });
+            });
+          });
+        }, Promise.resolve([])).then(function (files) {
+          CJA_PDF.close(doc);
+          return files;
+        });
+      }).then(function (files) {
+        if (files.length === 1) CJA_IMG.download(files[0].blob, files[0].name);
+        else CJA_IMG.download(CJA_IMG.zip(files), base + '-pages.zip');
+        CT.toast('Saved ' + files.length + ' picture' + (files.length === 1 ? '' : 's'));
+      }).catch(function (e) {
+        CT.toast('Could not make the pictures: ' + e.message);
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Make the pictures';
+      });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        /* PDF.js reads protected PDFs that open without a password, so
+           this tool works on them; it asks if a password is needed. */
+        return CJA_PDF.load(b).then(function (doc) {
+          total = doc.numPages;
+          return Promise.all(Array.from({ length: total }, function (_, i) {
+            return doc.getPage(i + 1).then(function (p) {
+              var vp = p.getViewport({ scale: 1 });
+              return [vp.width, vp.height];
+            });
+          })).then(function (s) {
+            sizes = s;
+            CJA_PDF.close(doc);
+            bytes = b;
+            base = f.name.replace(/\.pdf$/i, '') || 'document';
+            document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+              total + ' page' + (total === 1 ? '' : 's') + ', ' + CJA_IMG.bytes(f.size) + ' &middot; click to choose another</span>';
+            document.getElementById('options').hidden = false;
+            document.getElementById('pages').value = '';
+            var grid = document.getElementById('grid');
+            grid.innerHTML = CJA_PDF.tiles(total);
+            if (stopThumbs) stopThumbs();
+            stopThumbs = CJA_PDF.thumbnails(bytes, grid, total, 160);
+            update();
+          });
+        });
+      }).catch(function (e) {
+        CT.toast(e.needsPassword ? 'This PDF needs a password to open, so it cannot be read here.' : e.message);
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -974,6 +974,27 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Photos and pictures into one PDF, a page each, upright and on A4.',
     keywords: ['jpg to pdf', 'image to pdf', 'photo to pdf', 'png to pdf', 'scan', 'receipt', 'convert']
+  },
+  {
+    slug: 'pdf-to-images',
+    name: 'PDF to Images',
+    category: 'pdf',
+    desc: 'Each PDF page as a JPG or PNG picture, at screen or print quality.',
+    keywords: ['pdf to jpg', 'pdf to png', 'pdf to image', 'convert', 'pages', 'picture']
+  },
+  {
+    slug: 'rotate-pdf',
+    name: 'Rotate PDF',
+    category: 'pdf',
+    desc: 'Turn sideways or upside-down pages the right way and save.',
+    keywords: ['rotate', 'turn', 'sideways', 'upside down', 'pdf', 'landscape', 'portrait']
+  },
+  {
+    slug: 'remove-pages',
+    name: 'Remove Pages',
+    category: 'pdf',
+    desc: 'Delete blank, extra or private pages from a PDF.',
+    keywords: ['delete pages', 'remove pages', 'blank pages', 'pdf', 'cut']
   }
 ];
 

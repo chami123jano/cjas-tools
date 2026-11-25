@@ -221,6 +221,43 @@
       });
     },
 
+    /* The page tiles for a grid: a blank canvas and the page number each.
+       Past `max` pages, tiles have no picture, to keep memory in hand. */
+    tiles: function (total, max) {
+      var html = '';
+      for (var i = 0; i < total; i++) {
+        html += '<div class="page-tile" data-p="' + i + '" role="button" tabindex="0">' +
+          (i < (max || 300) ? '<canvas width="1" height="1"></canvas>' : '') +
+          '<span>Page ' + (i + 1) + '</span></div>';
+      }
+      return html;
+    },
+
+    /* Draws page pictures into the tiles one after another, so the page
+       stays usable while they arrive. Returns a function that stops it
+       (call it when another file is chosen). */
+    thumbnails: function (bytes, container, total, width, max) {
+      var state = { stopped: false, doc: null };
+      PDF.load(bytes).then(function (doc) {
+        state.doc = doc;
+        if (state.stopped) { PDF.close(doc); return; }
+        var shown = Math.min(total, max || 300), i = 0;
+        (function next() {
+          if (state.stopped || i >= shown) return;
+          var p = i++;
+          PDF.render(doc, p + 1, width || 160).then(function (c) {
+            var spot = container.querySelector('[data-p="' + p + '"] canvas');
+            if (spot) spot.replaceWith(c);
+            next();
+          }).catch(next);
+        })();
+      }).catch(function () { /* pictures are optional */ });
+      return function stop() {
+        state.stopped = true;
+        PDF.close(state.doc);
+      };
+    },
+
     /* A drop zone for one or many files, used by every PDF tool. */
     fileZone: function (zone, input, onFiles) {
       zone.addEventListener('click', function () { input.click(); });
