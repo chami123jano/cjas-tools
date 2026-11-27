@@ -467,6 +467,137 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.close();
   }
 
+  /* Text on each page of a saved PDF, and where the ink is on the page as
+     seen - read in the browser with PDF.js. */
+  async function readBack(page, bytes, pageNo) {
+    return page.evaluate(async (b64, n) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const doc = await window.CJA_PDF.load(u);
+      const texts = [];
+      for (let p = 1; p <= doc.numPages; p++) {
+        const tc = await (await doc.getPage(p)).getTextContent();
+        texts.push(tc.items.map((it) => it.str).join(' ').trim());
+      }
+      /* Ink in the bottom tenth versus the top tenth of the page as seen. */
+      const c = await window.CJA_PDF.render(doc, n, 1000);
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let top = 0, bottom = 0, left = 0, right = 0;
+      for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        if (d[i] < 170) {
+          if (y < c.height * 0.1) top++;
+          if (y > c.height * 0.9) bottom++;
+          if (x < c.width / 2) left++; else right++;
+        }
+      }
+      window.CJA_PDF.close(doc);
+      return { texts, top, bottom, left, right, w: c.width, h: c.height };
+    }, Buffer.from(bytes).toString('base64'), pageNo || 1);
+  }
+
+  // ---------------------------------------------------------- organise
+  {
+    const page = await open('organize-pdf');
+    const five = await makePdf(5, path.join(tmp, 'five.pdf'));
+    await give(page, five);
+    ok(/5 pages\. Nothing changed yet/.test(await text(page, 'plan')), 'organise: five pages, nothing changed', await text(page, 'plan'));
+    await page.waitForFunction(() => document.querySelectorAll('#grid .pic canvas').length === 5, { timeout: 10000 }).catch(() => {});
+    ok(await page.$$eval('#grid .pic canvas', (c) => c.length) === 5, 'organise: all page pictures shown');
+
+    // move page 5 to the front by dragging (real drag events with a DataTransfer)
+    await page.evaluate(() => {
+      const tiles = document.querySelectorAll('#grid .page-tile');
+      const dt = new DataTransfer();
+      tiles[4].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      tiles[0].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      tiles[0].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    });
+    const labels = () => page.$$eval('#grid .page-tile > span', (s) => s.map((x) => x.textContent.replace(/^\d+\. /, '')).join(' | '));
+    ok((await labels()).indexOf('was page 5 | was page 1') === 0, 'organise: dragging moves page 5 to the front', await labels());
+    ok(await page.$$eval('#grid .pic canvas', (c) => c.length) === 5, 'organise: pictures move with their pages');
+
+    // arrows, turn, blank, delete
+    await page.click('[data-i="1"] [data-act="right"]');          // page 1 swaps with page 2
+    await page.click('[data-i="0"] [data-act="turn"]');           // page 5 turned right
+    await page.click('[data-i="0"] [data-act="blank"]');          // blank after page 5
+    await page.click('[data-i="5"] [data-act="delete"]');         // delete last (page 4)
+    ok(await labels() === 'was page 5 | blank | was page 2 | was page 1 | was page 3',
+       'organise: move, turn, blank and delete', await labels());
+    ok(/5 pages, 1 of them blank/.test(await text(page, 'plan')), 'organise: plan counts the blank', await text(page, 'plan'));
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'five-organised.pdf', 'organise: saves five-organised.pdf');
+    if (s[0]) {
+      const doc = await PDFDocument.load(s[0].bytes);
+      const desc = doc.getPages().map((p) => Math.round(p.getWidth()) + '@' + p.getRotation().angle);
+      // the blank page copies the size of the page before it (page 5: 205 x 400)
+      ok(desc.join(' ') === '205@90 205@0 202@0 201@0 203@0', 'organise: the saved PDF matches', desc.join(' '));
+    }
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#reverse');
+    ok((await labels()).indexOf('was page 3') === 0, 'organise: reverse');
+    await page.click('#reset');
+    ok(/Nothing changed yet/.test(await text(page, 'plan')), 'organise: start again');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- page numbers
+  {
+    const page = await open('pdf-page-numbers');
+    // a 4-page A4 document; page 3 is turned sideways
+    const doc4 = path.join(tmp, 'essay.pdf');
+    {
+      const doc = await PDFDocument.create();
+      for (let k = 1; k <= 4; k++) { const p = doc.addPage([595, 842]); if (k === 3) p.setRotation(degrees(90)); }
+      fs.writeFileSync(doc4, await doc.save());
+    }
+    await give(page, doc4);
+    ok(/4 pages numbered, from "1" to "4"/.test(await text(page, 'plan')), 'numbers: plan', await text(page, 'plan'));
+    await page.select('#style', 'Page {n} of {total}');
+    await page.select('#skip', '1');
+    ok(/3 pages numbered, from "Page 1 of 3" to "Page 3 of 3"/.test(await text(page, 'plan')), 'numbers: a cover is left out', await text(page, 'plan'));
+    await wait(800);
+    const inked = await page.evaluate(() => {
+      const c = document.getElementById('preview'); const d = c.getContext('2d').getImageData(0, c.height * 0.9, c.width, c.height * 0.1).data;
+      let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 128) n++; return n;
+    });
+    ok(inked > 20, 'numbers: the preview shows the number', inked);
+
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'essay-numbered.pdf', 'numbers: saves essay-numbered.pdf');
+    if (s[0]) {
+      const r = await readBack(page, s[0].bytes, 3);
+      ok(JSON.stringify(r.texts) === '["","Page 1 of 3","Page 2 of 3","Page 3 of 3"]', 'numbers: the right text on each page (none on the cover)',
+         JSON.stringify(r.texts));
+      // page 3 is turned: seen as landscape, number still at the bottom as seen, centred
+      ok(r.w > r.h, 'numbers: page 3 is seen sideways', r.w + 'x' + r.h);
+      ok(r.bottom > 20 && r.top === 0, 'numbers: on the turned page it is at the bottom as seen', JSON.stringify(r));
+      ok(Math.abs(r.left - r.right) < Math.max(r.left, r.right) * 0.6, 'numbers: and centred', r.left + ' / ' + r.right);
+      const r2 = await readBack(page, s[0].bytes, 2);
+      ok(r2.bottom > 20 && r2.top === 0, 'numbers: an upright page has it at the bottom', JSON.stringify(r2));
+    }
+
+    // top right, starting at 5
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#spots [data-spot="tr"]');
+    await page.select('#skip', '0');
+    await page.select('#style', '{n}');
+    await page.$eval('#start', (e) => { e.value = 5; e.dispatchEvent(new Event('input')); });
+    ok(/from "5" to "8"/.test(await text(page, 'plan')), 'numbers: start at 5', await text(page, 'plan'));
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const r = await readBack(page, s[0].bytes, 1);
+      ok(r.texts.join() === '5,6,7,8', 'numbers: 5 to 8', r.texts.join());
+      ok(r.top > 5 && r.bottom === 0 && r.right > r.left, 'numbers: top right', JSON.stringify(r));
+      const r3 = await readBack(page, s[0].bytes, 3);
+      ok(r3.top > 5 && r3.bottom === 0 && r3.right > r3.left, 'numbers: top right on the turned page too', JSON.stringify(r3));
+    }
+    await page.close();
+  }
+
   // ---------------------------------------------------------- protected PDFs
   {
     const page = await open('split-pdf');

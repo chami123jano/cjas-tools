@@ -995,6 +995,20 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Delete blank, extra or private pages from a PDF.',
     keywords: ['delete pages', 'remove pages', 'blank pages', 'pdf', 'cut']
+  },
+  {
+    slug: 'organize-pdf',
+    name: 'Organise PDF',
+    category: 'pdf',
+    desc: 'Drag pages into a new order, turn or delete them, add blank pages.',
+    keywords: ['organize', 'organise', 'reorder', 'rearrange', 'sort pages', 'move pages', 'pdf']
+  },
+  {
+    slug: 'pdf-page-numbers',
+    name: 'Add Page Numbers',
+    category: 'pdf',
+    desc: 'Number the pages of a PDF, with styles like Page 1 of 10.',
+    keywords: ['page numbers', 'number pages', 'pagination', 'footer', 'pdf', 'bates']
   }
 ];
 

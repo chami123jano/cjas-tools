@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add Page Numbers to PDF — Cja's Tools</title>
+<meta name="description" content="Number the pages of a PDF: position, style such as Page 1 of 10, starting number, and skipping a cover page. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .spots { display: grid; grid-template-columns: repeat(3, 44px); gap: 6px; }
+  .spots button {
+    height: 30px; border: 1px solid var(--border); background: var(--bg); border-radius: 6px; cursor: pointer;
+  }
+  .spots button.on { background: var(--accent); border-color: var(--accent); }
+  .spots .gap { visibility: hidden; }
+  #preview { max-width: 100%; height: auto; border: 1px solid var(--border); background: #fff; display: block; }
+</style>
+</head>
+<body data-page="tool" data-slug="pdf-page-numbers">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Add Page Numbers</h1>
+        <p>Number the pages of a PDF. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label>Where on the page</label>
+            <div class="spots" id="spots">
+              <button data-spot="tl" title="Top left"></button>
+              <button data-spot="tc" title="Top centre"></button>
+              <button data-spot="tr" title="Top right"></button>
+              <span class="gap"></span><span class="gap"></span><span class="gap"></span>
+              <button data-spot="bl" title="Bottom left"></button>
+              <button data-spot="bc" title="Bottom centre" class="on"></button>
+              <button data-spot="br" title="Bottom right"></button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="style">Style</label>
+            <select id="style">
+              <option value="{n}" selected>1</option>
+              <option value="Page {n}">Page 1</option>
+              <option value="Page {n} of {total}">Page 1 of 10</option>
+              <option value="{n} / {total}">1 / 10</option>
+              <option value="- {n} -">- 1 -</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="size">Text size</label>
+            <select id="size">
+              <option value="9">Small</option>
+              <option value="11" selected>Normal</option>
+              <option value="14">Large</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="skip">Leave out the first</label>
+            <select id="skip">
+              <option value="0" selected>No pages</option>
+              <option value="1">1 page (a cover)</option>
+              <option value="2">2 pages</option>
+              <option value="3">3 pages</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="start">First number shown</label>
+            <input type="number" id="start" value="1" min="0" step="1">
+          </div>
+          <div class="field">
+            <label for="margin">Distance from the edge</label>
+            <select id="margin">
+              <option value="20">Close (7 mm)</option>
+              <option value="34" selected>Normal (12 mm)</option>
+              <option value="50">Far (18 mm)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <canvas id="preview" width="1" height="1"></canvas>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="save">Add numbers and save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Leaving out a cover:</b> with "leave out the first 1 page"
+          and "first number shown" at 1, the cover has no number and the page after
+          it is numbered 1 &mdash; as in most reports and books.
+          <br><br>
+          <b>"Page 1 of 10"</b> counts only the numbered pages.
+          <br><br>
+          Pages that were turned sideways still get their number at the bottom as you
+          see the page, reading the right way up.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document', spot = 'bc';
+    var firstPage = null;     // a picture of page 1, for the preview
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* The text for page i (counting from 0), or '' if it is left out. */
+    function label(i) {
+      var skip = +v('skip');
+      if (i < skip) return '';
+      var start = parseInt(v('start'), 10);
+      if (!isFinite(start)) start = 1;
+      var shown = total - skip;
+      return v('style').replace('{n}', start + i - skip).replace('{total}', start + shown - 1);
+    }
+
+    /* Where the text starts, in the page as it is seen (origin bottom left),
+       for a page seen as vw x vh points. */
+    function place(vw, vh, textW, size) {
+      var m = +v('margin');
+      var x = spot[1] === 'l' ? m : spot[1] === 'r' ? vw - m - textW : (vw - textW) / 2;
+      var y = spot[0] === 't' ? vh - m - size * 0.75 : m;
+      return { x: x, y: y };
+    }
+
+    function plan() {
+      var skip = +v('skip');
+      var n = Math.max(0, total - skip);
+      document.getElementById('plan').textContent = n
+        ? n + ' page' + (n === 1 ? '' : 's') + ' numbered, from "' + label(skip) + '" to "' + label(total - 1) + '".'
+        : 'Every page is left out - nothing to number.';
+      document.getElementById('save').disabled = !n;
+      preview();
+    }
+
+    /* A quick preview on the first numbered page's picture. */
+    function preview() {
+      var c = document.getElementById('preview');
+      if (!firstPage) return;
+      var k = firstPage.scale;
+      c.width = firstPage.canvas.width;
+      c.height = firstPage.canvas.height;
+      var ctx = c.getContext('2d');
+      ctx.drawImage(firstPage.canvas, 0, 0);
+      var text = label(firstPage.index);
+      if (!text) return;
+      var size = +v('size');
+      ctx.font = (size * k) + 'px Helvetica, Arial, sans-serif';
+      var w = ctx.measureText(text).width / k;
+      var p = place(c.width / k, c.height / k, w, size);
+      ctx.fillStyle = '#000';
+      ctx.fillText(text, p.x * k, c.height - p.y * k);
+    }
+
+    document.getElementById('spots').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-spot]');
+      if (!b) return;
+      spot = b.dataset.spot;
+      document.querySelectorAll('#spots button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      preview();
+    });
+    ['style', 'size', 'skip', 'margin'].forEach(function (id) { document.getElementById(id).addEventListener('change', function () { plan(); loadPreview(); }); });
+    document.getElementById('start').addEventListener('input', plan);
+
+    document.getElementById('save').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true;
+      CJA_PDF.open(bytes).then(function (doc) {
+        return doc.embedFont(PDFLib.StandardFonts.Helvetica).then(function (font) {
+          var size = +v('size');
+          doc.getPages().forEach(function (page, i) {
+            var text = label(i);
+            if (!text) return;
+            var box = page.getCropBox();
+            var angle = ((page.getRotation().angle || 0) % 360 + 360) % 360;
+            var sideways = angle === 90 || angle === 270;
+            var vw = sideways ? box.height : box.width, vh = sideways ? box.width : box.height;
+            var w = font.widthOfTextAtSize(text, size);
+            var p = place(vw, vh, w, size);
+            /* Turn the spot as seen into the page's own coordinates, and
+               turn the text with the page so it reads upright. */
+            var x, y;
+            if (angle === 90) { x = box.width - p.y; y = p.x; }
+            else if (angle === 180) { x = box.width - p.x; y = box.height - p.y; }
+            else if (angle === 270) { x = p.y; y = box.height - p.x; }
+            else { x = p.x; y = p.y; }
+            page.drawText(text, {
+              x: box.x + x, y: box.y + y, size: size, font: font,
+              color: PDFLib.rgb(0, 0, 0), rotate: PDFLib.degrees(angle)
+            });
+          });
+          return CJA_PDF.save(doc);
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-numbered.pdf');
+      }).catch(function (e) { CT.toast(e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    /* The preview shows the first page that gets a number. */
+    function loadPreview() {
+      if (!bytes) return;
+      var index = Math.min(+v('skip'), total - 1);
+      if (firstPage && firstPage.index === index) { preview(); return; }
+      CJA_PDF.load(bytes).then(function (doc) {
+        return doc.getPage(index + 1).then(function (page) {
+          var w = page.getViewport({ scale: 1 }).width;
+          return CJA_PDF.render(doc, index + 1, 420).then(function (c) {
+            firstPage = { canvas: c, scale: 420 / w, index: index };
+            CJA_PDF.close(doc);
+            preview();
+          });
+        });
+      }).catch(function () { /* the preview is optional */ });
+    }
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          firstPage = null;
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          plan();
+          loadPreview();
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>
