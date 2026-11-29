@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign PDF — Cja's Tools</title>
+<meta name="description" content="Put your signature on a PDF: draw it, type it, or use a picture of it, then drag it into place. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  #pad {
+    width: 100%; height: 180px; display: block; touch-action: none; cursor: crosshair;
+    background: #fff; border: 1px dashed var(--border); border-radius: var(--radius);
+  }
+  #typed-preview { font-size: 44px; min-height: 70px; color: #1a2a80; background: #fff; border-radius: var(--radius); padding: 8px 14px; }
+  .sheet { position: relative; display: inline-block; max-width: 100%; touch-action: none; user-select: none; }
+  .sheet canvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); background: #fff; }
+  .sig-box {
+    position: absolute; border: 1.5px dashed var(--accent); cursor: move; background: rgba(79,124,255,.06);
+  }
+  .sig-box img { width: 100%; height: 100%; display: block; pointer-events: none; }
+  .sig-box .grip {
+    position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: nwse-resize;
+  }
+  .pager { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+</style>
+</head>
+<body data-page="tool" data-slug="sign-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Sign PDF</h1>
+        <p>Put your signature on a form or letter without printing it. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose the PDF to sign</b>, or drag it here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel">
+        <label style="margin-bottom:8px">Your signature</label>
+        <div class="tabs" id="tabs">
+          <button class="btn primary" data-tab="draw">Draw it</button>
+          <button class="btn" data-tab="type">Type it</button>
+          <button class="btn" data-tab="upload">Use a picture</button>
+        </div>
+        <div data-pane="draw">
+          <canvas id="pad"></canvas>
+          <div class="btns" style="margin-top:8px">
+            <button class="btn" id="clear">Clear</button>
+            <select id="ink" style="width:auto">
+              <option value="#1a2a80" selected>Blue ink</option>
+              <option value="#111111">Black ink</option>
+            </select>
+          </div>
+        </div>
+        <div data-pane="type" hidden>
+          <div class="row">
+            <div class="field">
+              <label for="name">Your name</label>
+              <input type="text" id="name" value="" placeholder="Type your name" autocomplete="name">
+            </div>
+            <div class="field">
+              <label for="font">Style</label>
+              <select id="font">
+                <option value="'Segoe Script', 'Brush Script MT', cursive" selected>Segoe Script</option>
+                <option value="'Lucida Handwriting', 'Segoe Script', cursive">Lucida Handwriting</option>
+                <option value="'Ink Free', 'Segoe Print', cursive">Ink Free</option>
+                <option value="'Segoe Print', cursive">Segoe Print</option>
+              </select>
+            </div>
+          </div>
+          <div id="typed-preview"></div>
+        </div>
+        <div data-pane="upload" hidden>
+          <div class="btns">
+            <button class="btn" id="sig-btn">Choose a picture of your signature</button>
+          </div>
+          <input type="file" id="sig-file" accept="image/*" hidden>
+          <p class="hint">Sign on plain white paper, take a photo, and make the paper
+            see-through with <a href="remove-background.html">Remove Background</a> first,
+            so only the ink shows on the PDF.</p>
+        </div>
+        <label style="margin-top:10px">
+          <input type="checkbox" id="date" style="width:auto;margin-right:7px">
+          Write today's date under the signature
+        </label>
+      </div>
+
+      <div class="panel" id="place-panel" hidden>
+        <div class="pager">
+          <button class="btn" id="prev">&larr;</button>
+          <span id="page-label"></span>
+          <button class="btn" id="next">&rarr;</button>
+        </div>
+        <div class="sheet" id="sheet">
+          <canvas id="page"></canvas>
+          <div class="sig-box" id="box" hidden><img id="box-img" alt="Your signature"><span class="grip" id="grip"></span></div>
+        </div>
+        <p class="hint">Click the page where the signature goes, then drag it into
+          place; drag the round handle to make it bigger or smaller.</p>
+        <div class="row">
+          <div class="field">
+            <label for="apply">Sign</label>
+            <select id="apply">
+              <option value="this" selected>Only this page</option>
+              <option value="all">Every page, in the same spot (for initials)</option>
+            </select>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="save">Sign and save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>This is a picture of your signature,</b> like signing a printed
+          page and scanning it. It is not a "digital signature" with a certificate, which
+          some government and bank systems require; if a form asks for that, this will
+          not do.
+          <br><br>
+          <b>Your signature is not kept.</b> Nothing is saved or uploaded; close the page
+          and it is gone.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document', viewer = null, current = 1;
+    var tab = 'draw', uploaded = null;
+    /* Where the signature sits, as fractions of the page as seen (from the
+       top left), so it lands in the same place on pages of other sizes. */
+    var spot = null;
+    var sigCanvas = null;   // the signature, trimmed, on a see-through background
+
+    function v(id) { return document.getElementById(id).value; }
+
+    // ------------------------------------------------ drawing pad
+    var pad = document.getElementById('pad');
+    var padCtx = null, drawing = false, last = null, inked = false;
+    function sizePad() {
+      var r = pad.getBoundingClientRect();
+      var ratio = window.devicePixelRatio || 1;
+      if (!r.width) return;
+      /* Keep what is drawn when the window changes size. */
+      var old = inked ? pad.toDataURL() : null;
+      pad.width = Math.round(r.width * ratio);
+      pad.height = Math.round(r.height * ratio);
+      padCtx = pad.getContext('2d');
+      padCtx.scale(ratio, ratio);
+      padCtx.lineCap = padCtx.lineJoin = 'round';
+      if (old) { var im = new Image(); im.onload = function () { padCtx.drawImage(im, 0, 0, r.width, r.height); }; im.src = old; }
+    }
+    function pt(e) { var r = pad.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    pad.addEventListener('pointerdown', function (e) {
+      if (!padCtx) sizePad();
+      drawing = true; last = pt(e); pad.setPointerCapture(e.pointerId);
+      padCtx.fillStyle = v('ink');
+      padCtx.beginPath(); padCtx.arc(last.x, last.y, 1.4, 0, Math.PI * 2); padCtx.fill();
+      inked = true;
+    });
+    pad.addEventListener('pointermove', function (e) {
+      if (!drawing) return;
+      var p = pt(e);
+      /* Faster strokes are thinner, like a real pen. */
+      var speed = Math.hypot(p.x - last.x, p.y - last.y);
+      padCtx.strokeStyle = v('ink');
+      padCtx.lineWidth = Math.max(1.4, 3.2 - speed / 12);
+      padCtx.beginPath(); padCtx.moveTo(last.x, last.y);
+      padCtx.quadraticCurveTo(last.x, last.y, (last.x + p.x) / 2, (last.y + p.y) / 2);
+      padCtx.lineTo(p.x, p.y); padCtx.stroke();
+      last = p;
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) {
+      pad.addEventListener(ev, function () { if (drawing) { drawing = false; makeSignature(); } });
+    });
+    document.getElementById('clear').addEventListener('click', function () {
+      if (padCtx) padCtx.clearRect(0, 0, pad.width, pad.height);
+      inked = false;
+      makeSignature();
+    });
+    window.addEventListener('resize', function () { if (tab === 'draw') sizePad(); });
+
+    // ------------------------------------------------ the signature picture
+    /* Cuts a canvas down to the area with ink in it, plus a small margin. */
+    function trim(src) {
+      var ctx = src.getContext('2d');
+      var d = ctx.getImageData(0, 0, src.width, src.height).data;
+      var x0 = src.width, y0 = src.height, x1 = -1, y1 = -1;
+      for (var y = 0; y < src.height; y++) for (var x = 0; x < src.width; x++) {
+        if (d[(y * src.width + x) * 4 + 3] > 10) {
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) return null;
+      var m = 6;
+      x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
+      x1 = Math.min(src.width - 1, x1 + m); y1 = Math.min(src.height - 1, y1 + m);
+      var out = CJA_IMG.canvas(x1 - x0 + 1, y1 - y0 + 1);
+      out.getContext('2d').drawImage(src, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+      return out;
+    }
+
+    function today() {
+      return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    function makeSignature() {
+      var c = null;
+      if (tab === 'draw') c = inked ? trim(pad) : null;
+      else if (tab === 'type') {
+        var name = v('name').trim();
+        document.getElementById('typed-preview').style.fontFamily = v('font');
+        document.getElementById('typed-preview').textContent = name || ' ';
+        if (name) {
+          var t = CJA_IMG.canvas(1600, 260);
+          var ctx = t.getContext('2d');
+          ctx.font = '120px ' + v('font');
+          ctx.fillStyle = '#1a2a80';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(name, 20, 130);
+          c = trim(t);
+        }
+      } else if (uploaded) {
+        c = CJA_IMG.canvas(uploaded.width, uploaded.height);
+        c.getContext('2d').drawImage(uploaded.img, 0, 0);
+      }
+      if (c && document.getElementById('date').checked) {
+        /* The date goes under the signature, in plain small writing. */
+        var dateText = today();
+        var size = Math.max(16, Math.round(c.height * 0.3));
+        var probe = CJA_IMG.canvas(1, 1).getContext('2d');
+        probe.font = size + 'px Segoe UI, Arial, sans-serif';
+        var tw = probe.measureText(dateText).width;
+        var both = CJA_IMG.canvas(Math.max(c.width, tw + 8), c.height + size * 1.6);
+        var bctx = both.getContext('2d');
+        bctx.drawImage(c, 0, 0);
+        bctx.font = size + 'px Segoe UI, Arial, sans-serif';
+        bctx.fillStyle = '#222';
+        bctx.textBaseline = 'top';
+        bctx.fillText(dateText, 4, c.height + size * 0.3);
+        c = both;
+      }
+      sigCanvas = c;
+      showBox();
+    }
+
+    document.getElementById('tabs').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tab]');
+      if (!b) return;
+      tab = b.dataset.tab;
+      document.querySelectorAll('#tabs .btn').forEach(function (x) { x.classList.toggle('primary', x === b); });
+      document.querySelectorAll('[data-pane]').forEach(function (p) { p.hidden = p.dataset.pane !== tab; });
+      if (tab === 'draw') sizePad();
+      makeSignature();
+    });
+    document.getElementById('name').addEventListener('input', makeSignature);
+    ['font', 'date'].forEach(function (id) { document.getElementById(id).addEventListener('change', makeSignature); });
+    document.getElementById('sig-btn').addEventListener('click', function () { document.getElementById('sig-file').click(); });
+    document.getElementById('sig-file').addEventListener('change', function () {
+      var f = this.files[0];
+      this.value = '';
+      if (!f) return;
+      CJA_IMG.load(f).then(function (s) {
+        uploaded = s;
+        document.getElementById('sig-btn').textContent = f.name;
+        makeSignature();
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    // ------------------------------------------------ placing it
+    var sheet = document.getElementById('sheet'), box = document.getElementById('box');
+    function showBox() {
+      if (!sigCanvas || !spot) { box.hidden = true; return; }
+      document.getElementById('box-img').src = sigCanvas.toDataURL('image/png');
+      var pw = document.getElementById('page').getBoundingClientRect().width;
+      var ph = document.getElementById('page').getBoundingClientRect().height;
+      var w = spot.w * pw;
+      var h = w * sigCanvas.height / sigCanvas.width;
+      spot.h = h / ph;
+      box.style.left = spot.x * pw + 'px';
+      box.style.top = spot.y * ph + 'px';
+      box.style.width = w + 'px';
+      box.style.height = h + 'px';
+      box.hidden = false;
+    }
+
+    var drag = null;
+    sheet.addEventListener('pointerdown', function (e) {
+      if (!sigCanvas) { CT.toast('Make your signature first'); return; }
+      var r = document.getElementById('page').getBoundingClientRect();
+      var fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+      sheet.setPointerCapture(e.pointerId);
+      if (e.target.id === 'grip') { drag = { mode: 'size', sx: e.clientX, w: spot.w }; return; }
+      if (e.target === box) { drag = { mode: 'move', dx: fx - spot.x, dy: fy - spot.y }; return; }
+      /* A click elsewhere puts the signature there, centred on the click. */
+      var w = spot ? spot.w : 0.3;
+      var h = w * r.width * sigCanvas.height / sigCanvas.width / r.height;
+      spot = { x: fx - w / 2, y: fy - h / 2, w: w, h: h };
+      clamp();
+      showBox();
+      drag = { mode: 'move', dx: fx - spot.x, dy: fy - spot.y };
+    });
+    sheet.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var r = document.getElementById('page').getBoundingClientRect();
+      if (drag.mode === 'size') {
+        spot.w = Math.max(0.05, Math.min(0.95, drag.w + (e.clientX - drag.sx) / r.width));
+      } else {
+        spot.x = (e.clientX - r.left) / r.width - drag.dx;
+        spot.y = (e.clientY - r.top) / r.height - drag.dy;
+      }
+      showBox();
+      clamp();
+      showBox();
+    });
+    ['pointerup', 'pointercancel'].forEach(function (ev) { sheet.addEventListener(ev, function () { drag = null; }); });
+    function clamp() {
+      spot.x = Math.max(0, Math.min(1 - spot.w, spot.x));
+      spot.y = Math.max(0, Math.min(1 - spot.h, spot.y));
+    }
+
+    function showPage() {
+      document.getElementById('page-label').textContent = 'Page ' + current + ' of ' + total;
+      document.getElementById('prev').disabled = current === 1;
+      document.getElementById('next').disabled = current === total;
+      viewer.getPage(current).then(function (p) {
+        /* As big as fits: the panel's width, and three quarters of the
+           window's height, so the whole page shows while placing. */
+        var vp = p.getViewport({ scale: 1 });
+        var byHeight = window.innerHeight * 0.75 * vp.width / vp.height;
+        var w = Math.max(240, Math.min(640, sheet.parentElement.getBoundingClientRect().width || 640, byHeight));
+        return CJA_PDF.render(viewer, current, w * (window.devicePixelRatio || 1)).then(function (c) {
+          var page = document.getElementById('page');
+          page.width = c.width; page.height = c.height;
+          page.style.width = w + 'px';
+          page.getContext('2d').drawImage(c, 0, 0);
+          showBox();
+        });
+      });
+    }
+    document.getElementById('prev').addEventListener('click', function () { if (current > 1) { current--; showPage(); } });
+    document.getElementById('next').addEventListener('click', function () { if (current < total) { current++; showPage(); } });
+
+    // ------------------------------------------------ saving
+    document.getElementById('save').addEventListener('click', function () {
+      if (!sigCanvas) { CT.toast('Make your signature first'); return; }
+      if (!spot) { CT.toast('Click the page where the signature goes'); return; }
+      var btn = this;
+      btn.disabled = true;
+      CJA_IMG.toBlob(sigCanvas, 'image/png').then(function (b) { return b.arrayBuffer(); }).then(function (png) {
+        return CJA_PDF.open(bytes).then(function (doc) {
+          return doc.embedPng(new Uint8Array(png)).then(function (img) {
+            var pages = doc.getPages();
+            var targets = v('apply') === 'all' ? pages.map(function (_, i) { return i; }) : [current - 1];
+            targets.forEach(function (i) {
+              var page = pages[i];
+              var fr = CJA_PDF.frame(page);
+              var w = spot.w * fr.width;
+              var h = w * sigCanvas.height / sigCanvas.width;
+              /* The box's bottom-left corner on the page as seen. */
+              var vx = spot.x * fr.width, vy = fr.height - spot.y * fr.height - h;
+              var at = fr.toPage(vx, vy);
+              page.drawImage(img, { x: at.x, y: at.y, width: w, height: h, rotate: PDFLib.degrees(fr.angle) });
+            });
+            return CJA_PDF.save(doc);
+          });
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-signed.pdf');
+      }).catch(function (e) { CT.toast(e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          /* Forms are usually signed on the last page, so start there. */
+          current = total;
+          spot = null;
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('place-panel').hidden = false;
+          CJA_PDF.close(viewer);
+          return CJA_PDF.load(b).then(function (pdf) { viewer = pdf; showPage(); });
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    sizePad();
+  })();
+  </script>
+</body>
+</html>

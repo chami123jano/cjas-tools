@@ -8,7 +8,8 @@
     "build": "tauri build",
     "test:browser": "node test/browser.js",
     "test:images": "node test/images.js",
-    "test:pdfs": "node test/pdfs.js"
+    "test:pdfs": "node test/pdfs.js",
+    "test:app": "node test/app.js"
   },
   "keywords": [],
   "author": "",

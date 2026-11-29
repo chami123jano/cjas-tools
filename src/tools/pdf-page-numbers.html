@@ -193,22 +193,15 @@
           doc.getPages().forEach(function (page, i) {
             var text = label(i);
             if (!text) return;
-            var box = page.getCropBox();
-            var angle = ((page.getRotation().angle || 0) % 360 + 360) % 360;
-            var sideways = angle === 90 || angle === 270;
-            var vw = sideways ? box.height : box.width, vh = sideways ? box.width : box.height;
+            /* Placed on the page as it is seen, so a sideways page gets its
+               number at the bottom as seen, reading upright. */
+            var fr = CJA_PDF.frame(page);
             var w = font.widthOfTextAtSize(text, size);
-            var p = place(vw, vh, w, size);
-            /* Turn the spot as seen into the page's own coordinates, and
-               turn the text with the page so it reads upright. */
-            var x, y;
-            if (angle === 90) { x = box.width - p.y; y = p.x; }
-            else if (angle === 180) { x = box.width - p.x; y = box.height - p.y; }
-            else if (angle === 270) { x = p.y; y = box.height - p.x; }
-            else { x = p.x; y = p.y; }
+            var p = place(fr.width, fr.height, w, size);
+            var at = fr.toPage(p.x, p.y);
             page.drawText(text, {
-              x: box.x + x, y: box.y + y, size: size, font: font,
-              color: PDFLib.rgb(0, 0, 0), rotate: PDFLib.degrees(angle)
+              x: at.x, y: at.y, size: size, font: font,
+              color: PDFLib.rgb(0, 0, 0), rotate: PDFLib.degrees(fr.angle)
             });
           });
           return CJA_PDF.save(doc);

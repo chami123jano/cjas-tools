@@ -221,6 +221,31 @@
       });
     },
 
+    /* A pdf-lib page as it is seen: its seen width and height, and a way
+       to turn a point on the seen page (origin bottom left) into the
+       page's own coordinates. A page marked "turned 90" is stored
+       upright but shown sideways, so anything drawn on it must be placed
+       and turned to match. `angle` is what to add to a drawing's own turn
+       so it reads upright as seen. */
+    frame: function (page) {
+      var box = page.getCropBox();
+      var angle = (((page.getRotation().angle || 0) % 360) + 360) % 360;
+      var sideways = angle === 90 || angle === 270;
+      return {
+        width: sideways ? box.height : box.width,
+        height: sideways ? box.width : box.height,
+        angle: angle,
+        toPage: function (vx, vy) {
+          var x, y;
+          if (angle === 90) { x = box.width - vy; y = vx; }
+          else if (angle === 180) { x = box.width - vx; y = box.height - vy; }
+          else if (angle === 270) { x = vy; y = box.height - vx; }
+          else { x = vx; y = vy; }
+          return { x: box.x + x, y: box.y + y };
+        }
+      };
+    },
+
     /* The page tiles for a grid: a blank canvas and the page number each.
        Past `max` pages, tiles have no picture, to keep memory in hand. */
     tiles: function (total, max) {

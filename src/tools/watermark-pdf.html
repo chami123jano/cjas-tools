@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watermark PDF — Cja's Tools</title>
+<meta name="description" content="Stamp words like DRAFT, COPY or CONFIDENTIAL, or your logo, across the pages of a PDF. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #preview { max-width: 100%; max-height: 520px; height: auto; border: 1px solid var(--border); background: #fff; display: block; margin: 0 auto; }
+</style>
+</head>
+<body data-page="tool" data-slug="watermark-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Watermark PDF</h1>
+        <p>Stamp DRAFT, COPY, CONFIDENTIAL or your logo across the pages. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="kind">Watermark</label>
+            <select id="kind">
+              <option value="text" selected>Words</option>
+              <option value="image">A logo or stamp picture</option>
+            </select>
+          </div>
+          <div class="field" data-kind="text">
+            <label for="text">Words</label>
+            <input type="text" id="text" value="CONFIDENTIAL" maxlength="60">
+          </div>
+          <div class="field" data-kind="image" hidden>
+            <label>Picture (PNG with a see-through background is best)</label>
+            <button class="btn" id="logo-btn" type="button">Choose a picture</button>
+            <input type="file" id="logo" accept="image/png,image/jpeg" hidden>
+          </div>
+        </div>
+        <div class="btns" id="presets" data-kind="text">
+          <button class="btn" data-w="DRAFT">DRAFT</button>
+          <button class="btn" data-w="COPY">COPY</button>
+          <button class="btn" data-w="CONFIDENTIAL">CONFIDENTIAL</button>
+          <button class="btn" data-w="SAMPLE">SAMPLE</button>
+          <button class="btn" data-w="PAID">PAID</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div class="field">
+            <label for="layout">Placing</label>
+            <select id="layout">
+              <option value="diagonal" selected>Once, across the middle</option>
+              <option value="straight">Once, straight across the middle</option>
+              <option value="tile">Repeated all over</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="size">Size: <span id="size-label">60</span>% of the page width</label>
+            <input type="range" id="size" min="10" max="90" value="60">
+          </div>
+          <div class="field">
+            <label for="opacity">Strength: <span id="opacity-label">20</span>%</label>
+            <input type="range" id="opacity" min="5" max="80" value="20">
+          </div>
+          <div class="field" data-kind="text">
+            <label for="colour">Colour</label>
+            <input type="color" id="colour" value="#d0021b">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="All pages, or e.g. 1-3" autocomplete="off">
+          </div>
+        </div>
+        <p class="hint" id="plan"></p>
+        <canvas id="preview" width="1" height="1"></canvas>
+        <div class="btns" style="margin-top:12px">
+          <button class="btn primary" id="save">Add watermark and save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>The watermark is drawn into the PDF,</b> over the page, at the
+          strength you choose. Light strengths (15 to 25%) leave the page easy to read.
+          <br><br>
+          <b>It is not tamper-proof.</b> Someone with PDF-editing software can remove
+          a watermark. It is a clear label, not a lock. For a copy nobody can edit, turn
+          the pages into pictures with <a href="pdf-to-images.html">PDF to Images</a> and back
+          with <a href="images-to-pdf.html">Images to PDF</a>.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, total = 0, base = 'document';
+    var logo = null;          // { bytes, type, width, height }
+    var firstPage = null;     // picture of page 1 for the preview, with its scale
+
+    function v(id) { return document.getElementById(id).value; }
+    function hexToRgb(h) {
+      var n = parseInt(h.slice(1), 16);
+      return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+
+    /* Where each copy of the mark goes, on a page seen as w x h, for a
+       mark mw x mh: a list of centres and the turn, in degrees. */
+    function spots(w, h, mw, mh) {
+      var layout = v('layout');
+      if (layout === 'tile') {
+        var out = [], stepX = mw * 1.35, stepY = mh * 3.2;
+        for (var row = 0, y = stepY / 2; y < h + stepY; y += stepY, row++) {
+          for (var x = (row % 2 ? stepX / 2 : 0) + mw / 2 - stepX / 2; x < w + stepX; x += stepX) {
+            out.push({ x: x, y: y });
+          }
+        }
+        return { list: out, turn: 30 };
+      }
+      return { list: [{ x: w / 2, y: h / 2 }], turn: layout === 'diagonal' ? Math.atan2(h, w) * 180 / Math.PI : 0 };
+    }
+
+    /* The mark's size on a page seen as w wide. Text is sized by its
+       width; tiled marks are smaller so several fit. */
+    function markSize(w, font) {
+      var share = +v('size') / 100 * (v('layout') === 'tile' ? 0.5 : 1);
+      var mw = w * share;
+      if (v('kind') === 'image') {
+        if (!logo) return null;
+        return { w: mw, h: mw * logo.height / logo.width };
+      }
+      var text = v('text').trim();
+      if (!text) return null;
+      var size = mw / font.width(text);
+      return { w: mw, h: size * 0.72, size: size };
+    }
+
+    function chosen() {
+      return v('pages').trim() ? CJA_PDF.parseRanges(v('pages'), total) : { pages: CJA_PDF.parseRanges('', total).pages };
+    }
+
+    function plan() {
+      ['size', 'opacity'].forEach(function (id) { document.getElementById(id + '-label').textContent = v(id); });
+      var kind = v('kind');
+      document.querySelectorAll('[data-kind]').forEach(function (el) { el.hidden = el.dataset.kind !== kind; });
+      if (!bytes) return;
+      var r = chosen(), planEl = document.getElementById('plan'), save = document.getElementById('save');
+      var missing = kind === 'image' ? (!logo && 'Choose a picture to use.') : (!v('text').trim() && 'Type the words to stamp.');
+      if (r.error || missing) { planEl.textContent = r.error || missing; save.disabled = true; }
+      else {
+        planEl.textContent = 'On ' + r.pages.length + ' page' + (r.pages.length === 1 ? '' : 's') + '.';
+        save.disabled = false;
+      }
+      preview();
+    }
+
+    /* The preview draws the same layout on page 1's picture with the
+       canvas, using a canvas font measured like the PDF's Helvetica. */
+    function preview() {
+      if (!firstPage) return;
+      var c = document.getElementById('preview');
+      c.width = firstPage.canvas.width; c.height = firstPage.canvas.height;
+      var ctx = c.getContext('2d');
+      ctx.drawImage(firstPage.canvas, 0, 0);
+      var k = firstPage.scale, w = c.width / k, h = c.height / k;
+      var helv = { width: function (t) { ctx.font = 'bold 100px Helvetica, Arial, sans-serif'; return ctx.measureText(t).width / 100; } };
+      var m = markSize(w, helv);
+      if (!m) return;
+      var s = spots(w, h, m.w, m.h);
+      ctx.globalAlpha = +v('opacity') / 100;
+      s.list.forEach(function (pt) {
+        ctx.save();
+        ctx.translate(pt.x * k, (h - pt.y) * k);
+        ctx.rotate(-s.turn * Math.PI / 180);
+        if (v('kind') === 'image') ctx.drawImage(logo.img, -m.w / 2 * k, -m.h / 2 * k, m.w * k, m.h * k);
+        else {
+          ctx.font = 'bold ' + (m.size * k) + 'px Helvetica, Arial, sans-serif';
+          ctx.fillStyle = v('colour');
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(v('text').trim(), 0, 0);
+        }
+        ctx.restore();
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    ['text', 'size', 'opacity', 'colour', 'pages'].forEach(function (id) { document.getElementById(id).addEventListener('input', plan); });
+    ['kind', 'layout'].forEach(function (id) { document.getElementById(id).addEventListener('change', plan); });
+    document.getElementById('presets').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-w]');
+      if (!b) return;
+      document.getElementById('text').value = b.dataset.w;
+      plan();
+    });
+
+    document.getElementById('logo-btn').addEventListener('click', function () { document.getElementById('logo').click(); });
+    document.getElementById('logo').addEventListener('change', function () {
+      var f = this.files[0];
+      this.value = '';
+      if (!f) return;
+      CJA_PDF.read(f).then(function (raw) {
+        return CJA_PDF.imageForPdf(f, raw).then(function (img) {
+          return CJA_IMG.load(new File([img.bytes], f.name, { type: img.type })).then(function (s) {
+            logo = { bytes: img.bytes, type: img.type, width: s.width, height: s.height, img: s.img };
+            document.getElementById('logo-btn').textContent = f.name;
+            plan();
+          });
+        });
+      }).catch(function () { CT.toast('That picture could not be opened'); });
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var r = chosen();
+      if (r.error) return;
+      var btn = this;
+      btn.disabled = true;
+      CJA_PDF.open(bytes).then(function (doc) {
+        var getMark = v('kind') === 'image'
+          ? (logo.type === 'image/png' ? doc.embedPng(logo.bytes) : doc.embedJpg(logo.bytes))
+          : doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+        return getMark.then(function (mark) {
+          var pages = doc.getPages();
+          var opacity = +v('opacity') / 100;
+          var text = v('text').trim();
+          var rgb = hexToRgb(v('colour'));
+          var font = v('kind') === 'text' ? { width: function (t) { return mark.widthOfTextAtSize(t, 1); } } : null;
+          r.pages.forEach(function (i) {
+            var page = pages[i];
+            var fr = CJA_PDF.frame(page);
+            var m = markSize(fr.width, font);
+            var s = spots(fr.width, fr.height, m.w, m.h);
+            var a = s.turn * Math.PI / 180;
+            s.list.forEach(function (pt) {
+              /* Each mark is drawn from its bottom-left corner, which is
+                 the centre moved back by half its width and height along
+                 its own turned directions. */
+              var vx = pt.x - (m.w / 2) * Math.cos(a) + (m.h / 2) * Math.sin(a);
+              var vy = pt.y - (m.w / 2) * Math.sin(a) - (m.h / 2) * Math.cos(a);
+              var at = fr.toPage(vx, vy);
+              var turn = PDFLib.degrees(fr.angle + s.turn);
+              if (v('kind') === 'image') {
+                page.drawImage(mark, { x: at.x, y: at.y, width: m.w, height: m.h, rotate: turn, opacity: opacity });
+              } else {
+                page.drawText(text, { x: at.x, y: at.y, size: m.size, font: mark, rotate: turn,
+                  color: PDFLib.rgb(rgb[0], rgb[1], rgb[2]), opacity: opacity });
+              }
+            });
+          });
+          return CJA_PDF.save(doc);
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-watermarked.pdf');
+      }).catch(function (e) { CT.toast(e.message); })
+        .then(function () { btn.disabled = false; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          firstPage = null;
+          plan();
+          return CJA_PDF.load(b).then(function (pdf) {
+            return pdf.getPage(1).then(function (pg) {
+              var w = pg.getViewport({ scale: 1 }).width;
+              return CJA_PDF.render(pdf, 1, 480).then(function (c) {
+                firstPage = { canvas: c, scale: 480 / w };
+                CJA_PDF.close(pdf);
+                preview();
+              });
+            });
+          });
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    plan();
+  })();
+  </script>
+</body>
+</html>

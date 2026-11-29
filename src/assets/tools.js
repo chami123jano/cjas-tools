@@ -1009,6 +1009,27 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Number the pages of a PDF, with styles like Page 1 of 10.',
     keywords: ['page numbers', 'number pages', 'pagination', 'footer', 'pdf', 'bates']
+  },
+  {
+    slug: 'watermark-pdf',
+    name: 'Watermark PDF',
+    category: 'pdf',
+    desc: 'Stamp DRAFT, COPY, CONFIDENTIAL or a logo across the pages.',
+    keywords: ['watermark', 'stamp', 'draft', 'confidential', 'copy', 'pdf', 'logo']
+  },
+  {
+    slug: 'sign-pdf',
+    name: 'Sign PDF',
+    category: 'pdf',
+    desc: 'Draw, type or upload your signature and place it on a PDF.',
+    keywords: ['sign', 'signature', 'e-sign', 'fill form', 'initials', 'pdf']
+  },
+  {
+    slug: 'pdf-to-text',
+    name: 'PDF to Text',
+    category: 'pdf',
+    desc: 'Get the words out of a PDF to copy, edit or save as text.',
+    keywords: ['pdf to text', 'extract text', 'copy text', 'pdf to txt', 'words', 'convert']
   }
 ];
 

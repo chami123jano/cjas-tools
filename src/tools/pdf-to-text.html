@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF to Text — Cja's Tools</title>
+<meta name="description" content="Get the words out of a PDF to copy, edit or save as a text file. Says clearly when a page is a scanned picture. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #out { min-height: 360px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; line-height: 1.5; }
+</style>
+</head>
+<body data-page="tool" data-slug="pdf-to-text">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>PDF to Text</h1>
+        <p>The words from a PDF, ready to copy or edit. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="result" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="All pages, or e.g. 2-5" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="breaks">Between pages</label>
+            <select id="breaks">
+              <option value="label" selected>A line saying which page follows</option>
+              <option value="blank">Just a blank line</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>
+              <input type="checkbox" id="join" style="width:auto;margin-right:7px">
+              Join lines into paragraphs
+            </label>
+          </div>
+        </div>
+        <div class="stats" style="margin:4px 0 12px">
+          <div class="stat"><b id="s-words">0</b><span>Words</span></div>
+          <div class="stat"><b id="s-chars">0</b><span>Characters</span></div>
+          <div class="stat"><b id="s-pages">0</b><span>Pages read</span></div>
+          <div class="stat"><b id="s-empty">0</b><span>Pages with no text</span></div>
+        </div>
+        <p class="hint" id="note"></p>
+        <textarea id="out" spellcheck="false"></textarea>
+        <div class="btns">
+          <button class="btn primary" id="copy">Copy all</button>
+          <button class="btn" id="save">Save as .txt</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>A scanned page has no words in it,</b> only a picture of
+          words, so nothing comes out for it. The count of "pages with no text" shows
+          when this has happened. Reading words from pictures (OCR) is not part of this
+          tool.
+          <br><br>
+          <b>"Join lines into paragraphs"</b> removes the line breaks the PDF put at the
+          end of each printed line, so pasted text flows normally in an email or a
+          document. Lines that end a sentence keep their break.
+          <br><br>
+          Columns, tables and footnotes come out in the order the PDF stores them, which
+          is usually, but not always, the reading order.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var pagesText = [];      // the text of each page, as read
+    var base = 'document';
+
+    function v(id) { return document.getElementById(id).value; }
+
+    /* PDF.js gives the words in pieces, each knowing whether a line ends
+       after it. Pieces are joined, and lines ended where the PDF says. */
+    function pageText(content) {
+      var out = '';
+      content.items.forEach(function (it) {
+        if (typeof it.str !== 'string') return;
+        out += it.str;
+        if (it.hasEOL) out += '\n';
+      });
+      return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    /* Joins lines that run on into the next, keeping breaks after a full
+       stop or a colon, before a list item, and after a line much shorter
+       than the rest - a greeting such as "Dear customer," ends on purpose. */
+    function paragraphs(text) {
+      return text.split(/\n{2,}/).map(function (para) {
+        var longest = Math.max.apply(null, para.split('\n').map(function (l) { return l.trim().length; }));
+        return para.split('\n').reduce(function (acc, line, i, lines) {
+          if (i === 0) return line;
+          var prev = lines[i - 1];
+          var keep = /[.!?:;]["')\]]?$/.test(prev) || /^\s*([-•*–]|\d+[.)])\s/.test(line) ||
+            prev.trim().length < longest * 0.6;
+          if (keep) return acc + '\n' + line;
+          /* A word split with a hyphen at the end of a line is rejoined. */
+          if (/[a-z]-$/.test(acc) && /^[a-z]/.test(line)) return acc.slice(0, -1) + line;
+          return acc + ' ' + line.trim();
+        }, '');
+      }).join('\n\n');
+    }
+
+    function build() {
+      var total = pagesText.length;
+      var r = v('pages').trim() ? CJA_PDF.parseRanges(v('pages'), total) : { pages: pagesText.map(function (_, i) { return i; }) };
+      var note = document.getElementById('note');
+      if (r.error) { note.textContent = r.error; return; }
+      var join = document.getElementById('join').checked;
+      var empty = 0;
+      var parts = r.pages.map(function (i) {
+        var t = pagesText[i];
+        if (!t) empty++;
+        if (join) t = paragraphs(t);
+        if (!t) t = '[No text on this page - it may be a scanned picture]';
+        return (v('breaks') === 'label' ? '--- Page ' + (i + 1) + ' ---\n' : '') + t;
+      });
+      var text = parts.join('\n\n');
+      document.getElementById('out').value = text;
+      var words = pagesText.filter(function (_, i) { return r.pages.indexOf(i) !== -1; }).join(' ')
+        .split(/\s+/).filter(Boolean).length;
+      document.getElementById('s-words').textContent = words.toLocaleString('en-US');
+      document.getElementById('s-chars').textContent = text.length.toLocaleString('en-US');
+      document.getElementById('s-pages').textContent = r.pages.length;
+      document.getElementById('s-empty').textContent = empty;
+      note.textContent = empty === r.pages.length
+        ? 'None of these pages has any text in it. The PDF is probably scanned pictures of pages, which this tool cannot read.'
+        : empty ? empty + ' page' + (empty === 1 ? ' has' : 's have') + ' no text - probably scanned pictures.' : '';
+    }
+
+    document.getElementById('pages').addEventListener('input', build);
+    ['breaks', 'join'].forEach(function (id) { document.getElementById(id).addEventListener('change', build); });
+    document.getElementById('copy').addEventListener('click', function () {
+      var t = document.getElementById('out').value;
+      if (t) CT.copy(t);
+    });
+    document.getElementById('save').addEventListener('click', function () {
+      var t = document.getElementById('out').value;
+      if (!t) return;
+      /* Windows line endings and a byte-order mark, so Notepad shows Sinhala
+         and Tamil correctly in older versions too. */
+      CJA_IMG.download(new Blob(['﻿' + t.replace(/\n/g, '\r\n')], { type: 'text/plain;charset=utf-8' }), base + '.txt');
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      var drop = document.getElementById('drop');
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.load(b);
+      }).then(function (doc) {
+        base = f.name.replace(/\.pdf$/i, '') || 'document';
+        var n = doc.numPages;
+        pagesText = [];
+        /* Page by page, showing progress on long documents. */
+        return Array.from({ length: n }).reduce(function (p, _, i) {
+          return p.then(function () {
+            drop.innerHTML = '<b>Reading page ' + (i + 1) + ' of ' + n + '...</b>';
+            return doc.getPage(i + 1).then(function (page) {
+              return page.getTextContent().then(function (c) { pagesText.push(pageText(c)); page.cleanup(); });
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          CJA_PDF.close(doc);
+          drop.innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' + n + ' page' + (n === 1 ? '' : 's') +
+            ' &middot; click to choose another</span>';
+          document.getElementById('result').hidden = false;
+          document.getElementById('pages').value = '';
+          build();
+        });
+      }).catch(function (e) {
+        drop.innerHTML = '<b>Choose a PDF</b>, or drag one here<span>Any size</span>';
+        CT.toast(e.needsPassword ? 'This PDF needs a password to open, so it cannot be read here.' : e.message);
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

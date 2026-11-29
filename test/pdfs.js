@@ -598,6 +598,198 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.close();
   }
 
+  /* Where the ink is on one page of a saved PDF, as a grid of 3 x 3 areas
+     (as seen), from a drawing 600 px wide. Ink is anything not near white. */
+  async function inkMap(page, bytes, pageNo) {
+    return page.evaluate(async (b64, n) => {
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const doc = await window.CJA_PDF.load(u);
+      const c = await window.CJA_PDF.render(doc, n, 600);
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const grid = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      let darkest = 255;
+      for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4;
+        const v = Math.min(d[i], d[i + 1], d[i + 2]);
+        if (v < 235) grid[Math.min(2, Math.floor(y / c.height * 3)) * 3 + Math.min(2, Math.floor(x / c.width * 3))]++;
+        if (v < darkest) darkest = v;
+      }
+      window.CJA_PDF.close(doc);
+      return { grid, darkest, w: c.width, h: c.height };
+    }, Buffer.from(bytes).toString('base64'), pageNo || 1);
+  }
+
+  // ---------------------------------------------------------- watermark
+  {
+    const page = await open('watermark-pdf');
+    const doc3 = path.join(tmp, 'contract.pdf');
+    {
+      const doc = await PDFDocument.create();
+      for (let k = 1; k <= 3; k++) { const p = doc.addPage([595, 842]); if (k === 3) p.setRotation(degrees(90)); }
+      fs.writeFileSync(doc3, await doc.save());
+    }
+    await give(page, doc3);
+    ok(/On 3 pages/.test(await text(page, 'plan')), 'watermark: all pages by default', await text(page, 'plan'));
+    await page.waitForFunction(() => document.getElementById('preview').width > 10, { timeout: 8000 }).catch(() => {});
+    ok(await page.$eval('#preview', (c) => c.width) > 10, 'watermark: a preview is drawn');
+    await page.click('#presets [data-w="DRAFT"]');
+    await page.$eval('#pages', (e) => { e.value = '1, 3'; e.dispatchEvent(new Event('input')); });
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'contract-watermarked.pdf', 'watermark: saves contract-watermarked.pdf');
+    if (s[0]) {
+      const r = await readBack(page, s[0].bytes, 1);
+      ok(JSON.stringify(r.texts) === '["DRAFT","","DRAFT"]', 'watermark: on pages 1 and 3 only', JSON.stringify(r.texts));
+      const m1 = await inkMap(page, s[0].bytes, 1);
+      ok(m1.grid[4] > 500, 'watermark: across the middle', JSON.stringify(m1.grid));
+      ok(m1.darkest > 60, 'watermark: see-through, not solid (20% strength)', m1.darkest);
+      const m3 = await inkMap(page, s[0].bytes, 3);
+      ok(m3.w > m3.h && m3.grid[4] > 500, 'watermark: middle of the sideways page too', JSON.stringify(m3));
+      const m2 = await inkMap(page, s[0].bytes, 2);
+      ok(m2.grid.every((n) => n === 0), 'watermark: page 2 untouched');
+    }
+
+    // repeated all over: the words appear many times and reach the corners
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#layout', 'tile');
+    await page.$eval('#pages', (e) => { e.value = '1'; e.dispatchEvent(new Event('input')); });
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const doc = await (async () => { const r = await readBack(page, s[0].bytes, 1); return r; })();
+      const count = (doc.texts[0].match(/DRAFT/g) || []).length;
+      ok(count >= 8, 'watermark: repeated many times', count);
+      const m = await inkMap(page, s[0].bytes, 1);
+      ok(m.grid.filter((n) => n > 50).length >= 8, 'watermark: covers the page', JSON.stringify(m.grid));
+    }
+
+    // a picture as the watermark
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#layout', 'diagonal');
+    await page.select('#kind', 'image');
+    ok(/Choose a picture/.test(await text(page, 'plan')) && await page.$eval('#save', (b) => b.disabled), 'watermark: asks for the picture');
+    const stamp = path.join(tmp, 'stamp.png');
+    fs.writeFileSync(stamp, Buffer.from((await page.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 300; c.height = 120;
+      const x = c.getContext('2d'); x.strokeStyle = '#c00'; x.lineWidth = 12; x.strokeRect(10, 10, 280, 100);
+      return c.toDataURL('image/png');
+    })).split(',')[1], 'base64'));
+    await (await page.$('#logo')).uploadFile(stamp);
+    await wait(800);
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const m = await inkMap(page, s[0].bytes, 1);
+      ok(m.grid[4] > 300, 'watermark: the picture is stamped in the middle', JSON.stringify(m.grid));
+    } else ok(false, 'watermark: picture saved');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- sign
+  {
+    const page = await open('sign-pdf');
+    const form = path.join(tmp, 'form.pdf');
+    {
+      const doc = await PDFDocument.create();
+      doc.addPage([595, 842]);
+      const p2 = doc.addPage([595, 842]); p2.setRotation(degrees(90));
+      fs.writeFileSync(form, await doc.save());
+    }
+    // draw a signature on the pad
+    await page.$eval('#pad', (e) => e.scrollIntoView({ block: 'center' }));
+    const pb = await (await page.$('#pad')).boundingBox();
+    await page.mouse.move(pb.x + 40, pb.y + 120);
+    await page.mouse.down();
+    for (let i = 0; i <= 30; i++) await page.mouse.move(pb.x + 40 + i * 12, pb.y + 100 - Math.sin(i / 3) * 40);
+    await page.mouse.up();
+    await give(page, form);
+    ok(/Page 2 of 2/.test(await text(page, 'page-label')), 'sign: opens on the last page');
+
+    // click near the bottom right of the page as seen
+    await page.$eval('#sheet', (e) => e.scrollIntoView({ block: 'center' }));
+    await wait(400);
+    const sb = await (await page.$('#page')).boundingBox();
+    await page.mouse.click(sb.x + sb.width * 0.75, sb.y + sb.height * 0.8);
+    await wait(200);
+    ok(!(await page.$eval('#box', (b) => b.hidden)), 'sign: the signature appears where clicked');
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'form-signed.pdf', 'sign: saves form-signed.pdf');
+    if (s[0]) {
+      const m = await inkMap(page, s[0].bytes, 2);
+      // page 2 is seen sideways; the ink must be in the bottom-right area as seen
+      ok(m.w > m.h, 'sign: page 2 is seen sideways', m.w + 'x' + m.h);
+      const where = m.grid.indexOf(Math.max(...m.grid));
+      ok(where === 8 || where === 7 || where === 5, 'sign: the signature lands bottom right, as placed', JSON.stringify(m.grid));
+      ok(m.darkest < 80, 'sign: in full ink, not faded', m.darkest);
+      const m1 = await inkMap(page, s[0].bytes, 1);
+      ok(m1.grid.every((n) => n === 0), 'sign: page 1 untouched');
+    }
+
+    // typed name with the date, on every page
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#tabs [data-tab="type"]');
+    await page.type('#name', 'Chamindu Ambawatta');
+    await page.$eval('#date', (e) => { e.checked = true; e.dispatchEvent(new Event('change')); });
+    await page.select('#apply', 'all');
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const m1 = await inkMap(page, s[0].bytes, 1), m2 = await inkMap(page, s[0].bytes, 2);
+      ok(m1.grid.some((n) => n > 50) && m2.grid.some((n) => n > 50), 'sign: on every page', JSON.stringify([m1.grid, m2.grid]));
+      const w1 = m1.grid.indexOf(Math.max(...m1.grid));
+      ok(w1 === 8 || w1 === 7 || w1 === 5, 'sign: same spot on the upright page', JSON.stringify(m1.grid));
+    } else ok(false, 'sign: typed signature saved');
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- pdf to text
+  {
+    const page = await open('pdf-to-text');
+    const letterPdf = path.join(tmp, 'notice.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const p1 = doc.addPage([595, 842]);
+      ['Dear customer,', 'Your electricity bill for October is', 'Rs. 4,850.00 and is due on', '15 November 2026.'].forEach((l, i) =>
+        p1.drawText(l, { x: 50, y: 760 - i * 20, size: 12, font }));
+      doc.addPage([595, 842]);   // a page with nothing on it, like a scan
+      const p3 = doc.addPage([595, 842]);
+      p3.drawText('Thank you.', { x: 50, y: 760, size: 12, font });
+      fs.writeFileSync(letterPdf, await doc.save());
+    }
+    await give(page, letterPdf);
+    await page.waitForFunction(() => !document.getElementById('result').hidden, { timeout: 10000 }).catch(() => {});
+    const out = () => page.$eval('#out', (e) => e.value);
+    const t1 = await out();
+    ok(t1.indexOf('--- Page 1 ---\nDear customer,\nYour electricity bill for October is\nRs. 4,850.00 and is due on\n15 November 2026.') === 0,
+       'text: lines come out as printed', JSON.stringify(t1.slice(0, 160)));
+    ok(/--- Page 2 ---\n\[No text on this page/.test(t1), 'text: an empty page is marked');
+    ok(await text(page, 's-empty') === '1' && await text(page, 's-pages') === '3', 'text: counts the page with no text');
+    ok(/1 page has no text/.test(await text(page, 'note')), 'text: and says so', await text(page, 'note'));
+
+    await page.$eval('#join', (e) => { e.checked = true; e.dispatchEvent(new Event('change')); });
+    const t2 = await out();
+    ok(t2.indexOf('Dear customer,\nYour electricity bill for October is Rs. 4,850.00 and is due on 15 November 2026.') !== -1,
+       'text: lines joined into a paragraph', JSON.stringify(t2.slice(0, 160)));
+    await page.select('#breaks', 'blank');
+    await page.$eval('#pages', (e) => { e.value = '3'; e.dispatchEvent(new Event('input')); });
+    ok(await out() === 'Thank you.', 'text: one page, no label', JSON.stringify(await out()));
+    ok(await text(page, 's-words') === '2', 'text: word count');
+    await page.click('#save');
+    const s = await saved(page);
+    ok(s[0] && s[0].name === 'notice.txt', 'text: saves notice.txt');
+    if (s[0]) ok(s[0].bytes[0] === 0xef && s[0].bytes[1] === 0xbb && s[0].bytes.toString('utf8').indexOf('Thank you.') !== -1,
+                 'text: the .txt has a UTF-8 mark and the words');
+
+    // a PDF with no words at all
+    await give(page, path.join(__dirname, 'fixtures', 'locked-restricted.pdf'));
+    await wait(800);
+    ok(/None of these pages has any text/.test(await text(page, 'note')), 'text: a PDF of only pictures is explained', await text(page, 'note'));
+    await page.close();
+  }
+
   // ---------------------------------------------------------- protected PDFs
   {
     const page = await open('split-pdf');
