@@ -8,16 +8,19 @@
 <link rel="stylesheet" href="../assets/app.css">
 <style>
   .nrow {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 10px;
+    /* minmax(0, ...) lets the name column shrink on a phone instead of
+       pushing the page sideways when a made-up name is long. */
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px;
     align-items: center; padding: 11px 2px; border-bottom: 1px solid var(--border);
   }
   .nrow:last-child { border-bottom: none; }
-  .nrow .name { font-size: 16px; font-weight: 600; }
+  .nrow .name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
   .nrow .name small {
     display: block; font-weight: 400; color: var(--muted); font-size: 12px;
     font-family: ui-monospace, Consolas, monospace; margin-top: 2px;
   }
   .nrow .flag { font-size: 11.5px; color: #b8730b; white-space: nowrap; }
+  @media (max-width: 520px) { .nrow .flag { white-space: normal; max-width: 90px; } }
   .nrow button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 12.5px; }
   .nrow button:hover { color: var(--accent); }
 </style>
