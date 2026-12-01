@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compress PDF — Cja's Tools</title>
+<meta name="description" content="Make a PDF smaller for email or an upload limit by shrinking the photos and scans inside it. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+</head>
+<body data-page="tool" data-slug="compress-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Compress PDF</h1>
+        <p>Make a PDF smaller for email or an upload form. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Works best on PDFs with photos or scans in them</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="level">How much</label>
+            <select id="level">
+              <option value="light">A little - photos stay very sharp</option>
+              <option value="medium" selected>Balanced - good for email</option>
+              <option value="strong">A lot - for strict upload limits</option>
+              <option value="pages">Most - turn every page into a picture (for scans)</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="level-note"></p>
+        <div class="btns">
+          <button class="btn primary" id="go">Compress</button>
+        </div>
+      </div>
+
+      <div class="panel" id="result" hidden>
+        <div class="stats">
+          <div class="stat"><b id="s-before">—</b><span>Before</span></div>
+          <div class="stat"><b id="s-after">—</b><span>After</span></div>
+          <div class="stat"><b id="s-saved">—</b><span>Smaller by</span></div>
+          <div class="stat"><b id="s-images">—</b><span>Pictures shrunk</span></div>
+        </div>
+        <p class="hint" id="note" style="margin-top:12px"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Save the smaller PDF</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Where the size goes:</b> in most large PDFs it is the photos
+          and scanned pages. This tool shrinks those to a sensible size and saves them
+          more compactly. Text, fonts and links are left exactly as they were, so the
+          words stay sharp and searchable.
+          <br><br>
+          <b>A PDF of plain typed text</b> is usually small already; there is little to
+          gain, and the tool will say so rather than give you a bigger file.
+          <br><br>
+          <b>"Turn every page into a picture"</b> gives the biggest saving for scanned
+          documents, but the result is pictures only: the text can no longer be selected,
+          searched or copied. Keep the original.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    /* For each level: the longest side a picture may keep, in pixels, and
+       the JPG quality it is saved at. */
+    var LEVELS = {
+      light: { max: 2500, q: 0.8, note: 'Pictures larger than 2500 pixels are shrunk, at high quality.' },
+      medium: { max: 1700, q: 0.68, note: 'Pictures larger than 1700 pixels are shrunk. Sharp on screen and fine to print.' },
+      strong: { max: 1200, q: 0.55, note: 'Pictures are shrunk to 1200 pixels at lower quality. Still readable; photos look softer.' },
+      pages: { dpi: 110, q: 0.6, note: 'Every page becomes a picture at 110 dpi. Text can no longer be selected or searched.' }
+    };
+    var file = null, bytes = null, result = null, base = 'document';
+
+    function v(id) { return document.getElementById(id).value; }
+    var N = function (s) { return PDFLib.PDFName.of(s); };
+
+    function num(dict, key) {
+      var o = dict.lookup(N(key));
+      return o instanceof PDFLib.PDFNumber ? o.asNumber() : null;
+    }
+
+    /* The colour components of a picture: 1 for grey, 3 for colour, or
+       null for kinds this tool leaves alone (CMYK, palettes, special). */
+    function components(dict) {
+      var cs = dict.lookup(N('ColorSpace'));
+      if (cs instanceof PDFLib.PDFName) {
+        return cs === N('DeviceRGB') ? 3 : cs === N('DeviceGray') ? 1 : null;
+      }
+      if (cs instanceof PDFLib.PDFArray && cs.lookup(0) === N('ICCBased')) {
+        var profile = cs.lookup(1);
+        var n = profile && profile.dict ? num(profile.dict, 'N') : null;
+        return n === 3 || n === 1 ? n : null;
+      }
+      return null;
+    }
+
+    function filterOf(dict) {
+      var f = dict.lookup(N('Filter'));
+      if (f instanceof PDFLib.PDFName) return f.asString().replace('/', '');
+      if (f instanceof PDFLib.PDFArray && f.size() === 1) return f.lookup(0).asString().replace('/', '');
+      return f ? 'other' : 'none';
+    }
+
+    /* Turns a picture stream from the PDF into a canvas, or null if it is
+       a kind that is safer left alone. */
+    function decode(stream) {
+      var d = stream.dict;
+      var w = num(d, 'Width'), h = num(d, 'Height');
+      var comps = components(d);
+      /* Pictures with see-through parts, masks or odd settings are skipped:
+         redrawing them could change how they look. */
+      if (!w || !h || !comps || d.has(N('SMask')) || d.has(N('Mask')) || d.has(N('Decode')) ||
+          d.lookup(N('ImageMask')) === PDFLib.PDFBool.True || num(d, 'BitsPerComponent') !== 8) {
+        return Promise.resolve(null);
+      }
+      var filter = filterOf(d);
+      if (filter === 'DCTDecode') {
+        return createImageBitmap(new Blob([stream.contents], { type: 'image/jpeg' })).then(function (bmp) {
+          var c = CJA_IMG.canvas(bmp.width, bmp.height);
+          c.getContext('2d').drawImage(bmp, 0, 0);
+          bmp.close();
+          return c;
+        }).catch(function () { return null; });
+      }
+      if ((filter === 'FlateDecode' || filter === 'none') && !d.has(N('DecodeParms'))) {
+        var raw;
+        try { raw = filter === 'none' ? stream.contents : PDFLib.decodePDFRawStream(stream).decode(); }
+        catch (e) { return Promise.resolve(null); }
+        if (raw.length < w * h * comps) return Promise.resolve(null);
+        var c = CJA_IMG.canvas(w, h);
+        var ctx = c.getContext('2d');
+        var img = ctx.createImageData(w, h);
+        for (var i = 0, p = 0; i < w * h; i++, p += comps) {
+          var o = i * 4;
+          if (comps === 1) { img.data[o] = img.data[o + 1] = img.data[o + 2] = raw[p]; }
+          else { img.data[o] = raw[p]; img.data[o + 1] = raw[p + 1]; img.data[o + 2] = raw[p + 2]; }
+          img.data[o + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        return Promise.resolve(c);
+      }
+      return Promise.resolve(null);
+    }
+
+    /* Shrinks the pictures inside the PDF, keeping a new version only
+       when it really is smaller. */
+    function shrinkPictures(level) {
+      return CJA_PDF.open(bytes).then(function (doc) {
+        var ctx = doc.context;
+        var jobs = [];
+        ctx.enumerateIndirectObjects().forEach(function (entry) {
+          var ref = entry[0], obj = entry[1];
+          if (!(obj instanceof PDFLib.PDFRawStream)) return;
+          if (obj.dict.lookup(N('Subtype')) !== N('Image')) return;
+          jobs.push({ ref: ref, stream: obj });
+        });
+        var shrunk = 0;
+        return jobs.reduce(function (p, job) {
+          return p.then(function () {
+            return decode(job.stream).then(function (c) {
+              if (!c) return;
+              var size = CJA_IMG.fit(c.width, c.height, level.max, level.max);
+              var out = c;
+              if (size.width < c.width) {
+                out = CJA_IMG.canvas(size.width, size.height);
+                var octx = out.getContext('2d');
+                octx.imageSmoothingQuality = 'high';
+                octx.drawImage(c, 0, 0, size.width, size.height);
+              }
+              return CJA_IMG.toBlob(out, 'image/jpeg', level.q).then(function (blob) {
+                return blob.arrayBuffer();
+              }).then(function (ab) {
+                var jpg = new Uint8Array(ab);
+                if (jpg.length >= job.stream.contents.length * 0.92) return;
+                var dict = ctx.obj({
+                  Type: 'XObject', Subtype: 'Image', Width: out.width, Height: out.height,
+                  ColorSpace: 'DeviceRGB', BitsPerComponent: 8, Filter: 'DCTDecode', Length: jpg.length
+                });
+                ctx.assign(job.ref, PDFLib.PDFRawStream.of(dict, jpg));
+                shrunk++;
+              });
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          return doc.save({ useObjectStreams: true }).then(function (out) {
+            return { bytes: out, shrunk: shrunk, found: jobs.length };
+          });
+        });
+      });
+    }
+
+    /* The strongest level: each page is drawn as a picture and a new PDF
+       made from the pictures, at the original page sizes. */
+    function pagesAsPictures(level) {
+      return CJA_PDF.load(bytes).then(function (pdf) {
+        return PDFLib.PDFDocument.create().then(function (out) {
+          var go = document.getElementById('go');
+          return Array.from({ length: pdf.numPages }).reduce(function (p, _, i) {
+            return p.then(function () {
+              go.textContent = 'Page ' + (i + 1) + ' of ' + pdf.numPages + '...';
+              return pdf.getPage(i + 1).then(function (page) {
+                var vp = page.getViewport({ scale: 1 });
+                return CJA_PDF.render(pdf, i + 1, vp.width * level.dpi / 72).then(function (c) {
+                  return CJA_IMG.toBlob(c, 'image/jpeg', level.q);
+                }).then(function (b) { return b.arrayBuffer(); }).then(function (ab) {
+                  return out.embedJpg(new Uint8Array(ab));
+                }).then(function (img) {
+                  var pg = out.addPage([vp.width, vp.height]);
+                  pg.drawImage(img, { x: 0, y: 0, width: vp.width, height: vp.height });
+                });
+              });
+            });
+          }, Promise.resolve()).then(function () {
+            CJA_PDF.close(pdf);
+            return out.save().then(function (b) { return { bytes: b, shrunk: pdf.numPages, found: pdf.numPages, pages: true }; });
+          });
+        });
+      });
+    }
+
+    document.getElementById('level').addEventListener('change', function () {
+      document.getElementById('level-note').textContent = LEVELS[v('level')].note;
+      document.getElementById('result').hidden = true;
+    });
+
+    document.getElementById('go').addEventListener('click', function () {
+      var btn = this, level = LEVELS[v('level')];
+      btn.disabled = true;
+      btn.textContent = 'Compressing...';
+      (v('level') === 'pages' ? pagesAsPictures(level) : shrinkPictures(level)).then(function (r) {
+        result = r;
+        var before = bytes.length, after = r.bytes.length;
+        document.getElementById('result').hidden = false;
+        document.getElementById('s-before').textContent = CJA_IMG.bytes(before);
+        document.getElementById('s-after').textContent = CJA_IMG.bytes(after);
+        var saved = (1 - after / before) * 100;
+        document.getElementById('s-saved').textContent = saved >= 1 ? Math.round(saved) + '%' : 'not smaller';
+        document.getElementById('s-images').textContent = r.pages ? r.shrunk + ' pages' : r.shrunk + ' of ' + r.found;
+        var note = document.getElementById('note'), save = document.getElementById('save');
+        if (after >= before * 0.99) {
+          note.textContent = r.found
+            ? 'The pictures in this PDF are already compact, so it cannot be made smaller this way. Keep the original.'
+            : 'This PDF has no photos or scans in it - it is mostly text, which is already compact. Keep the original.';
+          save.hidden = true;
+        } else {
+          note.textContent = r.pages
+            ? 'Remember: the pages are pictures now, so the text cannot be selected or searched.'
+            : r.shrunk ? '' : 'No pictures needed shrinking; the saving comes from storing the PDF more compactly.';
+          save.hidden = false;
+        }
+      }).catch(function (e) {
+        CT.toast('Could not compress: ' + e.message);
+      }).then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Compress';
+      });
+    });
+
+    document.getElementById('save').addEventListener('click', function () {
+      if (!result) return;
+      CJA_IMG.download(new Blob([result.bytes], { type: 'application/pdf' }), base + '-compressed.pdf');
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          file = f; bytes = b; result = null;
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          var n = doc.getPageCount();
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            n + ' page' + (n === 1 ? '' : 's') + ', ' + CJA_IMG.bytes(f.size) + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          document.getElementById('result').hidden = true;
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    document.getElementById('level-note').textContent = LEVELS.medium.note;
+  })();
+  </script>
+</body>
+</html>

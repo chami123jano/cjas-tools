@@ -2996,7 +2996,8 @@ pending.push(function currencyLive() {
 
 (function () {
   ['merge-pdf', 'split-pdf', 'images-to-pdf', 'pdf-to-images', 'rotate-pdf', 'remove-pages',
-   'organize-pdf', 'pdf-page-numbers', 'watermark-pdf', 'sign-pdf', 'pdf-to-text'].forEach((slug) => {
+   'organize-pdf', 'pdf-page-numbers', 'watermark-pdf', 'sign-pdf', 'pdf-to-text',
+   'compress-pdf', 'pdf-metadata', 'crop-pdf'].forEach((slug) => {
     const t = loadTool(slug);
     ok(t.byId('drop') && t.byId('file'), slug + ' has a drop zone');
     ok(!!t.window.CJA_PDF && !!t.window.PDFLib, slug + ' loads the PDF helpers');

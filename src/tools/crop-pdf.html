@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crop PDF — Cja's Tools</title>
+<meta name="description" content="Trim the margins of PDF pages, by measurement or automatically to the printed area. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  #preview { max-width: 100%; max-height: 520px; width: auto; height: auto; display: block; margin: 0 auto; border: 1px solid var(--border); }
+  .pager { display: flex; align-items: center; gap: 10px; justify-content: center; margin: 10px 0; }
+</style>
+</head>
+<body data-page="tool" data-slug="crop-pdf">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>Crop PDF</h1>
+        <p>Trim the white margins, or cut pages down to the part you need. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="options" hidden>
+        <div class="row">
+          <div class="field">
+            <label for="mode">How to crop</label>
+            <select id="mode">
+              <option value="auto" selected>Trim the white edges of each page automatically</option>
+              <option value="manual">The same margins on every page, in mm</option>
+            </select>
+          </div>
+          <div class="field" data-mode="auto">
+            <label for="pad">Keep around the printing</label>
+            <select id="pad">
+              <option value="0">Nothing</option>
+              <option value="3" selected>3 mm</option>
+              <option value="8">8 mm</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" data-mode="manual" hidden>
+          <div class="field"><label for="m-top">Top (mm)</label><input type="number" id="m-top" value="15" min="0" step="1"></div>
+          <div class="field"><label for="m-right">Right (mm)</label><input type="number" id="m-right" value="15" min="0" step="1"></div>
+          <div class="field"><label for="m-bottom">Bottom (mm)</label><input type="number" id="m-bottom" value="15" min="0" step="1"></div>
+          <div class="field"><label for="m-left">Left (mm)</label><input type="number" id="m-left" value="15" min="0" step="1"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="All pages, or e.g. 1-3" autocomplete="off">
+          </div>
+        </div>
+        <div class="pager">
+          <button class="btn" id="prev">&larr;</button>
+          <span id="page-label"></span>
+          <button class="btn" id="next">&rarr;</button>
+        </div>
+        <canvas id="preview" width="1" height="1"></canvas>
+        <p class="hint" id="plan" style="text-align:center"></p>
+        <div class="btns">
+          <button class="btn primary" id="save">Crop and save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Cropping hides the edges; it does not delete them.</b> The
+          trimmed parts are still inside the file, and some programs can show them again.
+          To really remove something private, cover it instead with
+          <a href="pdf-to-images.html">PDF to Images</a>, then
+          <a href="pixelate-blur.html">Pixelate or Blur</a>, then
+          <a href="images-to-pdf.html">Images to PDF</a>.
+          <br><br>
+          <b>Automatic trimming</b> looks at each page and keeps everything printed on
+          it, plus the space you choose. It suits slides, scanned receipts and PDFs
+          with very wide margins for reading on a phone.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var MM = 72 / 25.4;
+    var bytes = null, total = 0, base = 'document', viewer = null, current = 1;
+    var autoCache = {};      // page -> margins found automatically, in points as seen
+
+    function v(id) { return document.getElementById(id).value; }
+
+    function chosen() {
+      return v('pages').trim() ? CJA_PDF.parseRanges(v('pages'), total) : CJA_PDF.parseRanges('', total);
+    }
+
+    /* Draws a page small and finds the printed area: the box around every
+       pixel that is not near-white. Returns margins in points, as seen. */
+    function findMargins(n) {
+      if (autoCache[n]) return Promise.resolve(autoCache[n]);
+      return viewer.getPage(n).then(function (page) {
+        var vp = page.getViewport({ scale: 1 });
+        var W = 300;
+        return CJA_PDF.render(viewer, n, W).then(function (c) {
+          var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          var x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+          for (var y = 0; y < c.height; y++) for (var x = 0; x < c.width; x++) {
+            var i = (y * c.width + x) * 4;
+            if (d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235) {
+              if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+            }
+          }
+          var k = vp.width / c.width;   // points per pixel
+          var m = x1 < 0 ? null : {     // a blank page is left alone
+            left: x0 * k, right: (c.width - 1 - x1) * k, top: y0 * k, bottom: (c.height - 1 - y1) * k
+          };
+          autoCache[n] = m;
+          return m;
+        });
+      });
+    }
+
+    /* Margins for page n, in points as seen, or null to leave it as it is. */
+    function marginsFor(n) {
+      if (v('mode') === 'manual') {
+        return Promise.resolve({
+          top: +v('m-top') * MM || 0, right: +v('m-right') * MM || 0,
+          bottom: +v('m-bottom') * MM || 0, left: +v('m-left') * MM || 0
+        });
+      }
+      var pad = +v('pad') * MM;
+      return findMargins(n).then(function (m) {
+        if (!m) return null;
+        return { top: Math.max(0, m.top - pad), right: Math.max(0, m.right - pad),
+                 bottom: Math.max(0, m.bottom - pad), left: Math.max(0, m.left - pad) };
+      });
+    }
+
+    function preview() {
+      if (!viewer) return;
+      document.querySelectorAll('[data-mode]').forEach(function (el) { el.hidden = el.dataset.mode !== v('mode'); });
+      document.getElementById('page-label').textContent = 'Page ' + current + ' of ' + total;
+      document.getElementById('prev').disabled = current === 1;
+      document.getElementById('next').disabled = current === total;
+      var n = current;
+      viewer.getPage(n).then(function (page) {
+        var vp = page.getViewport({ scale: 1 });
+        return Promise.all([CJA_PDF.render(viewer, n, 600), marginsFor(n)]).then(function (r) {
+          if (n !== current) return;
+          var c = r[0], m = r[1], k = c.width / vp.width;
+          var out = document.getElementById('preview');
+          out.width = c.width; out.height = c.height;
+          var ctx = out.getContext('2d');
+          ctx.drawImage(c, 0, 0);
+          var plan = document.getElementById('plan');
+          if (!m) { plan.textContent = 'This page is blank, so it is left as it is.'; return; }
+          var x = m.left * k, y = m.top * k, w = c.width - (m.left + m.right) * k, h = c.height - (m.top + m.bottom) * k;
+          if (w < 10 || h < 10) { plan.textContent = 'Those margins leave nothing of the page.'; return; }
+          /* Shade what will be cut away. */
+          ctx.fillStyle = 'rgba(20, 30, 60, 0.45)';
+          ctx.fillRect(0, 0, c.width, y);
+          ctx.fillRect(0, y + h, c.width, c.height - y - h);
+          ctx.fillRect(0, y, x, h);
+          ctx.fillRect(x + w, y, c.width - x - w, h);
+          ctx.strokeStyle = '#ff3b30'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+          ctx.strokeRect(x, y, w, h);
+          plan.textContent = 'This page becomes ' + Math.round(w / k / MM) + ' × ' + Math.round(h / k / MM) +
+            ' mm (from ' + Math.round(vp.width / MM) + ' × ' + Math.round(vp.height / MM) + ' mm).';
+        });
+      });
+    }
+
+    ['mode', 'pad'].forEach(function (id) { document.getElementById(id).addEventListener('change', preview); });
+    ['m-top', 'm-right', 'm-bottom', 'm-left'].forEach(function (id) { document.getElementById(id).addEventListener('input', preview); });
+    document.getElementById('prev').addEventListener('click', function () { if (current > 1) { current--; preview(); } });
+    document.getElementById('next').addEventListener('click', function () { if (current < total) { current++; preview(); } });
+
+    document.getElementById('save').addEventListener('click', function () {
+      var r = chosen();
+      if (r.error) { CT.toast(r.error); return; }
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Cropping...';
+      CJA_PDF.open(bytes).then(function (doc) {
+        var pages = doc.getPages();
+        var skipped = 0;
+        return r.pages.reduce(function (p, i) {
+          return p.then(function () {
+            return marginsFor(i + 1).then(function (m) {
+              if (!m) { skipped++; return; }
+              var fr = CJA_PDF.frame(pages[i]);
+              if (m.left + m.right >= fr.width - 10 || m.top + m.bottom >= fr.height - 10) { skipped++; return; }
+              /* Two opposite corners of the kept area, as seen, turned into
+                 the page's own coordinates. */
+              var a = fr.toPage(m.left, m.bottom), b = fr.toPage(fr.width - m.right, fr.height - m.top);
+              var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+              pages[i].setCropBox(x, y, Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          if (skipped) CT.toast(skipped + ' page' + (skipped === 1 ? ' was' : 's were') + ' left as they were (blank, or too small to crop).');
+          return CJA_PDF.save(doc);
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-cropped.pdf');
+      }).catch(function (e) { CT.toast(e.message); })
+        .then(function () { btn.disabled = false; btn.textContent = 'Crop and save'; });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          total = doc.getPageCount();
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          current = 1;
+          autoCache = {};
+          document.getElementById('drop').innerHTML = '<b>' + CJA_IMG.escape(f.name) + '</b><span>' +
+            total + ' page' + (total === 1 ? '' : 's') + ' &middot; click to choose another</span>';
+          document.getElementById('options').hidden = false;
+          CJA_PDF.close(viewer);
+          return CJA_PDF.load(b).then(function (pdf) { viewer = pdf; preview(); });
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

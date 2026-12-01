@@ -1030,6 +1030,27 @@ const TOOLS = [
     category: 'pdf',
     desc: 'Get the words out of a PDF to copy, edit or save as text.',
     keywords: ['pdf to text', 'extract text', 'copy text', 'pdf to txt', 'words', 'convert']
+  },
+  {
+    slug: 'compress-pdf',
+    name: 'Compress PDF',
+    category: 'pdf',
+    desc: 'Make a PDF smaller for email or an upload limit.',
+    keywords: ['compress', 'reduce size', 'smaller', 'shrink', 'pdf', 'email', 'upload limit', 'mb']
+  },
+  {
+    slug: 'pdf-metadata',
+    name: 'PDF Properties',
+    category: 'pdf',
+    desc: 'See, change or wipe the hidden title, author and dates in a PDF.',
+    keywords: ['metadata', 'properties', 'author', 'title', 'privacy', 'remove metadata', 'pdf']
+  },
+  {
+    slug: 'crop-pdf',
+    name: 'Crop PDF',
+    category: 'pdf',
+    desc: 'Trim the margins of PDF pages, by measurement or automatically.',
+    keywords: ['crop', 'trim', 'margins', 'cut', 'pdf', 'white space']
   }
 ];
 

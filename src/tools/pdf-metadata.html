@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Properties — Cja's Tools</title>
+<meta name="description" content="See and change a PDF's hidden details - title, author, program, dates - or wipe them before sharing. Nothing is uploaded.">
+<link rel="stylesheet" href="../assets/app.css">
+<style>
+  .facts { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .facts td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .facts td:first-child { color: var(--muted); width: 38%; }
+  .facts td:last-child { overflow-wrap: anywhere; }
+</style>
+</head>
+<body data-page="tool" data-slug="pdf-metadata">
+
+  <div class="shell">
+    <main>
+      <div class="crumb">
+        <a href="../index.html">All tools</a> &rsaquo;
+        <a href="../index.html?cat=pdf">PDF</a>
+      </div>
+
+      <div class="tool-head">
+        <h1>PDF Properties</h1>
+        <p>See the hidden details inside a PDF, change them, or wipe them before sharing. Your file stays on this device.</p>
+      </div>
+
+      <div class="panel">
+        <div class="drop-zone" id="drop" tabindex="0" role="button">
+          <b>Choose a PDF</b>, or drag one here
+          <span>Any size</span>
+        </div>
+        <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+      </div>
+
+      <div class="panel" id="found-panel" hidden>
+        <label style="margin-bottom:8px">What this PDF says about itself</label>
+        <table class="facts"><tbody id="facts"></tbody></table>
+        <p class="hint" id="warn" style="margin-top:10px"></p>
+      </div>
+
+      <div class="panel" id="edit-panel" hidden>
+        <div class="row">
+          <div class="field"><label for="title">Title</label><input type="text" id="title"></div>
+          <div class="field"><label for="author">Author</label><input type="text" id="author"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="subject">Subject</label><input type="text" id="subject"></div>
+          <div class="field"><label for="keywords">Keywords (separated by commas)</label><input type="text" id="keywords"></div>
+        </div>
+        <div class="btns">
+          <button class="btn primary" id="save">Save with these details</button>
+          <button class="btn" id="wipe">Wipe all details and save</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <p class="hint"><b>Why it matters:</b> a PDF made from Word often carries the
+          name of whoever the computer belongs to, the company name, and the exact time
+          it was written &mdash; even when the document itself is anonymous. Anyone
+          receiving it can see this under File &rsaquo; Properties.
+          <br><br>
+          <b>"Wipe all details"</b> removes the title, author, subject, keywords, the
+          names of the programs used, the dates, and the separate block of hidden
+          details (XMP) that some programs add as well.
+          <br><br>
+          <b>The title</b> is what a browser shows in its tab when the PDF is opened
+          online, so it is worth setting on anything you publish.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="../assets/tools.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/image.js"></script>
+  <script src="../assets/vendor/pdf-lib.min.js"></script>
+  <script src="../assets/pdf.js"></script>
+  <script>
+  (function () {
+    var bytes = null, base = 'document';
+    var N = function (s) { return PDFLib.PDFName.of(s); };
+    var INFO_KEYS = ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate', 'ModDate', 'Trapped'];
+
+    function esc(s) { return CJA_IMG.escape(s); }
+    function when(d) {
+      return d ? d.toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    }
+
+    /* The document information dictionary, if the PDF has one. */
+    function infoDict(doc) {
+      var info = doc.context.trailerInfo.Info;
+      var d = info ? doc.context.lookup(info) : null;
+      return d instanceof PDFLib.PDFDict ? d : null;
+    }
+
+    function show(doc) {
+      var rows = [
+        ['Title', doc.getTitle()], ['Author', doc.getAuthor()], ['Subject', doc.getSubject()],
+        ['Keywords', doc.getKeywords()], ['Made with', doc.getCreator()], ['Turned into PDF by', doc.getProducer()],
+        ['Created', when(doc.getCreationDate())], ['Last changed', when(doc.getModificationDate())],
+        ['Pages', String(doc.getPageCount())],
+        ['Hidden XMP details', doc.catalog.has(N('Metadata')) ? 'Yes, a separate block is present' : 'None']
+      ];
+      document.getElementById('facts').innerHTML = rows.map(function (r) {
+        return '<tr><td>' + r[0] + '</td><td>' + (r[1] ? esc(r[1]) : '<span class="hint">not set</span>') + '</td></tr>';
+      }).join('');
+      var personal = [doc.getAuthor(), doc.getCreator()].filter(Boolean);
+      document.getElementById('warn').textContent = doc.getAuthor()
+        ? 'This PDF names its author: "' + doc.getAuthor() + '". Wipe the details if that should not travel with it.'
+        : '';
+      ['title', 'author', 'subject', 'keywords'].forEach(function (id) {
+        var getter = { title: 'getTitle', author: 'getAuthor', subject: 'getSubject', keywords: 'getKeywords' }[id];
+        document.getElementById(id).value = doc[getter]() || '';
+      });
+      document.getElementById('found-panel').hidden = false;
+      document.getElementById('edit-panel').hidden = false;
+      return personal;
+    }
+
+    document.getElementById('save').addEventListener('click', function () {
+      CJA_PDF.open(bytes).then(function (doc) {
+        var info = infoDict(doc);
+        /* Empty boxes take the detail away rather than leaving it blank. */
+        [['title', 'Title', 'setTitle'], ['author', 'Author', 'setAuthor'], ['subject', 'Subject', 'setSubject']].forEach(function (f) {
+          var val = document.getElementById(f[0]).value.trim();
+          if (val) doc[f[2]](val);
+          else if (info) info.delete(N(f[1]));
+        });
+        var kw = document.getElementById('keywords').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+        if (kw.length) doc.setKeywords(kw); else if (info) info.delete(N('Keywords'));
+        doc.setModificationDate(new Date());
+        return CJA_PDF.save(doc);
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '.pdf');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    document.getElementById('wipe').addEventListener('click', function () {
+      CJA_PDF.open(bytes).then(function (doc) {
+        var info = infoDict(doc);
+        if (info) INFO_KEYS.forEach(function (k) { info.delete(N(k)); });
+        /* The XMP block is a second copy of the same details. */
+        doc.catalog.delete(N('Metadata'));
+        return doc.save({ updateFieldAppearances: false }).then(function (out) {
+          return new Blob([out], { type: 'application/pdf' });
+        });
+      }).then(function (blob) {
+        CJA_IMG.download(blob, base + '-clean.pdf');
+        CT.toast('Saved without any hidden details');
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+
+    CJA_PDF.fileZone(document.getElementById('drop'), document.getElementById('file'), function (files) {
+      var f = files[0];
+      CJA_PDF.read(f).then(function (b) {
+        return CJA_PDF.open(b).then(function (doc) {
+          bytes = b;
+          base = f.name.replace(/\.pdf$/i, '') || 'document';
+          document.getElementById('drop').innerHTML = '<b>' + esc(f.name) + '</b><span>' +
+            CJA_IMG.bytes(f.size) + ' &middot; click to choose another</span>';
+          show(doc);
+        });
+      }).catch(function (e) { CT.toast(e.message); });
+    });
+  })();
+  </script>
+</body>
+</html>

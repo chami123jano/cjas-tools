@@ -790,6 +790,187 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.close();
   }
 
+  // ---------------------------------------------------------- compress
+  {
+    const page = await open('compress-pdf');
+    /* Two big photos: one stored as JPG, one as PNG (which PDFs keep as
+       raw compressed pixels). Made noisy so they are genuinely large. */
+    const photo = async (type) => Buffer.from((await page.evaluate((type) => {
+      const c = document.createElement('canvas'); c.width = 2600; c.height = 1800;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 2600, 1800); g.addColorStop(0, '#2a6'); g.addColorStop(1, '#c33');
+      x.fillStyle = g; x.fillRect(0, 0, 2600, 1800);
+      const d = x.getImageData(0, 0, 2600, 1800);
+      let s = 3;
+      for (let i = 0; i < d.data.length; i += 4) { s = (s * 1103515245 + 12345) & 0x7fffffff; const n = (s % 40) - 20; d.data[i] += n; d.data[i + 1] += n; }
+      x.putImageData(d, 0, 0);
+      return c.toDataURL(type, 0.95);
+    }, type)).split(',')[1], 'base64');
+    const heavy = path.join(tmp, 'brochure.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const jpg = await doc.embedJpg(await photo('image/jpeg'));
+      const png = await doc.embedPng(await photo('image/png'));
+      const p1 = doc.addPage([595, 842]);
+      p1.drawImage(jpg, { x: 50, y: 400, width: 495, height: 343 });
+      p1.drawText('Our new brochure', { x: 50, y: 780, size: 24, font });
+      const p2 = doc.addPage([595, 842]);
+      p2.drawImage(png, { x: 50, y: 400, width: 495, height: 343 });
+      fs.writeFileSync(heavy, await doc.save());
+    }
+    const before = fs.statSync(heavy).size;
+    await give(page, heavy);
+    await page.click('#go');
+    await page.waitForFunction(() => !document.getElementById('result').hidden, { timeout: 30000 }).catch(() => {});
+    ok(await text(page, 's-images') === '2 of 2', 'compress: both photos shrunk', await text(page, 's-images'));
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'brochure-compressed.pdf', 'compress: saves brochure-compressed.pdf');
+    if (s[0]) {
+      ok(s[0].bytes.length < before * 0.4, 'compress: much smaller (' + Math.round(before / 1024) + ' KB to ' + Math.round(s[0].bytes.length / 1024) + ' KB)');
+      const doc = await PDFDocument.load(s[0].bytes);
+      ok(doc.getPageCount() === 2, 'compress: still 2 pages');
+      const r = await readBack(page, s[0].bytes, 1);
+      ok(r.texts[0] === 'Our new brochure', 'compress: the text is still real text', JSON.stringify(r.texts));
+      // the photos are still there and still coloured: green-red gradient in the middle area
+      const colour = await page.evaluate(async (b64) => {
+        const bin = atob(b64), u = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+        const d = await window.CJA_PDF.load(u);
+        const out = [];
+        for (const n of [1, 2]) {
+          const c = await window.CJA_PDF.render(d, n, 300);
+          out.push(Array.from(c.getContext('2d').getImageData(150, 120, 1, 1).data));
+        }
+        window.CJA_PDF.close(d);
+        return out;
+      }, s[0].bytes.toString('base64'));
+      ok(colour.every((p) => p[0] + p[1] > 150 && !(p[0] > 240 && p[1] > 240 && p[2] > 240)),
+         'compress: both photos still show', JSON.stringify(colour));
+    }
+
+    // strongest: pages become pictures, so the text is gone
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#level', 'pages');
+    await page.click('#go');
+    await page.waitForFunction(() => !document.getElementById('result').hidden && /pages/.test(document.getElementById('s-images').textContent), { timeout: 30000 }).catch(() => {});
+    ok(/text cannot be selected/.test(await text(page, 'note')), 'compress: pages-as-pictures warns about the text');
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const r = await readBack(page, s[0].bytes, 1);
+      ok(r.texts.join('') === '', 'compress: as pictures, there is no text left', JSON.stringify(r.texts));
+    }
+
+    // a PDF of text only: nothing to gain, and it says so
+    await page.evaluate(() => { window.__saved = []; });
+    await give(page, ten);
+    await page.select('#level', 'medium');
+    await page.click('#go');
+    await page.waitForFunction(() => !document.getElementById('result').hidden, { timeout: 15000 }).catch(() => {});
+    const note = await text(page, 'note');
+    ok(/no photos or scans/.test(note) || await page.$eval('#save', (b) => !b.hidden), 'compress: a text-only PDF is handled honestly', note);
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- properties
+  {
+    const page = await open('pdf-metadata');
+    const tagged = path.join(tmp, 'tagged.pdf');
+    {
+      const doc = await PDFDocument.create();
+      doc.addPage([300, 300]);
+      doc.setTitle('Quarterly figures');
+      doc.setAuthor('Nimal Perera');
+      doc.setCreator('Microsoft Word');
+      doc.setKeywords(['budget', 'q3']);
+      // an XMP block, as Word and Acrobat add
+      const xmp = doc.context.flateStream('<x:xmpmeta><dc:creator>Nimal Perera</dc:creator></x:xmpmeta>', { Type: 'Metadata', Subtype: 'XML' });
+      doc.catalog.set(require('pdf-lib').PDFName.of('Metadata'), doc.context.register(xmp));
+      fs.writeFileSync(tagged, await doc.save());
+    }
+    await give(page, tagged);
+    const facts = await page.$eval('#facts', (e) => e.textContent);
+    ok(/Quarterly figures/.test(facts) && /Nimal Perera/.test(facts) && /Microsoft Word/.test(facts), 'properties: details are shown', facts);
+    ok(/Yes, a separate block/.test(facts), 'properties: the XMP block is noticed');
+    ok(/names its author: "Nimal Perera"/.test(await text(page, 'warn')), 'properties: warns that it names the author');
+
+    await page.$eval('#title', (e) => { e.value = 'Q3 figures (final)'; });
+    await page.$eval('#author', (e) => { e.value = ''; });
+    await page.click('#save');
+    let s = await saved(page);
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes, { updateMetadata: false });
+      ok(d.getTitle() === 'Q3 figures (final)' && d.getAuthor() === undefined && d.getKeywords() === 'budget q3',
+         'properties: title changed, author removed, keywords kept', [d.getTitle(), d.getAuthor(), d.getKeywords()].join(' | '));
+    } else ok(false, 'properties: saved');
+
+    await page.evaluate(() => { window.__saved = []; });
+    await page.click('#wipe');
+    s = await saved(page);
+    ok(s[0] && s[0].name === 'tagged-clean.pdf', 'properties: wipe saves tagged-clean.pdf');
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes, { updateMetadata: false });
+      ok(!d.getTitle() && !d.getAuthor() && !d.getCreator() && !d.getProducer() && !d.getCreationDate(), 'properties: every detail wiped');
+      ok(!d.catalog.has(require('pdf-lib').PDFName.of('Metadata')), 'properties: the XMP block is gone');
+      ok(s[0].bytes.toString('latin1').indexOf('Nimal') === -1, 'properties: the name is nowhere in the file');
+    }
+    await page.close();
+  }
+
+  // ---------------------------------------------------------- crop
+  {
+    const page = await open('crop-pdf');
+    const framed = path.join(tmp, 'slide.pdf');
+    {
+      const doc = await PDFDocument.create();
+      const p1 = doc.addPage([595, 842]);
+      p1.drawRectangle({ x: 100, y: 200, width: 395, height: 442, color: rgb(0.2, 0.3, 0.8) });
+      doc.addPage([595, 842]);                       // blank
+      const p3 = doc.addPage([595, 842]); p3.setRotation(degrees(90));
+      fs.writeFileSync(framed, await doc.save());
+    }
+    await give(page, framed);
+    await wait(800);
+    ok(/becomes 139 × 156 mm/.test(await text(page, 'plan')) || /becomes 14\d × 16\d mm/.test(await text(page, 'plan')),
+       'crop: the preview measures the printed area', await text(page, 'plan'));
+    await page.select('#pad', '0');
+    await page.$eval('#pages', (e) => { e.value = '1-2'; });
+    await page.click('#save');
+    let s = await saved(page);
+    ok(s[0] && s[0].name === 'slide-cropped.pdf', 'crop: saves slide-cropped.pdf');
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes);
+      const b = d.getPage(0).getCropBox();
+      const near = (a, e) => Math.abs(a - e) <= 4;
+      ok(near(b.x, 100) && near(b.y, 200) && near(b.width, 395) && near(b.height, 442), 'crop: page 1 trimmed to the printed area',
+         JSON.stringify(b));
+      const b2 = d.getPage(1).getCropBox();
+      ok(b2.width === 595 && b2.height === 842, 'crop: a blank page is left alone');
+    }
+
+    // fixed margins, including on the sideways page
+    await page.evaluate(() => { window.__saved = []; });
+    await page.select('#mode', 'manual');
+    for (const [id, val] of [['m-top', 30], ['m-right', 0], ['m-bottom', 0], ['m-left', 0]]) {
+      await page.$eval('#' + id, (e, val) => { e.value = val; e.dispatchEvent(new Event('input')); }, val);
+    }
+    await page.$eval('#pages', (e) => { e.value = '3'; });
+    await page.click('#save');
+    s = await saved(page);
+    if (s[0]) {
+      const d = await PDFDocument.load(s[0].bytes);
+      const b = d.getPage(2).getCropBox();
+      // turned 90: the top as seen is the page's own left edge; 30 mm = 85 pt
+      ok(Math.round(b.x) === 85 && b.y === 0 && Math.round(b.width) === 510 && b.height === 842,
+         'crop: on a sideways page the top as seen is cut', JSON.stringify(b));
+      const r = await inkMap(page, s[0].bytes, 3);
+      ok(Math.abs(r.w / r.h - 842 / 510) < 0.02, 'crop: and the page is seen 842 x 510', r.w + 'x' + r.h);
+    }
+    await page.close();
+  }
+
   // ---------------------------------------------------------- protected PDFs
   {
     const page = await open('split-pdf');
